@@ -5,6 +5,7 @@
 #include "SlotSampler.h"
 #include "Arpeggiator.h"
 #include "FxChain.h"
+#include "Presets.h"
 
 // Signalweg: Generator -> 4 Slots -> Arp/Sampler -> (Etappe 6: Comb, Crush, Filter, Delay)
 
@@ -146,6 +147,19 @@ public:
     void auditionSlot (int index); // Slot einmal auf der Root-Note vorhoeren
     bleep::SlotBuffer::Ptr getSlot (int index) const;
 
+    // --- Presets (Message-Thread) ---
+    // Liste: erst die Werkspresets, dann die eigenen aus dem Preset-Ordner
+    juce::StringArray getPresetNames() const;
+    int getNumFactoryPresets() const { return (int) bleep::factoryPresets().size(); }
+    void loadPreset (int index);
+    bool saveUserPreset (const juce::String& name);
+    bool deleteUserPreset (int index);
+    void refreshUserPresets();
+    juce::File getPresetFolder() const;
+    int getCurrentPreset() const { return currentPreset; }
+    juce::String getCurrentPresetName() const { return currentPresetName; }
+    bool isPresetModified();   // Einstellungen seit dem Laden/Speichern geaendert?
+
     // --- Arp: Steps werden von UI und Audio-Thread lock-frei geteilt ---
     bleep::Arpeggiator arp;
     void rollSteps();
@@ -164,6 +178,14 @@ private:
     void setParamPlain (const juce::String& id, float value);
     void timerCallback() override;
     void setSlot (int index, bleep::SlotBuffer::Ptr newSlot);
+    std::unique_ptr<juce::XmlElement> createStateXml();
+    void applyStateXml (const juce::XmlElement& xml);
+    juce::String fingerprint() const;
+    void markClean() { cleanPrint = fingerprint(); }
+
+    juce::Array<juce::File> userPresets;
+    int currentPreset = 0;
+    juce::String currentPresetName { "Init" }, cleanPrint;
     void purgeSlots();
 
     static constexpr int kNumVoices = 8;

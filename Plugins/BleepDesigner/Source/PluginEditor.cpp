@@ -21,6 +21,9 @@ namespace
 
     double now() { return juce::Time::getMillisecondCounterHiRes() * 0.001; }
 
+    // Texte mit Umlauten
+    juce::String de (const char* utf8) { return juce::String::fromUTF8 (utf8); }
+
     // Position im Mech-Bild (Anteile von Breite und Hoehe)
     constexpr float kMuzzleX = 0.918f, kMuzzleY = 0.146f;
     constexpr float kEyesX = 0.469f, kEyesY = 0.113f;
@@ -48,6 +51,14 @@ BleepLook::BleepLook()
     setColour (juce::PopupMenu::textColourId, bleepcol::ink);
     setColour (juce::PopupMenu::highlightedBackgroundColourId, bleepcol::red.withAlpha (0.25f));
     setColour (juce::PopupMenu::highlightedTextColourId, bleepcol::ink);
+    setColour (juce::PopupMenu::headerTextColourId, bleepcol::gold);
+    setColour (juce::AlertWindow::backgroundColourId, bleepcol::panel);
+    setColour (juce::AlertWindow::textColourId, bleepcol::ink);
+    setColour (juce::AlertWindow::outlineColourId, bleepcol::line);
+    setColour (juce::TextEditor::outlineColourId, bleepcol::line);
+    setColour (juce::TextEditor::focusedOutlineColourId, bleepcol::red);
+    setColour (juce::TextButton::buttonColourId, bleepcol::knob);
+    setColour (juce::TextButton::textColourOffId, bleepcol::ink);
 }
 
 void BleepLook::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float, juce::Slider&)
@@ -297,6 +308,28 @@ BleepEditor::BleepEditor (BleepProcessor& p)
     addAndMakeVisible (liveBtn);
     addAndMakeVisible (slotsBtn);
 
+    // Header: Presets
+    presetBox.setTextWhenNothingSelected ("Preset");
+    presetBox.onChange = [this]
+    {
+        const int id = presetBox.getSelectedId();
+        if (id > 0)
+        {
+            proc.loadPreset (id - 1);
+            updatePresetText();
+            grid.repaint();
+        }
+    };
+    addAndMakeVisible (presetBox);
+    prevBtn.onClick = [this] { stepPreset (-1); };
+    nextBtn.onClick = [this] { stepPreset (1); };
+    saveBtn.onClick = [this] { savePreset (proc.getCurrentPreset() < proc.getNumFactoryPresets()); };
+    menuBtn.onClick = [this] { showPresetMenu(); };
+    saveBtn.setTooltip ("Eigenes Preset speichern (Werkspresets werden unter neuem Namen gespeichert)");
+    for (auto* b : { &prevBtn, &nextBtn, &saveBtn, &menuBtn })
+        addAndMakeVisible (*b);
+    rebuildPresetMenu();
+
     // Generator
     genPanels.push_back ({ "SQUARE", "", { makeKnob (sqOct, "Okt"), makeKnob (sqLevel, "Pegel"), makeKnob (sqPw, "PW") }, {}, 46.0f });
     genPanels.push_back ({ "TRI-MOD", "stumm", { makeKnob (modOct, "Okt"), makeKnob (modPd, "PD") }, {}, 46.0f });
@@ -305,7 +338,7 @@ BleepEditor::BleepEditor (BleepProcessor& p)
     genPanels.push_back ({ "AMP ENV", "", { makeKnob (ampA, "A"), makeKnob (ampD, "D"), makeKnob (ampS, "S"), makeKnob (ampR, "R") }, {}, 46.0f });
     pitchLink = makeToggle (ParamIDs::pitchLink, "PITCH-LINK", "onoff");
 
-    generatePanel = { "", "", { makeKnob (variation, "Variation"), makeKnob (slotLen, "Laenge"), makeKnob (rootNote, "Root") }, {}, 46.0f };
+    generatePanel = { "", "", { makeKnob (variation, "Variation"), makeKnob (slotLen, de ("L\xc3\xa4" "nge")), makeKnob (rootNote, "Root") }, {}, 46.0f };
     generateBtn.getProperties().set ("style", "primary");
     generateBtn.onClick = [this] { proc.generate(); };
     generateBtn.setTooltip ("Neuer Seed, alle nicht gesperrten Slots neu");
@@ -366,6 +399,122 @@ BleepEditor::~BleepEditor()
     setLookAndFeel (nullptr);
 }
 
+// ----------------------------------------------------------------- Presets
+
+void BleepEditor::rebuildPresetMenu()
+{
+    proc.refreshUserPresets();
+    presetBox.clear (juce::dontSendNotification);
+    const auto names = proc.getPresetNames();
+    const int numFactory = proc.getNumFactoryPresets();
+    presetBox.addSectionHeading ("WERK");
+    for (int i = 0; i < numFactory; ++i)
+        presetBox.addItem (names[i], i + 1);
+    if (names.size() > numFactory)
+    {
+        presetBox.addSectionHeading ("EIGENE");
+        for (int i = numFactory; i < names.size(); ++i)
+            presetBox.addItem (names[i], i + 1);
+    }
+    updatePresetText();
+}
+
+void BleepEditor::updatePresetText()
+{
+    const int cur = proc.getCurrentPreset();
+    const bool modified = proc.isPresetModified();
+    const auto name = proc.getCurrentPresetName() + (modified ? " *" : "");
+    if (! modified && cur >= 0 && presetBox.indexOfItemId (cur + 1) >= 0)
+        presetBox.setSelectedId (cur + 1, juce::dontSendNotification);
+    else
+        presetBox.setText (name, juce::dontSendNotification);
+}
+
+void BleepEditor::stepPreset (int delta)
+{
+    const int count = proc.getPresetNames().size();
+    if (count == 0)
+        return;
+    const int cur = juce::jmax (0, proc.getCurrentPreset());
+    proc.loadPreset ((cur + delta + count) % count);
+    updatePresetText();
+    grid.repaint();
+}
+
+void BleepEditor::savePreset (bool askName)
+{
+    if (! askName)
+    {
+        proc.saveUserPreset (proc.getCurrentPresetName());
+        rebuildPresetMenu();
+        return;
+    }
+
+    saveDialog = std::make_unique<juce::AlertWindow> ("Preset speichern", de ("Name f\xc3\xbc" "r das Preset:"), juce::MessageBoxIconType::NoIcon, this);
+    saveDialog->setLookAndFeel (&look);
+    saveDialog->addTextEditor ("name", proc.getCurrentPresetName());
+    saveDialog->addButton ("Speichern", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    saveDialog->addButton ("Abbrechen", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<BleepEditor> safe (this);
+    saveDialog->enterModalState (true, juce::ModalCallbackFunction::create ([safe] (int result)
+    {
+        if (safe == nullptr)
+            return;
+        if (result == 1 && safe->saveDialog != nullptr)
+        {
+            const auto name = safe->saveDialog->getTextEditorContents ("name");
+            if (! safe->proc.saveUserPreset (name))
+                safe->confirmBox = juce::AlertWindow::showScopedAsync (juce::MessageBoxOptions::makeOptionsOk (
+                    juce::MessageBoxIconType::WarningIcon, "Preset", de ("Speichern hat nicht geklappt. Ist der Name g\xc3\xbc" "ltig?")), nullptr);
+            safe->rebuildPresetMenu();
+        }
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->saveDialog.reset(); });
+    }), false);
+}
+
+void BleepEditor::showPresetMenu()
+{
+    const bool isUser = proc.getCurrentPreset() >= proc.getNumFactoryPresets();
+    juce::PopupMenu m;
+    m.setLookAndFeel (&look);
+    m.addItem (1, "Speichern unter ...");
+    m.addItem (2, de ("L\xc3\xb6" "schen"), isUser);
+    m.addSeparator();
+    m.addItem (3, de ("Preset-Ordner \xc3\xb6" "ffnen"));
+    m.addItem (4, "Liste neu laden");
+    juce::Component::SafePointer<BleepEditor> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&menuBtn), [safe] (int r)
+    {
+        if (safe == nullptr)
+            return;
+        if (r == 1)
+            safe->savePreset (true);
+        else if (r == 2)
+        {
+            const int index = safe->proc.getCurrentPreset();
+            safe->confirmBox = juce::AlertWindow::showScopedAsync (juce::MessageBoxOptions::makeOptionsOkCancel (
+                juce::MessageBoxIconType::QuestionIcon, de ("Preset l\xc3\xb6" "schen"),
+                "\"" + safe->proc.getCurrentPresetName() + de ("\" wirklich l\xc3\xb6" "schen? Es landet im Papierkorb."), de ("L\xc3\xb6" "schen"), "Abbrechen"),
+                [safe, index] (int ok)
+                {
+                    if (safe != nullptr && ok == 1)
+                    {
+                        safe->proc.deleteUserPreset (index);
+                        safe->rebuildPresetMenu();
+                    }
+                });
+        }
+        else if (r == 3)
+        {
+            auto folder = safe->proc.getPresetFolder();
+            folder.createDirectory();
+            folder.startAsProcess();
+        }
+        else if (r == 4)
+            safe->rebuildPresetMenu();
+    });
+}
+
 void BleepEditor::setSource (int index)
 {
     if (auto* prm = proc.apvts.getParameter (ParamIDs::source))
@@ -400,8 +549,13 @@ void BleepEditor::resized()
     u = getWidth() / (float) baseW;
 
     // Header
-    place (liveBtn, { 840.0f, 18.0f, 68.0f, 24.0f });
-    place (slotsBtn, { 912.0f, 18.0f, 72.0f, 24.0f });
+    place (liveBtn, { 180.0f, 18.0f, 64.0f, 24.0f });
+    place (slotsBtn, { 248.0f, 18.0f, 68.0f, 24.0f });
+    place (prevBtn, { 676.0f, 18.0f, 24.0f, 24.0f });
+    place (presetBox, { 704.0f, 18.0f, 160.0f, 24.0f });
+    place (nextBtn, { 868.0f, 18.0f, 24.0f, 24.0f });
+    place (saveBtn, { 896.0f, 18.0f, 50.0f, 24.0f });
+    place (menuBtn, { 950.0f, 18.0f, 34.0f, 24.0f });
 
     // Generator-Reihe
     const float gy = 62.0f, gh = 136.0f;
@@ -606,6 +760,13 @@ void BleepEditor::timerCallback()
             ++it;
     }
 
+    if (++presetTick >= 30)
+    {
+        presetTick = 0;
+        if (! presetBox.isPopupActive())
+            updatePresetText();
+    }
+
     repaint (s (juce::Rectangle<float> (16.0f, 200.0f, 968.0f, 204.0f)).toNearestInt());
     grid.repaint();
 }
@@ -661,7 +822,7 @@ void BleepEditor::paintHeader (juce::Graphics& g)
 
     g.setFont (bb::fonts::mono (11.0f * u));
     g.setColour (bleepcol::inkDim);
-    g.drawText ("QUELLE", s ({ 780.0f, 18.0f, 56.0f, 24.0f }), juce::Justification::centredRight);
+    g.drawText ("QUELLE", s ({ 118.0f, 18.0f, 56.0f, 24.0f }), juce::Justification::centredRight);
 }
 
 void BleepEditor::paintMech (juce::Graphics& g)

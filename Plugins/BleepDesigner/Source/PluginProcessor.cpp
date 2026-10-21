@@ -85,6 +85,8 @@ BleepProcessor::BleepProcessor()
     slotSynth.addSound (new bleep::SlotSound());
 
     renderSlots();   // damit ein frisch geladenes Plugin sofort klingt
+    refreshUserPresets();
+    markClean();
     startTimer (250);
 }
 
@@ -265,7 +267,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout
     {
         NormalisableRange<float> r (50.0f, 1000.0f, 1.0f);
         r.setSkewForCentre (300.0f);
-        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::slotLen, 1 }, "Slot-Laenge", r, 300.0f, msAttr));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::slotLen, 1 }, String::fromUTF8 ("Slot-L\xc3\xa4" "nge"), r, 300.0f, msAttr));
     }
     layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::rootNote, 1 }, "Root-Note", 24, 96, 48,
         AudioParameterIntAttributes().withStringFromValueFunction ([] (int v, int)
@@ -629,7 +631,21 @@ juce::AudioProcessorEditor* BleepProcessor::createEditor()
 
 void BleepProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+    if (auto xml = createStateXml())
+        copyXmlToBinary (*xml, destData);
+}
+
+void BleepProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    if (auto xml = getXmlFromBinary (data, sizeInBytes))
+        applyStateXml (*xml);
+}
+
+std::unique_ptr<juce::XmlElement> BleepProcessor::createStateXml()
+{
     auto state = apvts.copyState();
+    state.setProperty ("presetName", currentPresetName, nullptr);
+    state.setProperty ("presetIndex", currentPreset, nullptr);
 
     // Steps
     juce::StringArray st;
@@ -650,17 +666,19 @@ void BleepProcessor::getStateInformation (juce::MemoryBlock& destData)
         }
     }
 
-    if (auto xml = state.createXml())
-        copyXmlToBinary (*xml, destData);
+    return state.createXml();
 }
 
-void BleepProcessor::setStateInformation (const void* data, int sizeInBytes)
+void BleepProcessor::applyStateXml (const juce::XmlElement& xml)
 {
-    auto xml = getXmlFromBinary (data, sizeInBytes);
-    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
+    if (! xml.hasTagName (apvts.state.getType()))
         return;
 
-    auto state = juce::ValueTree::fromXml (*xml);
+    auto state = juce::ValueTree::fromXml (xml);
+    currentPresetName = state.getProperty ("presetName", "Init").toString();
+    currentPreset = (int) state.getProperty ("presetIndex", -1);
+    state.removeProperty ("presetName", nullptr);
+    state.removeProperty ("presetIndex", nullptr);
     bleep::SlotArray restored;
     bool anyRestored = false;
     for (int i = 0; i < kNumSlots; ++i)
@@ -706,6 +724,139 @@ void BleepProcessor::setStateInformation (const void* data, int sizeInBytes)
     {
         renderSlots();
     }
+    markClean();
+}
+
+// ----------------------------------------------------------------- Presets
+
+juce::File BleepProcessor::getPresetFolder() const
+{
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+        .getChildFile ("Brain Bugz").getChildFile ("Bleep Designer").getChildFile ("Presets");
+}
+
+void BleepProcessor::refreshUserPresets()
+{
+    userPresets = getPresetFolder().findChildFiles (juce::File::findFiles, false, "*.bbleep");
+    std::sort (userPresets.begin(), userPresets.end(), [] (const juce::File& a, const juce::File& b)
+    {
+        return a.getFileNameWithoutExtension().compareNatural (b.getFileNameWithoutExtension()) < 0;
+    });
+}
+
+juce::StringArray BleepProcessor::getPresetNames() const
+{
+    juce::StringArray names;
+    for (const auto& fp : bleep::factoryPresets())
+        names.add (fp.name);
+    for (const auto& f : userPresets)
+        names.add (f.getFileNameWithoutExtension());
+    return names;
+}
+
+void BleepProcessor::loadPreset (int index)
+{
+    const int numFactory = getNumFactoryPresets();
+    if (index < 0 || index >= numFactory + userPresets.size())
+        return;
+
+    if (index >= numFactory)
+    {
+        // Eigenes Preset: kompletter Zustand inklusive der 4 Bleeps
+        const auto file = userPresets[index - numFactory];
+        if (auto xml = juce::XmlDocument::parse (file))
+        {
+            applyStateXml (*xml);
+            currentPreset = index;
+            currentPresetName = file.getFileNameWithoutExtension();
+            markClean();
+        }
+        return;
+    }
+
+    // Werkspreset: alles auf Standard, dann die abweichenden Werte
+    const auto& fp = bleep::factoryPresets()[(size_t) index];
+    for (auto* prm : getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm))
+            rp->setValueNotifyingHost (rp->getDefaultValue());
+    for (const auto& [id, value] : fp.values)
+        setParamPlain (id, value);
+    setParamPlain (ParamIDs::seed, (float) fp.seed);
+
+    // Steps aus dem Step-Seed: Tonhoehen per Roll, Akzente auf den Zaehlzeiten, ein paar wackelige Steps
+    if (fp.stepSeed == 0)
+    {
+        arp.resetSteps();
+    }
+    else
+    {
+        auto settings = readArpSettings();
+        bleep::SplitMix rng ((uint64_t) fp.stepSeed * 0x9E3779B97F4A7C15ull + 17);
+        for (int i = 0; i < bleep::Arpeggiator::kMaxSteps; ++i)
+            arp.setStep (i, { 0, 100, i % 4 == 0 ? 115 : 90, false });
+        arp.roll (settings, rng);
+        for (int i = 0; i < bleep::Arpeggiator::kMaxSteps; ++i)
+        {
+            auto st = arp.getStep (i);
+            st.prob = i % 4 == 0 ? 100 : 40 + rng.below (61);
+            if (i % 4 != 0 && rng.uniform() < 0.15)
+                st.vel = 115;
+            arp.setStep (i, st);
+        }
+    }
+
+    renderSlots();
+    currentPreset = index;
+    currentPresetName = fp.name;
+    markClean();
+}
+
+bool BleepProcessor::saveUserPreset (const juce::String& name)
+{
+    const auto clean = juce::File::createLegalFileName (name.trim());
+    if (clean.isEmpty())
+        return false;
+    auto folder = getPresetFolder();
+    if (! folder.createDirectory())
+        return false;
+
+    currentPresetName = clean;
+    auto xml = createStateXml();
+    const auto file = folder.getChildFile (clean + ".bbleep");
+    if (xml == nullptr || ! xml->writeTo (file))
+        return false;
+
+    refreshUserPresets();
+    currentPreset = getNumFactoryPresets() + userPresets.indexOf (file);
+    markClean();
+    return true;
+}
+
+bool BleepProcessor::deleteUserPreset (int index)
+{
+    const int u = index - getNumFactoryPresets();
+    if (u < 0 || u >= userPresets.size())
+        return false;
+    const bool ok = userPresets[u].moveToTrash() || userPresets[u].deleteFile();
+    refreshUserPresets();
+    if (ok && index == currentPreset)
+        currentPreset = -1;
+    return ok;
+}
+
+juce::String BleepProcessor::fingerprint() const
+{
+    juce::String fp;
+    for (auto* prm : getParameters())
+        fp << juce::String (prm->getValue(), 4) << ";";
+    for (int i = 0; i < bleep::Arpeggiator::kMaxSteps; ++i)
+        fp << arp.steps[(size_t) i].load() << ",";
+    return fp;
+}
+
+bool BleepProcessor::isPresetModified()
+{
+    return fingerprint() != cleanPrint;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

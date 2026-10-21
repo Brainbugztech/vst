@@ -171,7 +171,10 @@ class Arpeggiator
 public:
     static constexpr int kMaxSteps = 16;
 
-    Arpeggiator()
+    Arpeggiator() { resetSteps(); }
+
+    // Standard-Pattern
+    void resetSteps()
     {
         static constexpr int semis[kMaxSteps] = { 12, 0, 7, 0, 3, 12, 0, 10, 7, 0, 15, 3, 0, 7, 12, 5 };
         static constexpr int probs[kMaxSteps] = { 100, 60, 100, 30, 80, 100, 40, 90, 100, 50, 70, 100, 20, 80, 100, 60 };

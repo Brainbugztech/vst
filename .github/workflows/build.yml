@@ -76,7 +76,7 @@ jobs:
       - name: Build-Infos schreiben
         shell: pwsh
         run: |
-          $fonts = (Get-ChildItem Assets -Filter *.ttf | ForEach-Object Name) -join ", "
+          $fonts = ((Get-ChildItem Assets, Plugins/*/Assets -Filter *.ttf -ErrorAction SilentlyContinue) | ForEach-Object Name) -join ", "
           @(
             "Commit: $env:GITHUB_SHA",
             "Datum: $(Get-Date -Format o)",

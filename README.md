@@ -39,6 +39,7 @@ Instrument für Bleep-Blop-Sounds: generiert 4 kurze Bleeps, friert sie als Samp
   - **ARP AUS**: MIDI-Noten spielen direkt, reihum auf die Slots verteilt.
 - **Effekte** (Punkt = an/aus): **Comb** (Freq, Feedback, negativ = metallisch, Damping, Keytrack, 1–3 Combs, Mix), **Crush** (Bits, Samplerate, Mix), **Filter** (LP/BP/HP, Cutoff, Resonanz, Hüllkurve pro Step, Keytrack), **Delay** (synchron, Feedback, Ping-Pong, Low/High-Cut im Feedback, Mix), **Out** mit Limiter.
 - **Mech**: schießt bei jedem Akzent-Step einen Laser auf den Slot, der gerade spielt.
+- **Presets** (oben rechts): Pfeile blättern durch, Dropdown mit **Werk** (11 Werkspresets) und **Eigene**. **SAVE** speichert ein eigenes Preset (bei Werkspresets unter neuem Namen), **...** für Speichern unter, Löschen und Preset-Ordner öffnen. Ein Sternchen zeigt ungespeicherte Änderungen. Eigene Presets liegen in `Dokumente\Brain Bugz\Bleep Designer\Presets` (.bbleep) und enthalten die 4 Bleeps exakt so, wie sie klingen.
 - Doppelklick auf einen Regler = Standardwert.
 
 Titel-Schrift: Sedgwick Ave Display (SIL Open Font License), wird beim Build geladen.

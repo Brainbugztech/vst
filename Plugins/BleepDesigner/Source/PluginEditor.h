@@ -121,6 +121,16 @@ private:
 
     // Header
     juce::TextButton liveBtn { "LIVE" }, slotsBtn { "SLOTS" };
+    juce::ComboBox presetBox;
+    juce::TextButton prevBtn { "<" }, nextBtn { ">" }, saveBtn { "SAVE" }, menuBtn { "..." };
+    std::unique_ptr<juce::AlertWindow> saveDialog;
+    juce::ScopedMessageBox confirmBox;
+    int presetTick = 0;
+    void rebuildPresetMenu();
+    void updatePresetText();
+    void stepPreset (int delta);
+    void savePreset (bool askName);
+    void showPresetMenu();
     juce::Image logo, mech;
     juce::Typeface::Ptr graffiti;
 
