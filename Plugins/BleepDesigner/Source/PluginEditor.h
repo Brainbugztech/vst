@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
 #include "BrainBugzLook.h"
+#include "StepGrid.h"
 
 // Farben des Bleep Designers (an das Maskottchen angelehnt)
 namespace bleepcol
@@ -26,6 +27,8 @@ public:
     void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&, bool over, bool down) override;
     void drawButtonText (juce::Graphics&, juce::TextButton&, bool, bool) override;
     juce::Font getLabelFont (juce::Label&) override;
+    juce::Font getComboBoxFont (juce::ComboBox&) override;
+    juce::Font getPopupMenuFont() override;
     juce::Label* createSliderTextBox (juce::Slider&) override;
 };
 
@@ -77,6 +80,22 @@ private:
     juce::Path wavePath;
     void setSource (int index);
     void rebuildWave();
+
+    // Sequencer
+    StepGrid grid { proc };
+    juce::TextButton arpOnBtn { "ARP" }, restartBtn { "RESTART" }, rollBtn { "ROLL" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> arpOnAtt, restartAtt;
+    struct Choice
+    {
+        juce::String label;
+        juce::ComboBox box;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> att;
+        juce::Rectangle<float> labelArea;
+    };
+    std::vector<std::unique_ptr<Choice>> choices;
+    std::vector<Knob*> seqKnobs;
+    juce::Rectangle<float> seqPanel;
+    void makeChoice (const char* id, const juce::String& label);
 
     juce::Rectangle<float> stageArea;
     int seenNotes = 0;

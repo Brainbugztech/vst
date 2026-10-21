@@ -16,7 +16,8 @@ juce_add_plugin(BrainbugzBleepDesigner
 
 target_sources(BrainbugzBleepDesigner PRIVATE
     Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
+    Source/PluginEditor.cpp
+    Source/StepGrid.cpp)
 
 target_compile_definitions(BrainbugzBleepDesigner PUBLIC
     JUCE_WEB_BROWSER=0

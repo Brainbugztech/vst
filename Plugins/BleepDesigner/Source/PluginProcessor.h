@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "BleepGenerator.h"
 #include "SlotSampler.h"
+#include "Arpeggiator.h"
 
 // Etappe 2: Generator live per MIDI spielbar (Square + stumme Triangle mit PD,
 // Pitch-Env, LFO, Amp-Env). Slots, Arp und FX folgen in den naechsten Etappen.
@@ -28,6 +29,19 @@ namespace ParamIDs
     inline constexpr const char* slotLen   = "slot_len";
     inline constexpr const char* rootNote  = "root_note";
     inline constexpr const char* source    = "source";    // 0 = Live, 1 = Slot
+    inline constexpr const char* arpOn     = "arp_on";
+    inline constexpr const char* arpRate   = "arp_rate";
+    inline constexpr const char* arpSteps  = "arp_steps";
+    inline constexpr const char* arpSwing  = "arp_swing";
+    inline constexpr const char* arpGate   = "arp_gate";
+    inline constexpr const char* arpMode   = "arp_mode";
+    inline constexpr const char* arpScale  = "arp_scale";
+    inline constexpr const char* arpRange  = "arp_range";
+    inline constexpr const char* arpRestart= "arp_restart";
+    inline constexpr const char* density   = "roll_density";
+    inline constexpr const char* autoRoll  = "roll_auto";
+    inline constexpr const char* randMode  = "rand_mode";   // 0 = Seed, 1 = Free
+    inline constexpr const char* seed      = "seed";
 }
 
 struct BleepSound : public juce::SynthesiserSound
@@ -93,6 +107,11 @@ public:
     // Aktueller Slot fuer die Anzeige (Message-Thread)
     bleep::SlotBuffer::Ptr getSlot() const;
 
+    // Arp: Steps werden von UI und Audio-Thread lock-frei geteilt
+    bleep::Arpeggiator arp;
+    bleep::ArpSettings readArpSettings() const;
+    void rollSteps();   // Roll-Knopf (Message-Thread)
+
     // --- Werte fuer die Anzeige (Audio-Thread schreibt, Editor liest) ---
     std::atomic<int> lastNote { -1 };
     std::atomic<int> noteCounter { 0 };
@@ -108,7 +127,7 @@ private:
     bleep::GenParams genParams;   // wird pro Block aktualisiert, alle Voices lesen davon
     juce::Synthesiser liveSynth, slotSynth;
     int lastSource = 0;
-    juce::MidiBuffer emptyMidi;
+    juce::MidiBuffer emptyMidi, arpMidi;
 
     // Slot: "slot" wird vom Message-Thread gesetzt, "audioSlot" ist die Kopie des Audio-Threads.
     // "pool" haelt alle Puffer am Leben, bis kein Voice sie mehr benutzt.

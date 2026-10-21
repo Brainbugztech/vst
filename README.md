@@ -27,13 +27,19 @@ Stereo-Spreizer mit zwei Reglern.
 
 Instrument für Bleep-Blop-Sounds (in Arbeit). Plan: Square mit Phase Distortion durch eine stumme Triangle, 4 Slots mit Lock und Seed, Arp mit Repitch-Sampler, Ausgang Comb → Crush → Filter → Delay.
 
-- **Stand Etappe 3**: Generator live per MIDI spielbar, plus Slot 1.
+- **Stand Etappe 4**: Generator, Slot 1 und Arp.
   - **Square**: Oktave (−4 bis +2), Pegel, Pulsbreite.
   - **Tri-Mod** (stumm): Triangle auf −4 bis 0 Oktaven unter der Square verschiebt ihre Phase, **PD** regelt wie stark. **Pitch-Link** an = die Triangle folgt Pitch-Env und LFO, aus = chaotischer.
   - **Pitch Env**: Amount (±48 Halbtöne, + = fällt von oben) und Decay.
   - **LFO** (Triangle): Rate bis 500 Hz, Tiefe auf Tonhöhe und auf PD.
   - **Amp Env**: Attack, Decay, Sustain, Release.
   - **Slot 1**: **CAPTURE** friert den aktuellen Sound ein (Länge 50–1000 ms, gerendert auf der **Root**-Note) und schaltet auf **SLOT**. Dann spielen MIDI-Noten den eingefrorenen Bleep per Repitch: höher = schneller und kürzer. **LIVE** spielt wieder den Generator direkt. Der Slot wird im Projekt mitgespeichert.
+  - **Sequencer / Arp**: läuft, solange eine Note gehalten wird, im Takt von Ableton (steht der Transport, mit eigener Uhr ab dem Anschlag). Die gehaltene Note ist der Grundton.
+    - **Rate** (1/4 bis 1/32, auch triolisch), **Steps** (1–16), **Swing**, **Gate**, **Modus** bei mehreren Noten (Up, Down, Up/Down, Random, As Played), **Scale** (Chroma, Minor, Major, Phrygisch), **Range** (0–3 Oktaven), **Restart** bei jeder neuen Note.
+    - Step-Editor: Mitte ziehen = Tonhöhe (auch über mehrere Steps malen), Punkt oben = Akzent, unterer Balken ziehen = Wahrscheinlichkeit, Rechtsklick = Step sperren, Doppelklick = Tonhöhe 0.
+    - **ROLL** würfelt die Tonhöhen der nicht gesperrten Steps neu, **Dichte** = wie viele Steps eigene Töne bekommen. **Auto** würfelt alle 1/2/4/8 Durchläufe neu.
+    - **Zufall Seed**: Wahrscheinlichkeiten und Auto-Roll hängen an **Seed** und Position, beim Abspielen, Aufnehmen und Bouncen identisch. **Free**: echt zufällig.
+    - **ARP AUS**: MIDI-Noten spielen direkt.
   - Doppelklick auf einen Regler = Standardwert.
 
 ## Bauen

@@ -13,6 +13,15 @@ BleepLook::BleepLook()
     setColour (juce::TextEditor::backgroundColourId, bleepcol::bg);
     setColour (juce::TextEditor::highlightColourId, bleepcol::red.withAlpha (0.4f));
     setColour (juce::CaretComponent::caretColourId, bleepcol::red);
+    setColour (juce::ComboBox::backgroundColourId, bleepcol::bg);
+    setColour (juce::ComboBox::textColourId, bleepcol::ink);
+    setColour (juce::ComboBox::outlineColourId, bleepcol::line);
+    setColour (juce::ComboBox::arrowColourId, bleepcol::inkDim);
+    setColour (juce::ComboBox::focusedOutlineColourId, bleepcol::red);
+    setColour (juce::PopupMenu::backgroundColourId, bleepcol::panel);
+    setColour (juce::PopupMenu::textColourId, bleepcol::ink);
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, bleepcol::red.withAlpha (0.25f));
+    setColour (juce::PopupMenu::highlightedTextColourId, bleepcol::ink);
 }
 
 void BleepLook::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float, juce::Slider&)
@@ -96,6 +105,16 @@ void BleepLook::drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bo
     g.drawFittedText (b.getButtonText() + suffix, b.getLocalBounds(), juce::Justification::centred, 1);
 }
 
+juce::Font BleepLook::getComboBoxFont (juce::ComboBox& b)
+{
+    return bb::fonts::mono (std::max (9.0f, (float) b.getHeight() * 0.55f));
+}
+
+juce::Font BleepLook::getPopupMenuFont()
+{
+    return bb::fonts::mono (14.0f);
+}
+
 juce::Font BleepLook::getLabelFont (juce::Label& l)
 {
     return bb::fonts::mono (std::max (9.0f, (float) l.getHeight() * 0.78f));
@@ -126,6 +145,17 @@ BleepEditor::Knob* BleepEditor::makeKnob (const char* id, const juce::String& la
     return knobs.back().get();
 }
 
+void BleepEditor::makeChoice (const char* id, const juce::String& label)
+{
+    auto c = std::make_unique<Choice>();
+    c->label = label;
+    if (auto* prm = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (id)))
+        c->box.addItemList (prm->choices, 1);
+    addAndMakeVisible (c->box);
+    c->att = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (proc.apvts, id, c->box);
+    choices.push_back (std::move (c));
+}
+
 BleepEditor::BleepEditor (BleepProcessor& p)
     : AudioProcessorEditor (p), proc (p)
 {
@@ -149,6 +179,27 @@ BleepEditor::BleepEditor (BleepProcessor& p)
     slotBtn.onClick = [this] { setSource (1); };
     addAndMakeVisible (liveBtn);
     addAndMakeVisible (slotBtn);
+
+    // Sequencer
+    addAndMakeVisible (grid);
+    makeChoice (arpRate, "Rate");
+    makeChoice (arpMode, "Modus");
+    makeChoice (arpScale, "Scale");
+    makeChoice (autoRoll, "Auto");
+    makeChoice (randMode, "Zufall");
+    seqKnobs = { makeKnob (arpSteps, "Steps"), makeKnob (arpSwing, "Swing"), makeKnob (arpGate, "Gate"),
+                 makeKnob (arpRange, "Range"), makeKnob (density, "Dichte"), makeKnob (seed, "Seed") };
+    for (auto* b : { &arpOnBtn, &restartBtn })
+    {
+        b->getProperties().set ("style", "onoff");
+        b->setClickingTogglesState (true);
+        addAndMakeVisible (*b);
+    }
+    arpOnAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, arpOn, arpOnBtn);
+    restartAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, arpRestart, restartBtn);
+    rollBtn.getProperties().set ("style", "primary");
+    rollBtn.onClick = [this] { proc.rollSteps(); grid.repaint(); };
+    addAndMakeVisible (rollBtn);
 
     pitchLinkBtn.getProperties().set ("style", "onoff");
     pitchLinkBtn.setClickingTogglesState (true);
@@ -234,7 +285,8 @@ void BleepEditor::timerCallback()
     {
         flash *= 0.82f;
     }
-    repaint (stageArea.toNearestInt().expanded (4));
+    repaint (stageArea.withBottom (seqPanel.getY()).toNearestInt().expanded (4));
+    grid.repaint();
 }
 
 void BleepEditor::resized()
@@ -275,6 +327,28 @@ void BleepEditor::resized()
         slotKnobs[i]->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::roundToInt ((cell - 2.0f) * u), juce::roundToInt (16.0f * u));
     }
     liveBtn.setBounds ((juce::Rectangle<float> (sx + 262.0f, sy + 152.0f, 76.0f, 24.0f) * u).toNearestInt());
+
+    // Sequencer unten in der Buehne
+    const float qx = 32.0f, qy = sy + 226.0f, qw = baseW - 64.0f, qh = 210.0f;
+    seqPanel = juce::Rectangle<float> (qx, qy, qw, qh) * u;
+    arpOnBtn.setBounds ((juce::Rectangle<float> (qx + 120.0f, qy + 7.0f, 84.0f, 20.0f) * u).toNearestInt());
+    restartBtn.setBounds ((juce::Rectangle<float> (qx + 210.0f, qy + 7.0f, 110.0f, 20.0f) * u).toNearestInt());
+    for (size_t i = 0; i < choices.size(); ++i)
+    {
+        const float colX = qx + 12.0f + (float) (i % 2) * 158.0f;
+        const float rowY = qy + 36.0f + (float) (i / 2) * 28.0f;
+        choices[i]->labelArea = juce::Rectangle<float> (colX, rowY, 50.0f, 22.0f) * u;
+        choices[i]->box.setBounds ((juce::Rectangle<float> (colX + 50.0f, rowY, 98.0f, 22.0f) * u).toNearestInt());
+    }
+    rollBtn.setBounds ((juce::Rectangle<float> (qx + 170.0f, qy + 92.0f, 148.0f, 22.0f) * u).toNearestInt());
+    for (size_t i = 0; i < seqKnobs.size(); ++i)
+    {
+        const float kx = qx + 12.0f + cell * (float) i;
+        seqKnobs[i]->labelArea = juce::Rectangle<float> (kx, qy + 124.0f, cell, 14.0f) * u;
+        seqKnobs[i]->slider.setBounds ((juce::Rectangle<float> (kx + 2.0f, qy + 140.0f, cell - 4.0f, 64.0f) * u).toNearestInt());
+        seqKnobs[i]->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::roundToInt ((cell - 2.0f) * u), juce::roundToInt (16.0f * u));
+    }
+    grid.setBounds ((juce::Rectangle<float> (qx + 336.0f, qy + 12.0f, qw - 348.0f, qh - 22.0f) * u).toNearestInt());
     slotBtn.setBounds ((juce::Rectangle<float> (sx + 344.0f, sy + 152.0f, 76.0f, 24.0f) * u).toNearestInt());
     rebuildWave();
 }
@@ -354,6 +428,22 @@ void BleepEditor::paint (juce::Graphics& g)
         g.setColour (bleepcol::inkDim);
         g.drawText ("leer - CAPTURE friert den aktuellen Sound ein", waveArea, juce::Justification::centred);
     }
+    // Sequencer
+    g.setColour (bleepcol::bg);
+    g.fillRoundedRectangle (seqPanel, 10.0f * u);
+    g.setColour (bleepcol::line);
+    g.drawRoundedRectangle (seqPanel, 10.0f * u, 1.0f);
+    g.setFont (bb::fonts::mono (13.0f * u));
+    g.setColour (bleepcol::ink);
+    g.drawText ("SEQUENCER", juce::Rectangle<float> (seqPanel.getX() + 12.0f * u, seqPanel.getY() + 8.0f * u, 110.0f * u, 18.0f * u),
+                juce::Justification::centredLeft);
+    g.setFont (bb::fonts::mono (11.0f * u));
+    g.setColour (bleepcol::inkDim);
+    for (auto& c : choices)
+        g.drawText (c->label.toUpperCase(), c->labelArea, juce::Justification::centredLeft);
+    for (auto* k : seqKnobs)
+        g.drawText (k->label.toUpperCase(), k->labelArea, juce::Justification::centred);
+
     for (auto* k : { lenKnob, rootKnob })
     {
         g.setFont (bb::fonts::mono (11.0f * u));
@@ -361,8 +451,8 @@ void BleepEditor::paint (juce::Graphics& g)
         g.drawText (k->label.toUpperCase(), k->labelArea, juce::Justification::centred);
     }
 
-    const auto c = juce::Point<float> (stageArea.getX() + stageArea.getWidth() * 0.74f, stageArea.getCentreY() - 40.0f * u);
-    const float r = 46.0f * u;
+    const auto c = juce::Point<float> (stageArea.getX() + stageArea.getWidth() * 0.74f, slotPanel.getCentreY() - 24.0f * u);
+    const float r = 38.0f * u;
     g.setColour (bleepcol::red.withAlpha (0.10f + 0.45f * flash));
     g.fillEllipse (c.x - r * 1.6f, c.y - r * 1.6f, r * 3.2f, r * 3.2f);
     g.setColour (bleepcol::red.withAlpha (0.35f + 0.65f * flash));
@@ -376,7 +466,7 @@ void BleepEditor::paint (juce::Graphics& g)
 
     g.setFont (bb::fonts::mono (13.0f * u));
     g.setColour (bleepcol::inkDim);
-    g.drawText ("Etappe 3 - Slot mit Repitch",
+    g.drawText ("Etappe 4 - Arp: Note halten",
                 juce::Rectangle<float> (c.x - 200.0f * u, c.y + r * 1.9f, 400.0f * u, 20.0f * u), juce::Justification::centred);
 
     const float lvl = juce::jlimit (0.0f, 1.0f, proc.vizLevel.load (std::memory_order_relaxed) * 2.0f);
