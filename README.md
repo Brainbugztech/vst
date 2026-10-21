@@ -61,6 +61,24 @@ Bei jeder Kick misst Bugz Align im Punch-Fenster, wie gut Kick-Sub und Bass-Sub 
 - **HOLD** friert den aktuellen Winkel ein, **A/B VORHER** schaltet die Korrektur zum Vergleichen aus, **SUB CHECK** spielt nur den Sub von Bass + Kick (mono) zum Gegenhören.
 - **Anzeige**: Verlauf über die ganze Breite (bis 8 s) mit Sub von Kick (grün), Bass vorher (grau, per **VORHER** ein/aus) und nachher (pink), genau so, wie es im Ausgang ankommt. Darunter die Phasen-Spur, grüne Linien = erkannte Kicks. **Mausrad** oder **+/−** = Zoom (10 ms bis 8 s), **PAUSE** hält an, dann mit der Maus ziehen = zurückscrollen, **Doppelklick** = zurück zu Live. Unten: Kick-LED, Phase jetzt/erkannt, Korrelation vorher/nachher.
 
+## Brainbugz Snare Head
+
+Snare-Synth für metallisch klingende Psy/Hitech-Snares (Instrument, per MIDI anschlagen, jede Note = Snare). Kein tiefer Körper, sondern ein klingender Ton-Cluster + Rauschen + eckige Block-Hüllkurve. Signalweg: Ring + Noise → Res-EQ → Xtreme Noisy → Reverb mit Gate → Width/Out.
+
+- **Ring**: **Tune** (700 Hz – 1,6 kHz, Ton-Cluster aus 6 Resonanzen), **Spread** (zieht den Cluster auseinander = Schweben/Schimmern), **Metal** (von harmonisch zu unharmonischem Blech-Klang), **Punch** (Klick + kurzer Pitch-Drop), **Ring** (Pegel des Tons).
+- **Noise**: **Level** und **Tone** (bandbegrenztes Rauschen, 1,5 – 9 kHz).
+- **Shape**: **Hold** (wie lange die Snare voll steht) und **Release** (wie schnell sie danach weg ist, kurz = harter Cut).
+- **Res EQ**: Resonanz-Boost **700 Hz – 1,6 kHz** mit **Freq**, **Boost** (bis +18 dB) und **Q**. Anzeige mit Notenname und den Ring-Teiltönen. In der Anzeige ziehen = Freq/Boost, Mausrad = Q. **LINK** legt den EQ automatisch auf den Ring-Ton.
+- **Reverb**: großer Hall (**Size**, **Mix**) mit **Gate**: **Gate** = wie lange der Hall nachklingen darf (30 ms – 2 s, ganz rechts = aus), **Cut** = harter Schnitt bis kurzes Ausblenden, darunter **Sync** auf Notenwerte (1/64 – 1/1, folgt dem Ableton-Tempo). In der Anzeige ziehen = Gate-Zeit. Jeder Schlag startet das Gate neu.
+- **Xtreme Noisy**: ein Regler für Comb (Blechdose), Ringmod, Drive und Bitcrush. Ab 30 % klebt der XTREME-NOISY-Sticker drauf.
+- **Out**: **Width** (0 = mono, Mitte = natürlich, rechts = extra breit), **Volume**, **KEY TRACK** (MIDI-Note stimmt um, C3 = Tune; aus = jede Note klingt gleich).
+- **Logo anklicken** = Snare anspielen (weiter unten geklickt = härter).
+- **Presets**: 20 Werkspresets (12 Psy/Hitech, 8 Xtreme Noisy/Industrial), Pfeile blättern, **SAVE** / **...** wie beim Bleep Designer. Eigene Presets liegen in `Dokumente\Brain Bugz\Snare Head\Presets` (.snarehead).
+- Doppelklick auf einen Regler = Standardwert.
+- `Plugins/SnareHead/tools/render.cpp` rendert alle Presets als WAV (Engine ist ohne JUCE testbar).
+
+Titel-Schrift: Creepster (SIL Open Font License), wird beim Build geladen.
+
 ## Bauen
 
 GitHub Actions baut bei jedem Push auf `main` automatisch die Windows-VST3 (`.github/workflows/build.yml`) und testet sie mit pluginval. Die fertigen Plugins liegen als Artefakt **Brainbugz-VST3** am jeweiligen Lauf und als ZIPs auf dem Branch `builds` (einzeln und als `Brainbugz-alle-VST3.zip`).
@@ -78,6 +96,7 @@ cmake --build build --config Release
 - `Plugins/BugFuzz` – BugFuzz-Plugin (DSP in `BugFuzzEngine.h`, Band-Anzeige in `BandView.cpp`)
 - `Plugins/BleepDesigner` – Bleep-Designer-Instrument, in Arbeit
 - `Plugins/BugzAlign` – Kick/Bass-Phasenausrichtung (DSP in `AlignEngine.h`, Anzeige in `AlignView.cpp`)
+- `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
