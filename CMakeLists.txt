@@ -23,4 +23,5 @@ endif()
 
 add_subdirectory(Shared)
 add_subdirectory(Plugins/Haas)
+add_subdirectory(Plugins/BugFuzz)
 # Plugins/Phazer: Engine in Arbeit, wird noch nicht gebaut
