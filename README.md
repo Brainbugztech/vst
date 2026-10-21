@@ -27,12 +27,13 @@ Stereo-Spreizer mit zwei Reglern.
 
 Instrument für Bleep-Blop-Sounds (in Arbeit). Plan: Square mit Phase Distortion durch eine stumme Triangle, 4 Slots mit Lock und Seed, Arp mit Repitch-Sampler, Ausgang Comb → Crush → Filter → Delay.
 
-- **Stand Etappe 2**: Generator live per MIDI spielbar.
+- **Stand Etappe 3**: Generator live per MIDI spielbar, plus Slot 1.
   - **Square**: Oktave (−4 bis +2), Pegel, Pulsbreite.
   - **Tri-Mod** (stumm): Triangle auf −4 bis 0 Oktaven unter der Square verschiebt ihre Phase, **PD** regelt wie stark. **Pitch-Link** an = die Triangle folgt Pitch-Env und LFO, aus = chaotischer.
   - **Pitch Env**: Amount (±48 Halbtöne, + = fällt von oben) und Decay.
   - **LFO** (Triangle): Rate bis 500 Hz, Tiefe auf Tonhöhe und auf PD.
   - **Amp Env**: Attack, Decay, Sustain, Release.
+  - **Slot 1**: **CAPTURE** friert den aktuellen Sound ein (Länge 50–1000 ms, gerendert auf der **Root**-Note) und schaltet auf **SLOT**. Dann spielen MIDI-Noten den eingefrorenen Bleep per Repitch: höher = schneller und kürzer. **LIVE** spielt wieder den Generator direkt. Der Slot wird im Projekt mitgespeichert.
   - Doppelklick auf einen Regler = Standardwert.
 
 ## Bauen

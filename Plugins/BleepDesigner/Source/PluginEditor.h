@@ -68,6 +68,16 @@ private:
     juce::TextButton pitchLinkBtn { "PITCH-LINK" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> pitchLinkAtt;
 
+    // Slot 1
+    juce::TextButton captureBtn { "CAPTURE" }, liveBtn { "LIVE" }, slotBtn { "SLOT" };
+    Knob* lenKnob = nullptr;
+    Knob* rootKnob = nullptr;
+    juce::Rectangle<float> slotPanel, waveArea;
+    bleep::SlotBuffer::Ptr shownSlot;
+    juce::Path wavePath;
+    void setSource (int index);
+    void rebuildWave();
+
     juce::Rectangle<float> stageArea;
     int seenNotes = 0;
     float flash = 0.0f;

@@ -60,9 +60,18 @@ void BleepLook::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h,
     g.strokePath (pointer, juce::PathStrokeType (size * 0.05f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded), tf);
 }
 
-void BleepLook::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&, bool over, bool)
+void BleepLook::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&, bool over, bool down)
 {
     auto r = b.getLocalBounds().toFloat().reduced (0.5f);
+    if (b.getProperties()["style"].toString() == "primary")
+    {
+        const float rr = std::min (8.0f, r.getHeight() * 0.25f);
+        g.setColour (bleepcol::red.withAlpha (0.25f));
+        g.fillRoundedRectangle (r.expanded (2.0f), rr + 2.0f);
+        g.setColour (down ? bleepcol::red.darker (0.3f) : (over ? bleepcol::red.brighter (0.15f) : bleepcol::red));
+        g.fillRoundedRectangle (r, rr);
+        return;
+    }
     const float rad = r.getHeight() * 0.5f;
     const bool on = b.getToggleState();
     g.setColour (on ? bleepcol::gold.withAlpha (0.12f) : juce::Colours::transparentBlack);
@@ -73,9 +82,18 @@ void BleepLook::drawButtonBackground (juce::Graphics& g, juce::Button& b, const 
 
 void BleepLook::drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool)
 {
+    const auto style = b.getProperties()["style"].toString();
+    if (style == "primary")
+    {
+        g.setFont (bb::fonts::display ((float) b.getHeight() * 0.5f, true));
+        g.setColour (bleepcol::bg);
+        g.drawFittedText (b.getButtonText(), b.getLocalBounds(), juce::Justification::centred, 1);
+        return;
+    }
     g.setFont (bb::fonts::mono ((float) b.getHeight() * 0.55f));
     g.setColour (b.getToggleState() ? bleepcol::gold : bleepcol::inkDim);
-    g.drawFittedText (b.getButtonText() + (b.getToggleState() ? " AN" : " AUS"), b.getLocalBounds(), juce::Justification::centred, 1);
+    const auto suffix = style == "onoff" ? juce::String (b.getToggleState() ? " AN" : " AUS") : juce::String();
+    g.drawFittedText (b.getButtonText() + suffix, b.getLocalBounds(), juce::Justification::centred, 1);
 }
 
 juce::Font BleepLook::getLabelFont (juce::Label& l)
@@ -121,6 +139,18 @@ BleepEditor::BleepEditor (BleepProcessor& p)
     groups.push_back ({ "AMP ENV", "", { makeKnob (ampA, "A"), makeKnob (ampD, "D"), makeKnob (ampS, "S"), makeKnob (ampR, "R") }, false, {} });
     groups.push_back ({ "OUT", "", { makeKnob (output, "Vol") }, false, {} });
 
+    lenKnob = makeKnob (slotLen, "Laenge");
+    rootKnob = makeKnob (rootNote, "Root");
+
+    captureBtn.getProperties().set ("style", "primary");
+    captureBtn.onClick = [this] { proc.captureSlot(); };
+    addAndMakeVisible (captureBtn);
+    liveBtn.onClick = [this] { setSource (0); };
+    slotBtn.onClick = [this] { setSource (1); };
+    addAndMakeVisible (liveBtn);
+    addAndMakeVisible (slotBtn);
+
+    pitchLinkBtn.getProperties().set ("style", "onoff");
     pitchLinkBtn.setClickingTogglesState (true);
     addAndMakeVisible (pitchLinkBtn);
     pitchLinkAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, pitchLink, pitchLinkBtn);
@@ -138,8 +168,62 @@ BleepEditor::~BleepEditor()
     setLookAndFeel (nullptr);
 }
 
+void BleepEditor::setSource (int index)
+{
+    if (auto* prm = proc.apvts.getParameter (ParamIDs::source))
+    {
+        prm->beginChangeGesture();
+        prm->setValueNotifyingHost (prm->convertTo0to1 ((float) index));
+        prm->endChangeGesture();
+    }
+}
+
+void BleepEditor::rebuildWave()
+{
+    wavePath.clear();
+    if (shownSlot == nullptr || waveArea.isEmpty())
+        return;
+
+    const auto* d = shownSlot->audio.getReadPointer (0);
+    const int n = shownSlot->audio.getNumSamples();
+    const int cols = juce::jmax (2, (int) waveArea.getWidth());
+    const float mid = waveArea.getCentreY(), half = waveArea.getHeight() * 0.45f;
+    // Min/Max pro Pixelspalte, oben die Maxima, unten die Minima zurueck
+    std::vector<float> lo ((size_t) cols), hi ((size_t) cols);
+    for (int c = 0; c < cols; ++c)
+    {
+        const int a = (int) ((int64_t) c * n / cols), b = juce::jmax (a + 1, (int) ((int64_t) (c + 1) * n / cols));
+        float mn = 0.0f, mx = 0.0f;
+        for (int i = a; i < b && i < n; ++i)
+        {
+            mn = std::min (mn, d[i]);
+            mx = std::max (mx, d[i]);
+        }
+        lo[(size_t) c] = mn;
+        hi[(size_t) c] = mx;
+    }
+    wavePath.startNewSubPath (waveArea.getX(), mid - hi[0] * half);
+    for (int c = 1; c < cols; ++c)
+        wavePath.lineTo (waveArea.getX() + (float) c, mid - hi[(size_t) c] * half);
+    for (int c = cols; --c >= 0;)
+        wavePath.lineTo (waveArea.getX() + (float) c, mid - lo[(size_t) c] * half);
+    wavePath.closeSubPath();
+}
+
 void BleepEditor::timerCallback()
 {
+    const bool slotMode = proc.apvts.getRawParameterValue (ParamIDs::source)->load() > 0.5f;
+    liveBtn.setToggleState (! slotMode, juce::dontSendNotification);
+    slotBtn.setToggleState (slotMode, juce::dontSendNotification);
+
+    auto s = proc.getSlot();
+    if (s != shownSlot)
+    {
+        shownSlot = s;
+        rebuildWave();
+        repaint (slotPanel.toNearestInt().expanded (2));
+    }
+
     const int c = proc.noteCounter.load (std::memory_order_relaxed);
     if (c != seenNotes)
     {
@@ -176,6 +260,23 @@ void BleepEditor::resized()
     }
 
     stageArea = juce::Rectangle<float> (16.0f, top + groupH + 12.0f, baseW - 32.0f, baseH - (top + groupH + 12.0f) - 16.0f) * u;
+
+    // Slot-1-Bereich links in der Buehne
+    const float sx = 32.0f, sy = top + groupH + 28.0f, sw = 440.0f;
+    slotPanel = juce::Rectangle<float> (sx, sy, sw, 214.0f) * u;
+    waveArea = juce::Rectangle<float> (sx + 12.0f, sy + 34.0f, sw - 24.0f, 80.0f) * u;
+    captureBtn.setBounds ((juce::Rectangle<float> (sx + 12.0f, sy + 146.0f, 112.0f, 34.0f) * u).toNearestInt());
+    Knob* slotKnobs[] = { lenKnob, rootKnob };
+    for (int i = 0; i < 2; ++i)
+    {
+        const float kx = sx + 140.0f + cell * (float) i;
+        slotKnobs[i]->labelArea = juce::Rectangle<float> (kx, sy + 122.0f, cell, 14.0f) * u;
+        slotKnobs[i]->slider.setBounds ((juce::Rectangle<float> (kx + 2.0f, sy + 138.0f, cell - 4.0f, 66.0f) * u).toNearestInt());
+        slotKnobs[i]->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, juce::roundToInt ((cell - 2.0f) * u), juce::roundToInt (16.0f * u));
+    }
+    liveBtn.setBounds ((juce::Rectangle<float> (sx + 262.0f, sy + 152.0f, 76.0f, 24.0f) * u).toNearestInt());
+    slotBtn.setBounds ((juce::Rectangle<float> (sx + 344.0f, sy + 152.0f, 76.0f, 24.0f) * u).toNearestInt());
+    rebuildWave();
 }
 
 void BleepEditor::paint (juce::Graphics& g)
@@ -227,7 +328,40 @@ void BleepEditor::paint (juce::Graphics& g)
     g.setColour (bleepcol::line);
     g.drawRoundedRectangle (stageArea, 10.0f * u, 1.0f);
 
-    const auto c = stageArea.getCentre().translated (0, -40.0f * u);
+    // Slot 1
+    g.setColour (bleepcol::bg);
+    g.fillRoundedRectangle (slotPanel, 10.0f * u);
+    g.setColour (shownSlot != nullptr ? bleepcol::gold : bleepcol::line);
+    g.drawRoundedRectangle (slotPanel, 10.0f * u, 1.0f);
+    g.setFont (bb::fonts::mono (13.0f * u));
+    g.setColour (bleepcol::ink);
+    g.drawText ("SLOT 1", slotPanel.reduced (12.0f * u, 8.0f * u).withHeight (18.0f * u), juce::Justification::centredLeft);
+    g.setColour (bleepcol::inkDim);
+    g.drawText ("QUELLE", juce::Rectangle<float> (slotPanel.getX() + 262.0f * u, slotPanel.getY() + 122.0f * u, 158.0f * u, 14.0f * u),
+                juce::Justification::centred);
+    g.setColour (bleepcol::panel);
+    g.fillRoundedRectangle (waveArea.expanded (2.0f * u), 6.0f * u);
+    g.setColour (bleepcol::line);
+    g.drawHorizontalLine (juce::roundToInt (waveArea.getCentreY()), waveArea.getX(), waveArea.getRight());
+    if (shownSlot != nullptr)
+    {
+        g.setColour (bleepcol::gold.withAlpha (0.85f));
+        g.fillPath (wavePath);
+    }
+    else
+    {
+        g.setFont (bb::fonts::mono (12.0f * u));
+        g.setColour (bleepcol::inkDim);
+        g.drawText ("leer - CAPTURE friert den aktuellen Sound ein", waveArea, juce::Justification::centred);
+    }
+    for (auto* k : { lenKnob, rootKnob })
+    {
+        g.setFont (bb::fonts::mono (11.0f * u));
+        g.setColour (bleepcol::inkDim);
+        g.drawText (k->label.toUpperCase(), k->labelArea, juce::Justification::centred);
+    }
+
+    const auto c = juce::Point<float> (stageArea.getX() + stageArea.getWidth() * 0.74f, stageArea.getCentreY() - 40.0f * u);
     const float r = 46.0f * u;
     g.setColour (bleepcol::red.withAlpha (0.10f + 0.45f * flash));
     g.fillEllipse (c.x - r * 1.6f, c.y - r * 1.6f, r * 3.2f, r * 3.2f);
@@ -242,11 +376,11 @@ void BleepEditor::paint (juce::Graphics& g)
 
     g.setFont (bb::fonts::mono (13.0f * u));
     g.setColour (bleepcol::inkDim);
-    g.drawText ("Etappe 2 - Generator live spielbar. Slots, Arp, Effekte und Mech folgen.",
-                juce::Rectangle<float> (stageArea.getX(), c.y + r * 1.9f, stageArea.getWidth(), 20.0f * u), juce::Justification::centred);
+    g.drawText ("Etappe 3 - Slot mit Repitch",
+                juce::Rectangle<float> (c.x - 200.0f * u, c.y + r * 1.9f, 400.0f * u, 20.0f * u), juce::Justification::centred);
 
     const float lvl = juce::jlimit (0.0f, 1.0f, proc.vizLevel.load (std::memory_order_relaxed) * 2.0f);
-    auto bar = juce::Rectangle<float> (stageArea.getCentreX() - 150.0f * u, c.y + r * 1.9f + 34.0f * u, 300.0f * u, 6.0f * u);
+    auto bar = juce::Rectangle<float> (c.x - 120.0f * u, c.y + r * 1.9f + 34.0f * u, 240.0f * u, 6.0f * u);
     g.setColour (bleepcol::line);
     g.fillRoundedRectangle (bar, 3.0f * u);
     g.setColour (bleepcol::gold);

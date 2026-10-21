@@ -135,4 +135,30 @@ private:
     juce::ADSR adsr;
 };
 
+// Rendert einen Bleep offline in einen Mono-Puffer (fuer die Slots).
+// Die Note wird so losgelassen, dass die Release-Phase genau ins Ende passt.
+inline juce::AudioBuffer<float> renderBleep (const GenParams& p, double sr, int rootNote, double lengthMs)
+{
+    const int n = juce::jmax (64, (int) std::round (lengthMs * 0.001 * sr));
+    juce::AudioBuffer<float> out (1, n);
+    BleepCore core;
+    core.prepare (sr);
+    core.start (juce::MidiMessage::getMidiNoteInHertz (rootNote), 1.0f, p);
+
+    const int releaseAt = juce::jmax (0, n - (int) std::round (p.release * 0.001 * sr));
+    auto* d = out.getWritePointer (0);
+    for (int i = 0; i < n; ++i)
+    {
+        if (i == releaseAt)
+            core.release();
+        d[i] = core.next (p);
+    }
+
+    // 2 ms Ausblenden am Ende gegen Knackser
+    const int fade = juce::jmin (n, (int) (0.002 * sr));
+    for (int i = 0; i < fade; ++i)
+        d[n - 1 - i] *= (float) i / (float) fade;
+    return out;
+}
+
 } // namespace bleep

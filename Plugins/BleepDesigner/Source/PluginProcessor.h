@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "BleepGenerator.h"
+#include "SlotSampler.h"
 
 // Etappe 2: Generator live per MIDI spielbar (Square + stumme Triangle mit PD,
 // Pitch-Env, LFO, Amp-Env). Slots, Arp und FX folgen in den naechsten Etappen.
@@ -24,6 +25,9 @@ namespace ParamIDs
     inline constexpr const char* ampS      = "amp_s";
     inline constexpr const char* ampR      = "amp_r";
     inline constexpr const char* output    = "output";
+    inline constexpr const char* slotLen   = "slot_len";
+    inline constexpr const char* rootNote  = "root_note";
+    inline constexpr const char* source    = "source";    // 0 = Live, 1 = Slot
 }
 
 struct BleepSound : public juce::SynthesiserSound
@@ -49,7 +53,7 @@ private:
     bleep::BleepCore core;
 };
 
-class BleepProcessor : public juce::AudioProcessor
+class BleepProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     BleepProcessor();
@@ -84,6 +88,11 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
+    // Rendert den aktuellen Generator-Sound in Slot 1 und schaltet auf "Slot" (Message-Thread)
+    void captureSlot();
+    // Aktueller Slot fuer die Anzeige (Message-Thread)
+    bleep::SlotBuffer::Ptr getSlot() const;
+
     // --- Werte fuer die Anzeige (Audio-Thread schreibt, Editor liest) ---
     std::atomic<int> lastNote { -1 };
     std::atomic<int> noteCounter { 0 };
@@ -91,10 +100,23 @@ public:
 
 private:
     float raw (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
+    void timerCallback() override { purgeSlots(); }
+    void setSlot (bleep::SlotBuffer::Ptr newSlot);
+    void purgeSlots();
 
     static constexpr int kNumVoices = 8;
     bleep::GenParams genParams;   // wird pro Block aktualisiert, alle Voices lesen davon
-    juce::Synthesiser synth;
+    juce::Synthesiser liveSynth, slotSynth;
+    int lastSource = 0;
+    juce::MidiBuffer emptyMidi;
+
+    // Slot: "slot" wird vom Message-Thread gesetzt, "audioSlot" ist die Kopie des Audio-Threads.
+    // "pool" haelt alle Puffer am Leben, bis kein Voice sie mehr benutzt.
+    mutable juce::SpinLock slotLock;
+    bleep::SlotBuffer::Ptr slot, audioSlot;
+    juce::ReferenceCountedArray<bleep::SlotBuffer> pool;
+    juce::CriticalSection poolLock;
+    std::atomic<double> currentSR { 48000.0 };
     juce::SmoothedValue<float> outGain;
     float env = 0.0f;
     float dcX[2] {}, dcY[2] {};
