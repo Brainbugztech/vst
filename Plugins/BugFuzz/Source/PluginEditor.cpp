@@ -3,8 +3,8 @@
 namespace
 {
     // Reglerpositionen (Mittelpunkt x) im 900er-Raster
-    constexpr float knobY = 384.0f, knobS = 128.0f;
-    constexpr float driveX = 150.0f, mixX = 370.0f, outX = 590.0f;
+    constexpr float knobY = 384.0f, knobS = 116.0f;
+    constexpr float driveX = 110.0f, satX = 270.0f, mixX = 430.0f, outX = 590.0f;
 }
 
 BugFuzzEditor::BugFuzzEditor (BugFuzzProcessor& p)
@@ -14,7 +14,7 @@ BugFuzzEditor::BugFuzzEditor (BugFuzzProcessor& p)
     logo = juce::ImageCache::getFromMemory (BBAssets::logo_text_png, BBAssets::logo_text_pngSize);
     addAndMakeVisible (bands);
 
-    for (auto* s : { &drive, &mix, &output })
+    for (auto* s : { &drive, &saturation, &mix, &output })
     {
         s->setSliderStyle (juce::Slider::RotaryVerticalDrag);
         s->setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -24,15 +24,18 @@ BugFuzzEditor::BugFuzzEditor (BugFuzzProcessor& p)
         addAndMakeVisible (*s);
     }
     drive.getProperties().set ("krass", true);
-    mix.getProperties().set ("accent", "brain");
+    saturation.getProperties().set ("accent", "brain");
     drive.setTitle ("Drive");
+    saturation.setTitle ("Saturation");
     mix.setTitle ("Mix");
     output.setTitle ("Output");
 
     driveAtt = std::make_unique<SA> (proc.apvts, ParamIDs::drive, drive);
+    satAtt   = std::make_unique<SA> (proc.apvts, ParamIDs::sat, saturation);
     mixAtt   = std::make_unique<SA> (proc.apvts, ParamIDs::mix, mix);
     outAtt   = std::make_unique<SA> (proc.apvts, ParamIDs::out, output);
     drive.setDoubleClickReturnValue (true, 0.45);
+    saturation.setDoubleClickReturnValue (true, 0.35);
     mix.setDoubleClickReturnValue (true, 1.0);
     output.setDoubleClickReturnValue (true, 0.0);
 
@@ -63,6 +66,7 @@ void BugFuzzEditor::resized()
     u = (float) getWidth() / (float) baseW;
     bands.setBounds (R (20, 76, 860, 230).toNearestInt());
     drive.setBounds  (R (driveX - knobS / 2, knobY - knobS / 2, knobS, knobS).toNearestInt());
+    saturation.setBounds (R (satX - knobS / 2, knobY - knobS / 2, knobS, knobS).toNearestInt());
     mix.setBounds    (R (mixX - knobS / 2, knobY - knobS / 2, knobS, knobS).toNearestInt());
     output.setBounds (R (outX - knobS / 2, knobY - knobS / 2, knobS, knobS).toNearestInt());
     octaBtn.setBounds (R (720, 350, 150, 40).toNearestInt());
@@ -106,7 +110,7 @@ void BugFuzzEditor::paint (juce::Graphics& g)
     }
     g.setFont (bb::fonts::mono (12 * u));
     g.setColour (bb::col::inkDim);
-    g.drawText (juce::String::fromUTF8 ("Multiband-Distortion \xc2\xb7 4 B\xc3\xa4nder \xc2\xb7 v0.2"),
+    g.drawText (juce::String::fromUTF8 ("Multiband-Distortion \xc2\xb7 4 B\xc3\xa4nder \xc2\xb7 v0.3"),
                 juce::Rectangle<float> (x0, 42 * u, 400 * u, 16 * u), juce::Justification::left);
     g.drawText ("BRAIN BUGZ", R (680, 0, 200, 70), juce::Justification::centredRight);
 
@@ -124,17 +128,18 @@ void BugFuzzEditor::paint (juce::Graphics& g)
     struct K { float cx; const char* label; const char* id; juce::Colour c; };
     const auto prm = proc.readParams();
     const auto driveCol = prm.drive > 0.5f ? bb::col::brain : bb::col::tox;
-    for (const auto& k : { K { driveX, "DRIVE", ParamIDs::drive, driveCol }, K { mixX, "MIX", ParamIDs::mix, bb::col::brain },
+    for (const auto& k : { K { driveX, "DRIVE", ParamIDs::drive, driveCol }, K { satX, "SATURATION", ParamIDs::sat, bb::col::brain },
+                           K { mixX, "MIX", ParamIDs::mix, bb::col::tox },
                            K { outX, "OUTPUT", ParamIDs::out, bb::col::tox } })
     {
         juce::String spaced;
         for (auto ch : juce::String (k.label)) spaced << juce::String::charToString (ch) << " ";
         g.setFont (bb::fonts::display (13 * u));
         g.setColour (k.c);
-        g.drawText (spaced.trim(), R (k.cx - 90, 454, 180, 20), juce::Justification::centred);
+        g.drawText (spaced.trim(), R (k.cx - 80, 454, 160, 20), juce::Justification::centred);
         g.setFont (bb::fonts::mono (16 * u));
         g.setColour (bb::col::ink);
-        g.drawText (proc.apvts.getParameter (k.id)->getCurrentValueAsText(), R (k.cx - 90, 476, 180, 22),
+        g.drawText (proc.apvts.getParameter (k.id)->getCurrentValueAsText(), R (k.cx - 80, 476, 160, 22),
                     juce::Justification::centred);
     }
 

@@ -26,11 +26,11 @@ private:
     BandView bands;
     juce::Image logo;
 
-    juce::Slider drive, mix, output;
+    juce::Slider drive, saturation, mix, output;
     juce::TextButton octaBtn { "OCTA" }, agBtn { "AUTO-GAIN" };
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    std::unique_ptr<SA> driveAtt, mixAtt, outAtt;
+    std::unique_ptr<SA> driveAtt, satAtt, mixAtt, outAtt;
     std::unique_ptr<BA> octaAtt, agAtt;
 
     float u = 1.0f; // Skalierung gegenüber 900 px Breite

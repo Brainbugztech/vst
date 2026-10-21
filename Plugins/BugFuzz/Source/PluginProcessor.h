@@ -6,6 +6,7 @@
 namespace ParamIDs
 {
     inline constexpr const char* drive    = "drive";
+    inline constexpr const char* sat      = "saturation";
     inline constexpr const char* mix      = "mix";
     inline constexpr const char* out      = "out";
     inline constexpr const char* band[4]  { "band1", "band2", "band3", "band4" };

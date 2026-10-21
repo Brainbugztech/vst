@@ -5,7 +5,7 @@ juce_add_plugin(BrainbugzBugFuzz
     PLUGIN_CODE Bfuz
     FORMATS VST3
     PRODUCT_NAME "Brainbugz BugFuzz"
-    VERSION 0.1.0
+    VERSION 0.3.0
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE

@@ -9,7 +9,8 @@
 // - 4x Oversampling, alles Nichtlineare läuft auf der hohen Rate
 // - Linkwitz-Riley-Weiche (24 dB/Okt.) in 4 Bänder, phasengleich per Allpass-Ausgleich
 // - jedes Band: eigener Drive, asymmetrischer Fuzz, DC-Blocker, Anti-Fizz-Tiefpass
-// - "Krass"-Bereich (Drive > 50 %): härtere, asymmetrische Klippung bis zum Gated-Fuzz
+// - Saturation: Charakter der Kennlinie von warm über Fuzz bis hart
+// - "Krass"-Bereich (Drive > 50 %): mehr Verstärkung und zusätzliche Härte
 // - OCTA: Gleichrichter-Oktave auf den oberen drei Bändern
 // - Auto-Gain: Pegel des Fuzz-Signals folgt dem sauberen Signal
 // - Dry/Wet wird im Oversampling-Bereich gemischt, dadurch sind beide Wege zeitgleich
@@ -20,6 +21,7 @@ namespace bb
 struct FuzzParams
 {
     float drive   = 0.45f;                          // 0..1   (über 0.5 = Krass)
+    float sat     = 0.35f;                          // 0..1   Charakter: warm -> Fuzz -> hart
     float mix     = 1.0f;                           // 0..1
     float outDb   = 0.0f;                           // -24..+12
     std::array<float, 4> band { 0.55f, 0.8f, 0.85f, 0.6f }; // Band-Drive 0..1
@@ -63,19 +65,30 @@ public:
         return std::clamp (num / den, -1.0f, 1.0f);
     }
 
-    // Fuzz-Kennlinie mit vorberechneten Werten für einen Drive-Wert
+    // Härte der Kennlinie aus Saturation (Charakter) und Krass-Bereich des Drives
+    static float hardness (float drive, float sat)
+    {
+        const float krass = std::max (0.0f, drive - 0.5f) * 2.0f;
+        return std::clamp (sat + 0.4f * krass, 0.0f, 1.0f);
+    }
+
+    // Fuzz-Kennlinie mit vorberechneten Werten
+    //  h = 0      : weiche, runde Sättigung (Röhren-artig)
+    //  h ~ 0.35   : klassischer Transistor-Fuzz, leicht asymmetrisch
+    //  h = 1      : harte, asymmetrische Klippung Richtung Rechteck
     struct Shaper
     {
-        float krass = 0.0f, bias = 0.06f, kp = 1.0f, kn = 0.85f, ceil = 1.0f, hardMix = 0.0f, rest = 0.0f;
+        float bias = 0.06f, kp = 1.0f, kn = 0.85f, ceil = 1.0f, hardMix = 0.0f, softMix = 0.0f, rest = 0.0f;
 
-        explicit Shaper (float drive = 0.45f)
+        explicit Shaper (float drive = 0.45f, float sat = 0.35f)
         {
-            krass   = std::max (0.0f, drive - 0.5f) * 2.0f;
-            bias    = 0.06f + 0.1f * krass;          // leichte Asymmetrie wie beim Transistor-Fuzz
-            kp      = 1.0f + 0.6f * krass;           // positive Seite steiler ...
-            kn      = 0.85f + 0.3f * krass;          // ... negative weicher
-            ceil    = 1.0f - 0.15f * krass;          // positive Seite etwas niedriger gedeckelt
-            hardMix = krass * 0.5f;                  // im Krass-Bereich Richtung Rechteck
+            const float h = hardness (drive, sat);
+            bias    = 0.02f + 0.14f * h;             // Asymmetrie wächst mit der Härte
+            kp      = 1.0f + 0.6f * h;               // positive Seite steiler ...
+            kn      = 0.9f + 0.25f * h;              // ... negative weicher
+            ceil    = 1.0f - 0.15f * h;              // positive Seite etwas niedriger gedeckelt
+            hardMix = std::max (0.0f, h - 0.4f);     // ab 40 % Richtung Rechteck (max. 0.6)
+            softMix = std::max (0.0f, 0.35f - h) / 0.35f; // unter 35 % Richtung weiche Kurve
             rest    = 0.0f;
             rest    = raw (bias);                    // Ruhepunkt, damit Stille still bleibt
         }
@@ -85,6 +98,11 @@ public:
             float y = a > 0.0f ? fastTanh (a * kp) * ceil : fastTanh (a * kn);
             if (hardMix > 0.0f)
                 y += (fastTanh (a * 4.0f) * (a > 0.0f ? ceil : 1.0f) - y) * hardMix;
+            if (softMix > 0.0f)
+            {
+                const float b = a * 0.8f;
+                y += (b / std::sqrt (1.0f + b * b) - y) * softMix;
+            }
             return y;
         }
 
@@ -92,7 +110,7 @@ public:
     };
 
     // Kennlinie (auch für die Anzeige): x = verstärktes Signal
-    static float shape (float x, float drive) { return Shaper (drive) (x); }
+    static float shape (float x, float drive, float sat) { return Shaper (drive, sat) (x); }
 
     void prepare (double sampleRate, int maxBlock)
     {
@@ -163,7 +181,7 @@ public:
         const double kSm = 1.0 - std::exp (-1.0 / (osFs * 0.02));
         const double kRms = 1.0 - std::exp (-1.0 / (osFs * 0.3));
         const double kLvl = 1.0 - std::exp (-1.0 / (osFs * 0.06));
-        const Shaper shaper (p.drive);
+        const Shaper shaper (p.drive, p.sat);
 
         juce::dsp::AudioBlock<float> block (buffer);
         auto up = os->processSamplesUp (block);

@@ -23,6 +23,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout BugFuzzProcessor::createLayo
             return String (roundToInt (v * 100.0f)) + "%" + (v > 0.5f ? " KRASS" : "");
         })));
     layout.add (std::make_unique<AudioParameterFloat> (
+        ParameterID { ParamIDs::sat, 1 }, "Saturation", NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.35f,
+        AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
+        {
+            return String (roundToInt (v * 100.0f)) + "% " + (v < 0.25f ? "WARM" : v < 0.6f ? "FUZZ" : "HART");
+        })));
+    layout.add (std::make_unique<AudioParameterFloat> (
         ParameterID { ParamIDs::mix, 1 }, "Mix", NormalisableRange<float> (0.0f, 1.0f, 0.001f), 1.0f,
         AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
     layout.add (std::make_unique<AudioParameterFloat> (
@@ -60,6 +66,7 @@ bb::FuzzParams BugFuzzProcessor::readParams() const
 {
     bb::FuzzParams p;
     p.drive = apvts.getRawParameterValue (ParamIDs::drive)->load();
+    p.sat   = apvts.getRawParameterValue (ParamIDs::sat)->load();
     p.mix   = apvts.getRawParameterValue (ParamIDs::mix)->load();
     p.outDb = apvts.getRawParameterValue (ParamIDs::out)->load();
     for (int b = 0; b < 4; ++b) p.band[(size_t) b] = apvts.getRawParameterValue (ParamIDs::band[b])->load();

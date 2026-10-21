@@ -16,6 +16,7 @@ Stereo-Spreizer mit zwei Reglern.
 4-Band-Fuzz nach dem Quadrafuzz-Prinzip: das Signal wird in vier Bänder geteilt (Linkwitz-Riley, phasengleich), jedes Band wird einzeln verzerrt und danach wieder zusammengemischt. Läuft mit 8x Oversampling.
 
 - **Drive**: Grund-Verzerrung für alle Bänder. Ab 50 % beginnt der **Krass**-Bereich: härtere, asymmetrische Klippung Richtung Gated-Fuzz.
+- **Saturation**: Charakter der Verzerrung – wenig = warm und rund, Mitte = klassischer Fuzz, viel = hart Richtung Rechteck.
 - **Mix**: Dry/Wet, zeitgleich gemischt (kein Kammfilter).
 - **OCTA**: Gleichrichter-Oktave auf den oberen drei Bändern.
 - **Auto-Gain**: Fuzz-Signal folgt dem Pegel des Originals (an = gleich laut beim Aufdrehen).
