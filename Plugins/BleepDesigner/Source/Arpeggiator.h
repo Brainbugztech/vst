@@ -110,7 +110,54 @@ struct ArpSettings
     int autoEvery = 0;         // 0 = aus, sonst alle N Durchlaeufe neu wuerfeln
     bool seedMode = true;      // true = reproduzierbar ueber Seed und Position
     int seed = 4271;
+    int slotMode = 1;          // Random, No Repeat, Gewichtet, Cycle
+    std::array<float, 4> weights { 0.5f, 0.5f, 0.5f, 0.5f };
+    int slotMask = 0xF;        // welche Slots belegt sind
 };
+
+// Waehlt den Slot fuer einen Step. r1/r2 sind Zufallswerte 0..1 (aus Seed oder echt zufaellig).
+inline int chooseSlot (const ArpSettings& s, int64_t j, int lastSlot, double r1)
+{
+    int avail[4];
+    int count = 0;
+    for (int i = 0; i < 4; ++i)
+        if ((s.slotMask >> i) & 1)
+            avail[count++] = i;
+    if (count == 0)
+        return 0;
+
+    switch (s.slotMode)
+    {
+        case 0: return avail[juce::jlimit (0, count - 1, (int) (r1 * count))];
+        case 1:
+        {
+            if (count == 1) return avail[0];
+            int others[4];
+            int n = 0;
+            for (int i = 0; i < count; ++i)
+                if (avail[i] != lastSlot)
+                    others[n++] = avail[i];
+            return others[juce::jlimit (0, n - 1, (int) (r1 * n))];
+        }
+        case 2:
+        {
+            float total = 0.0f;
+            for (int i = 0; i < count; ++i)
+                total += s.weights[(size_t) avail[i]];
+            if (total <= 0.0f)
+                return avail[juce::jlimit (0, count - 1, (int) (r1 * count))];
+            float x = (float) r1 * total;
+            for (int i = 0; i < count; ++i)
+            {
+                x -= s.weights[(size_t) avail[i]];
+                if (x < 0.0f)
+                    return avail[i];
+            }
+            return avail[count - 1];
+        }
+        default: return avail[(size_t) (j % count)];
+    }
+}
 
 struct Transport
 {
@@ -238,7 +285,7 @@ public:
     }
 
 private:
-    struct Pending { int note; int64_t offAt; };
+    struct Pending { int note; int channel; int64_t offAt; };
 
     double beatAt (int sample, const Transport& t) const
     {
@@ -292,7 +339,7 @@ private:
     void releaseAll (juce::MidiBuffer& out, int at)
     {
         for (int i = 0; i < numPending; ++i)
-            out.addEvent (juce::MidiMessage::noteOff (1, pending[(size_t) i].note), at);
+            out.addEvent (juce::MidiMessage::noteOff (pending[(size_t) i].channel, pending[(size_t) i].note), at);
         numPending = 0;
         currentStep.store (-1, std::memory_order_relaxed);
     }
@@ -377,24 +424,31 @@ private:
         const int semis = juce::jmin (st.semis, 12 * s.range);
         const int note = juce::jlimit (0, 127, root + snapToScale (base - root + semis, s.scale));
 
+        // Slot fuer diesen Step, landet als MIDI-Kanal in der Note
+        const double rs = s.seedMode ? hash01 ((uint64_t) s.seed, (uint64_t) j, 0x5107ull)
+                                     : juce::Random::getSystemRandom().nextDouble();
+        const int slotIdx = chooseSlot (s, j, lastSlot, rs);
+        lastSlot = slotIdx;
+        const int channel = slotIdx + 1;
+
         // Gleiche Note noch an? Erst beenden, sonst haengt sie
         for (int i = 0; i < numPending; ++i)
         {
             if (pending[(size_t) i].note == note)
             {
-                out.addEvent (juce::MidiMessage::noteOff (1, note), at);
+                out.addEvent (juce::MidiMessage::noteOff (pending[(size_t) i].channel, note), at);
                 pending[(size_t) i] = pending[(size_t) --numPending];
                 break;
             }
         }
 
-        out.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) juce::jlimit (1, 127, st.vel)), at);
+        out.addEvent (juce::MidiMessage::noteOn (channel, note, (juce::uint8) juce::jlimit (1, 127, st.vel)), at);
         if (st.vel >= 100)
             accentCounter.fetch_add (1, std::memory_order_relaxed);
 
         const int64_t gateSamples = juce::jmax ((int64_t) 1, (int64_t) (juce::jlimit (0.1f, 1.0f, s.gate) * s.stepBeats / beatsPerSample) - 1);
         if (numPending < (int) pending.size())
-            pending[(size_t) numPending++] = { note, clock + at + gateSamples };
+            pending[(size_t) numPending++] = { note, channel, clock + at + gateSamples };
     }
 
     void flushPending (juce::MidiBuffer& out, int n)
@@ -404,7 +458,7 @@ private:
             const auto& p = pending[(size_t) i];
             if (p.offAt < clock + n)
             {
-                out.addEvent (juce::MidiMessage::noteOff (1, p.note), (int) juce::jlimit ((int64_t) 0, (int64_t) n - 1, p.offAt - clock));
+                out.addEvent (juce::MidiMessage::noteOff (p.channel, p.note), (int) juce::jlimit ((int64_t) 0, (int64_t) n - 1, p.offAt - clock));
                 pending[(size_t) i] = pending[(size_t) --numPending];
             }
         }
@@ -417,6 +471,7 @@ private:
     std::array<Pending, 64> pending {};
     int numPending = 0;
     bool lastPlaying = false, wasOn = true;
+    int lastSlot = -1;
 };
 
 } // namespace bleep

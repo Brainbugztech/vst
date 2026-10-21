@@ -30,6 +30,7 @@ public:
     juce::Font getComboBoxFont (juce::ComboBox&) override;
     juce::Font getPopupMenuFont() override;
     juce::Label* createSliderTextBox (juce::Slider&) override;
+    void drawComboBox (juce::Graphics&, int w, int h, bool down, int, int, int, int, juce::ComboBox&) override;
 };
 
 class BleepEditor : public juce::AudioProcessorEditor, private juce::Timer
@@ -39,67 +40,120 @@ public:
     ~BleepEditor() override;
 
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
 
     static constexpr int baseW = 1000, baseH = 720;
 
 private:
+    using SliderAtt = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ButtonAtt = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    using ComboAtt  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
     struct Knob
     {
         juce::String label;
         juce::Slider slider;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> att;
-        juce::Rectangle<float> labelArea;
+        std::unique_ptr<SliderAtt> att;
+        juce::Rectangle<float> labelArea;   // in Basis-Einheiten
     };
 
-    struct Group
+    struct Panel
     {
         juce::String title, tag;
         std::vector<Knob*> knobs;
-        bool hasToggle = false;
-        juce::Rectangle<float> area;
+        juce::Rectangle<float> area;        // in Basis-Einheiten
+        float cell = 46.0f;
     };
 
-    void timerCallback() override;
-    Knob* makeKnob (const char* id, const juce::String& label);
-
-    BleepProcessor& proc;
-    BleepLook look;
-
-    std::vector<std::unique_ptr<Knob>> knobs;
-    std::vector<Group> groups;
-    juce::TextButton pitchLinkBtn { "PITCH-LINK" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> pitchLinkAtt;
-
-    // Slot 1
-    juce::TextButton captureBtn { "CAPTURE" }, liveBtn { "LIVE" }, slotBtn { "SLOT" };
-    Knob* lenKnob = nullptr;
-    Knob* rootKnob = nullptr;
-    juce::Rectangle<float> slotPanel, waveArea;
-    bleep::SlotBuffer::Ptr shownSlot;
-    juce::Path wavePath;
-    void setSource (int index);
-    void rebuildWave();
-
-    // Sequencer
-    StepGrid grid { proc };
-    juce::TextButton arpOnBtn { "ARP" }, restartBtn { "RESTART" }, rollBtn { "ROLL" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> arpOnAtt, restartAtt;
     struct Choice
     {
         juce::String label;
         juce::ComboBox box;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> att;
+        std::unique_ptr<ComboAtt> att;
         juce::Rectangle<float> labelArea;
     };
-    std::vector<std::unique_ptr<Choice>> choices;
-    std::vector<Knob*> seqKnobs;
-    juce::Rectangle<float> seqPanel;
-    void makeChoice (const char* id, const juce::String& label);
 
-    juce::Rectangle<float> stageArea;
-    int seenNotes = 0;
-    float flash = 0.0f;
+    struct Toggle
+    {
+        juce::TextButton button;
+        std::unique_ptr<ButtonAtt> att;
+    };
+
+    struct Bolt
+    {
+        double start = 0.0;
+        int target = 0;
+        float yOffset = 0.0f;
+    };
+
+    void timerCallback() override;
+    Knob* makeKnob (const juce::String& id, const juce::String& label);
+    Choice* makeChoice (const juce::String& id, const juce::String& label);
+    Toggle* makeToggle (const juce::String& id, const juce::String& text, const juce::String& style);
+    void placeKnobs (Panel&, float x, float labelY, float sliderY, float sliderH);
+    void place (juce::Component&, juce::Rectangle<float> base);
+    juce::Rectangle<float> s (juce::Rectangle<float> base) const { return base * u; }
+    void setSource (int index);
+    void rebuildWaves();
+
+    void paintPanel (juce::Graphics&, juce::Rectangle<float> base, const juce::String& title, bool highlight = false);
+    void paintHeader (juce::Graphics&);
+    void paintMech (juce::Graphics&);
+    void paintSlots (juce::Graphics&);
+    juce::Point<float> muzzle() const;
+    juce::Point<float> slotTarget (int slot) const;
+
+    BleepProcessor& proc;
+    BleepLook look;
+    float u = 1.0f;
+
+    std::vector<std::unique_ptr<Knob>> knobs;
+    std::vector<std::unique_ptr<Choice>> choices;
+    std::vector<std::unique_ptr<Toggle>> toggles;
+
+    // Generator-Reihe
+    std::vector<Panel> genPanels;
+    Panel generatePanel;
+    juce::TextButton generateBtn { "GENERATE" }, rerenderBtn { "" };
+    Toggle* pitchLink = nullptr;
+
+    // Header
+    juce::TextButton liveBtn { "LIVE" }, slotsBtn { "SLOTS" };
+    juce::Image logo, mech;
+    juce::Typeface::Ptr graffiti;
+
+    // Slots
+    std::array<juce::Rectangle<float>, BleepProcessor::kNumSlots> slotTiles, waveAreas;
+    std::array<Toggle*, BleepProcessor::kNumSlots> slotLocks {};
+    std::array<Knob*, BleepProcessor::kNumSlots * 2> slotKnobs {};
+    std::array<bleep::SlotBuffer::Ptr, BleepProcessor::kNumSlots> shownSlots;
+    std::array<juce::Path, BleepProcessor::kNumSlots> wavePaths;
+    std::array<int, BleepProcessor::kNumSlots> seenHits {};
+    std::array<float, BleepProcessor::kNumSlots> hitGlow {}, laserGlow {};
+
+    // Mech
+    juce::Rectangle<float> mechArea;
+    std::vector<Bolt> bolts;
+    int seenAccents = 0;
+    float muzzleFlash = 0.0f;
+
+    // Sequencer
+    juce::Rectangle<float> seqArea;
+    StepGrid grid { proc };
+    juce::TextButton rollBtn { "ROLL" };
+    std::vector<Knob*> seqKnobs;
+    std::vector<Choice*> seqChoices;
+    Toggle* arpOn = nullptr;
+    Toggle* restart = nullptr;
+
+    // Effekte
+    std::vector<Panel> fxPanels;
+    std::vector<Toggle*> fxPower;
+    Choice* filterType = nullptr;
+    Choice* delayTime = nullptr;
+    Toggle* pingPong = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BleepEditor)
 };

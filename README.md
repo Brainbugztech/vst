@@ -25,22 +25,23 @@ Stereo-Spreizer mit zwei Reglern.
 
 ## Brainbugz Bleep Designer
 
-Instrument für Bleep-Blop-Sounds (in Arbeit). Plan: Square mit Phase Distortion durch eine stumme Triangle, 4 Slots mit Lock und Seed, Arp mit Repitch-Sampler, Ausgang Comb → Crush → Filter → Delay.
+Instrument für Bleep-Blop-Sounds: generiert 4 kurze Bleeps, friert sie als Samples ein und spielt sie per Arp in Mustern. Signalweg: Generator → 4 Slots → Arp/Sampler → Comb → Crush → Filter → Delay → Out.
 
-- **Stand Etappe 4**: Generator, Slot 1 und Arp.
-  - **Square**: Oktave (−4 bis +2), Pegel, Pulsbreite.
-  - **Tri-Mod** (stumm): Triangle auf −4 bis 0 Oktaven unter der Square verschiebt ihre Phase, **PD** regelt wie stark. **Pitch-Link** an = die Triangle folgt Pitch-Env und LFO, aus = chaotischer.
-  - **Pitch Env**: Amount (±48 Halbtöne, + = fällt von oben) und Decay.
-  - **LFO** (Triangle): Rate bis 500 Hz, Tiefe auf Tonhöhe und auf PD.
-  - **Amp Env**: Attack, Decay, Sustain, Release.
-  - **Slot 1**: **CAPTURE** friert den aktuellen Sound ein (Länge 50–1000 ms, gerendert auf der **Root**-Note) und schaltet auf **SLOT**. Dann spielen MIDI-Noten den eingefrorenen Bleep per Repitch: höher = schneller und kürzer. **LIVE** spielt wieder den Generator direkt. Der Slot wird im Projekt mitgespeichert.
-  - **Sequencer / Arp**: läuft, solange eine Note gehalten wird, im Takt von Ableton (steht der Transport, mit eigener Uhr ab dem Anschlag). Die gehaltene Note ist der Grundton.
-    - **Rate** (1/4 bis 1/32, auch triolisch), **Steps** (1–16), **Swing**, **Gate**, **Modus** bei mehreren Noten (Up, Down, Up/Down, Random, As Played), **Scale** (Chroma, Minor, Major, Phrygisch), **Range** (0–3 Oktaven), **Restart** bei jeder neuen Note.
-    - Step-Editor: Mitte ziehen = Tonhöhe (auch über mehrere Steps malen), Punkt oben = Akzent, unterer Balken ziehen = Wahrscheinlichkeit, Rechtsklick = Step sperren, Doppelklick = Tonhöhe 0.
-    - **ROLL** würfelt die Tonhöhen der nicht gesperrten Steps neu, **Dichte** = wie viele Steps eigene Töne bekommen. **Auto** würfelt alle 1/2/4/8 Durchläufe neu.
-    - **Zufall Seed**: Wahrscheinlichkeiten und Auto-Roll hängen an **Seed** und Position, beim Abspielen, Aufnehmen und Bouncen identisch. **Free**: echt zufällig.
-    - **ARP AUS**: MIDI-Noten spielen direkt.
-  - Doppelklick auf einen Regler = Standardwert.
+- **Generator** (oben): **Square** (Oktave, Pegel, Pulsbreite), **Tri-Mod** (stumme Triangle unter der Square, **PD** = wie stark sie die Phase verbiegt, **Pitch-Link**), **Pitch Env** (+ = fällt von oben), **LFO** (bis 500 Hz, auf Tonhöhe und PD), **Amp Env**.
+- **GENERATE**: neuer Seed, alle nicht gesperrten Slots werden neu gewürfelt. **Variation** = wie weit die 4 Bleeps vom Generator abweichen. Der Pfeil-Knopf rendert mit gleichem Seed und den aktuellen Generator-Einstellungen neu. **Länge** und **Root** gelten für das Rendern.
+- **Slots**: Klick auf die Wellenform = vorhören, Schloss = beim Generieren behalten, **Gewicht** (für Slot-Modus "Gewichtet") und **Pegel** pro Slot. Slots werden im Projekt mitgespeichert.
+- **QUELLE** (oben rechts): **SLOTS** spielt die eingefrorenen Bleeps per Repitch, **LIVE** den Generator direkt.
+- **Sequencer / Arp**: läuft, solange eine Note gehalten wird, im Takt von Ableton (steht der Transport, mit eigener Uhr ab dem Anschlag). Die gehaltene Note ist der Grundton.
+  - **Rate**, **Steps**, **Swing**, **Gate**, **Modus** bei mehreren Noten, **Scale** (Chroma, Minor, Major, Phrygisch), **Range**, **Restart**, **Slots**-Modus (Random, No Repeat, Gewichtet, Cycle).
+  - Step-Editor: Mitte ziehen = Tonhöhe (auch über mehrere Steps malen), Punkt oben = Akzent, unterer Balken ziehen = Wahrscheinlichkeit, Rechtsklick = Step sperren, Doppelklick = Tonhöhe 0.
+  - **ROLL** würfelt die Tonhöhen der nicht gesperrten Steps neu, **Dichte** = wie viele Steps eigene Töne bekommen, **Auto** würfelt alle 1/2/4/8 Durchläufe neu.
+  - **Zufall Seed**: Wahrscheinlichkeiten, Slot-Wahl und Auto-Roll hängen an **Seed** und Position, beim Abspielen, Aufnehmen und Bouncen identisch. **Free**: echt zufällig.
+  - **ARP AUS**: MIDI-Noten spielen direkt, reihum auf die Slots verteilt.
+- **Effekte** (Punkt = an/aus): **Comb** (Freq, Feedback, negativ = metallisch, Damping, Keytrack, 1–3 Combs, Mix), **Crush** (Bits, Samplerate, Mix), **Filter** (LP/BP/HP, Cutoff, Resonanz, Hüllkurve pro Step, Keytrack), **Delay** (synchron, Feedback, Ping-Pong, Low/High-Cut im Feedback, Mix), **Out** mit Limiter.
+- **Mech**: schießt bei jedem Akzent-Step einen Laser auf den Slot, der gerade spielt.
+- Doppelklick auf einen Regler = Standardwert.
+
+Titel-Schrift: Sedgwick Ave Display (SIL Open Font License), wird beim Build geladen.
 
 ## Bauen
 

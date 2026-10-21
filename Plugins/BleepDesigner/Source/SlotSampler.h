@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <array>
 
 // Etappe 3: ein eingefrorener Bleep (Slot) und die Sampler-Stimme, die ihn per Repitch spielt.
 
@@ -37,19 +38,28 @@ struct SlotSound : public juce::SynthesiserSound
     bool appliesToChannel (int) override { return true; }
 };
 
-// Spielt den Slot als One-Shot. Repitch: hoehere Noten laufen schneller und werden kuerzer.
+static constexpr int kNumSlots = 4;
+using SlotArray = std::array<SlotBuffer::Ptr, kNumSlots>;
+
+// Spielt einen Slot als One-Shot. Welcher Slot, steht im MIDI-Kanal der Note (Kanal 1 = Slot 1 ...).
+// Repitch: hoehere Noten laufen schneller und werden kuerzer.
 // Wird eine Stimme gestohlen oder abgebrochen, blendet der alte Klang 5 ms lang aus.
 class SamplerVoice : public juce::SynthesiserVoice
 {
 public:
-    explicit SamplerVoice (const SlotBuffer::Ptr& slotSource) : source (slotSource) {}
+    SamplerVoice (const SlotArray& slotSources, const std::array<float, kNumSlots>& slotLevels)
+        : sources (slotSources), levels (slotLevels) {}
 
     bool canPlaySound (juce::SynthesiserSound* s) override { return dynamic_cast<SlotSound*> (s) != nullptr; }
 
     void startNote (int midiNote, float velocity, juce::SynthesiserSound*, int) override
     {
         moveToTail();
-        buf = source;
+        int idx = 0;
+        for (int ch = 1; ch <= kNumSlots; ++ch)
+            if (isPlayingChannel (ch))
+                idx = ch - 1;
+        buf = sources[(size_t) idx];
         if (buf == nullptr || buf->audio.getNumSamples() < 4)
         {
             buf = nullptr;
@@ -58,7 +68,7 @@ public:
         }
         speed = std::exp2 ((midiNote - buf->rootNote) / 12.0) * buf->sampleRate / getSampleRate();
         pos = 0.0;
-        gain = velocity * 0.25f;   // gleicher Pegel wie die Live-Stimmen
+        gain = velocity * 0.25f * levels[(size_t) idx];   // gleicher Grundpegel wie die Live-Stimmen
         fadeLen = juce::jmax (1, (int) (0.005 * getSampleRate()));
         fadeIn = juce::jmax (1, (int) (0.001 * getSampleRate()));
         fadeInPos = 0;
@@ -130,7 +140,8 @@ private:
         buf = nullptr;
     }
 
-    const SlotBuffer::Ptr& source;
+    const SlotArray& sources;
+    const std::array<float, kNumSlots>& levels;
     SlotBuffer::Ptr buf, tail;
     double pos = 0.0, speed = 1.0, tailPos = 0.0, tailSpeed = 1.0;
     float gain = 1.0f, tailGain = 0.0f;

@@ -14,6 +14,17 @@ juce_add_plugin(BrainbugzBleepDesigner
     VST3_CATEGORIES Instrument Synth
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
+# Eigene Grafiken und die Graffiti-Schrift (nur fuer dieses Plugin)
+file(GLOB BLEEP_ASSETS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*.jpg"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*.ttf")
+juce_add_binary_data(BleepAssets
+    HEADER_NAME BleepAssets.h
+    NAMESPACE BleepAssets
+    SOURCES ${BLEEP_ASSETS})
+set_target_properties(BleepAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 target_sources(BrainbugzBleepDesigner PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
@@ -27,6 +38,7 @@ target_compile_definitions(BrainbugzBleepDesigner PUBLIC
 target_link_libraries(BrainbugzBleepDesigner
     PRIVATE
         BrainBugzShared
+        BleepAssets
         juce::juce_audio_processors
     PUBLIC
         juce::juce_recommended_config_flags

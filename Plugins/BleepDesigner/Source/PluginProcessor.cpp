@@ -43,6 +43,32 @@ void BleepVoice::renderNextBlock (juce::AudioBuffer<float>& out, int startSample
     }
 }
 
+// ----------------------------------------------------------- Variation
+
+namespace
+{
+    // Wuerfelt einen Bleep um die aktuellen Generator-Einstellungen herum.
+    // amount 0 = identisch, 1 = weit weg.
+    bleep::GenParams vary (bleep::GenParams p, float amount, bleep::SplitMix& rng)
+    {
+        auto r = [&rng] { return (float) (rng.uniform() * 2.0 - 1.0); };
+        const float v = juce::jlimit (0.0f, 1.0f, amount);
+        p.sqOct     = juce::jlimit (-4, 2, p.sqOct + juce::roundToInt (r() * 2.0f * v));
+        p.pw        = juce::jlimit (0.05f, 0.95f, p.pw + r() * 0.4f * v);
+        p.modOct    = juce::jlimit (-4, 0, p.modOct + juce::roundToInt (r() * 1.5f * v));
+        p.pd        = juce::jlimit (0.0f, 1.0f, p.pd + r() * 0.8f * v);
+        if (rng.uniform() < 0.3 * v)
+            p.pitchLink = ! p.pitchLink;
+        p.penvAmt   = juce::jlimit (-48.0f, 48.0f, p.penvAmt + r() * 36.0f * v);
+        p.penvDecay = juce::jlimit (1.0f, 500.0f, p.penvDecay * std::exp2 (r() * 2.5f * v));
+        p.lfoRate   = juce::jlimit (0.1f, 500.0f, p.lfoRate * std::exp2 (r() * 4.0f * v));
+        p.lfoPitch  = juce::jlimit (-24.0f, 24.0f, p.lfoPitch + r() * 12.0f * v);
+        p.lfoPd     = juce::jlimit (-1.0f, 1.0f, p.lfoPd + r() * v);
+        p.decay     = juce::jlimit (5.0f, 2000.0f, p.decay * std::exp2 (r() * 1.5f * v));
+        return p;
+    }
+}
+
 // ----------------------------------------------------------- BleepProcessor
 
 BleepProcessor::BleepProcessor()
@@ -53,16 +79,28 @@ BleepProcessor::BleepProcessor()
     for (int i = 0; i < kNumVoices; ++i)
     {
         liveSynth.addVoice (new BleepVoice (genParams));
-        slotSynth.addVoice (new bleep::SamplerVoice (audioSlot));
+        slotSynth.addVoice (new bleep::SamplerVoice (audioSlots, audioLevels));
     }
     liveSynth.addSound (new BleepSound());
     slotSynth.addSound (new bleep::SlotSound());
-    startTimer (500);
+
+    renderSlots();   // damit ein frisch geladenes Plugin sofort klingt
+    startTimer (250);
 }
 
 // ------------------------------------------------------------------- Slots
 
-void BleepProcessor::setSlot (bleep::SlotBuffer::Ptr newSlot)
+void BleepProcessor::setParamPlain (const juce::String& id, float value)
+{
+    if (auto* prm = apvts.getParameter (id))
+    {
+        prm->beginChangeGesture();
+        prm->setValueNotifyingHost (prm->convertTo0to1 (value));
+        prm->endChangeGesture();
+    }
+}
+
+void BleepProcessor::setSlot (int index, bleep::SlotBuffer::Ptr newSlot)
 {
     {
         const juce::ScopedLock pl (poolLock);
@@ -70,13 +108,13 @@ void BleepProcessor::setSlot (bleep::SlotBuffer::Ptr newSlot)
             pool.add (newSlot);
     }
     const juce::SpinLock::ScopedLockType sl (slotLock);
-    slot = newSlot;
+    slots[(size_t) index] = newSlot;
 }
 
-bleep::SlotBuffer::Ptr BleepProcessor::getSlot() const
+bleep::SlotBuffer::Ptr BleepProcessor::getSlot (int index) const
 {
     const juce::SpinLock::ScopedLockType sl (slotLock);
-    return slot;
+    return slots[(size_t) index];
 }
 
 // Gibt Puffer frei, die nur noch der Pool haelt (laeuft auf dem Message-Thread)
@@ -88,26 +126,59 @@ void BleepProcessor::purgeSlots()
             pool.remove (i);
 }
 
-void BleepProcessor::captureSlot()
+void BleepProcessor::timerCallback()
 {
-    auto s = juce::ReferenceCountedObjectPtr<bleep::SlotBuffer> (new bleep::SlotBuffer());
-    s->sampleRate = currentSR.load();
-    s->rootNote = juce::roundToInt (raw (ParamIDs::rootNote));
-    s->audio = bleep::renderBleep (readGenParams(), s->sampleRate, s->rootNote, raw (ParamIDs::slotLen));
+    purgeSlots();
 
-    // Spitzen ueber 0 dBFS vermeiden
-    const float peak = s->audio.getMagnitude (0, 0, s->audio.getNumSamples());
-    if (peak > 1.0f)
-        s->audio.applyGain (1.0f / peak);
+    // Seed von Hand geaendert (oder automatisiert): Slots passend neu rendern
+    const int seedNow = juce::roundToInt (raw (ParamIDs::seed));
+    if (seedNow != lastRenderedSeed)
+        renderSlots();
+}
 
-    setSlot (s);
+void BleepProcessor::renderSlots()
+{
+    const int seedNow = juce::roundToInt (raw (ParamIDs::seed));
+    lastRenderedSeed = seedNow;
 
-    if (auto* src = apvts.getParameter (ParamIDs::source))
+    const auto base = readGenParams();
+    const float amount = raw (ParamIDs::variation) * 0.01f;
+    const double sr = currentSR.load();
+    const int root = juce::roundToInt (raw (ParamIDs::rootNote));
+    const double len = raw (ParamIDs::slotLen);
+
+    for (int i = 0; i < kNumSlots; ++i)
     {
-        src->beginChangeGesture();
-        src->setValueNotifyingHost (1.0f);
-        src->endChangeGesture();
+        if (raw (ParamIDs::slotLock (i)) > 0.5f && getSlot (i) != nullptr)
+            continue;
+
+        // Slot 1 bleibt nah am Original, die anderen werden variiert; gleicher Seed = gleiche Bleeps
+        bleep::SplitMix rng (bleep::mixKey ((uint64_t) seedNow, (uint64_t) i, 0x5107ull));
+        const auto p = i == 0 ? vary (base, amount * 0.25f, rng) : vary (base, amount, rng);
+
+        auto s = juce::ReferenceCountedObjectPtr<bleep::SlotBuffer> (new bleep::SlotBuffer());
+        s->sampleRate = sr;
+        s->rootNote = root;
+        s->audio = bleep::renderBleep (p, sr, root, len);
+        const float peak = s->audio.getMagnitude (0, 0, s->audio.getNumSamples());
+        if (peak > 1.0f)
+            s->audio.applyGain (1.0f / peak);
+        setSlot (i, s);
     }
+}
+
+void BleepProcessor::generate()
+{
+    int next = juce::Random::getSystemRandom().nextInt (10000);
+    if (next == juce::roundToInt (raw (ParamIDs::seed)))
+        next = (next + 1) % 10000;
+    setParamPlain (ParamIDs::seed, (float) next);
+    renderSlots();
+}
+
+void BleepProcessor::auditionSlot (int index)
+{
+    pendingAudition.store (juce::jlimit (0, kNumSlots - 1, index));
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout()
@@ -202,7 +273,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout
             return MidiMessage::getMidiNoteName (v, true, true, 3);
         })));
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::source, 1 }, "Quelle",
-                                                        StringArray { "Live", "Slot" }, 0));
+                                                        StringArray { "Live", "Slots" }, 1));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::variation, 1 }, "Variation",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f, pct));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::slotMode, 1 }, "Slot-Modus",
+                                                        StringArray { "Random", "No Repeat", "Gewichtet", "Cycle" }, 1));
+    for (int i = 0; i < kNumSlots; ++i)
+    {
+        const String n (i + 1);
+        layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::slotLock (i), 1 }, "Slot " + n + " Lock", false));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::slotWeight (i), 1 }, "Slot " + n + " Gewicht",
+                                                           NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f, pct));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::slotLevel (i), 1 }, "Slot " + n + " Pegel",
+                                                           NormalisableRange<float> (-24.0f, 6.0f, 0.1f), 0.0f, db));
+    }
 
     // Arp
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::arpOn, 1 }, "Arp", true));
@@ -227,6 +311,69 @@ juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::randMode, 1 }, "Zufall",
         StringArray { "Seed", "Free" }, 0));
     layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::seed, 1 }, "Seed", 0, 9999, 4271));
+
+    auto hz = AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction ([] (float v, int)
+    {
+        return v >= 1000.0f ? String (v / 1000.0f, v >= 10000.0f ? 1 : 2) + " kHz" : String (roundToInt (v)) + " Hz";
+    });
+    auto hzRange = [] (float lo, float hi, float centre)
+    {
+        NormalisableRange<float> r (lo, hi, 0.1f);
+        r.setSkewForCentre (centre);
+        return r;
+    };
+    auto ratio = AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (v, 2) + "x"; });
+
+    // Comb
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::combOn, 1 }, "Comb an", false));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::combFreq, 1 }, "Comb Freq", hzRange (20.0f, 5000.0f, 500.0f), 880.0f, hz));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::combFb, 1 }, "Comb Feedback",
+                                                       NormalisableRange<float> (-99.0f, 99.0f, 0.1f), -72.0f, pct));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::combDamp, 1 }, "Comb Damping",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 35.0f, pct));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::combKey, 1 }, "Comb Keytrack",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, pct));
+    layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::combCount, 1 }, "Combs", 1, 3, 1));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::combRatio2, 1 }, "Comb Ratio 2",
+                                                       NormalisableRange<float> (1.0f, 4.0f, 0.01f), 1.5f, ratio));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::combRatio3, 1 }, "Comb Ratio 3",
+                                                       NormalisableRange<float> (1.0f, 4.0f, 0.01f), 2.3f, ratio));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::combMix, 1 }, "Comb Mix",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 40.0f, pct));
+
+    // Crush
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::crushOn, 1 }, "Crush an", false));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::crushBits, 1 }, "Bits",
+        NormalisableRange<float> (1.0f, 16.0f, 0.01f), 8.0f,
+        AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (v, 1) + " bit"; })));
+    layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::crushRate, 1 }, "Crush Rate", 1, 32, 4,
+        AudioParameterIntAttributes().withStringFromValueFunction ([] (int v, int) { return v == 1 ? String ("1/1") : "1/" + String (v); })));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::crushMix, 1 }, "Crush Mix",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 25.0f, pct));
+
+    // Filter
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::filterOn, 1 }, "Filter an", true));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::filterType, 1 }, "Filter-Typ", StringArray { "LP", "BP", "HP" }, 0));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::filterCut, 1 }, "Cutoff", hzRange (20.0f, 20000.0f, 1000.0f), 2400.0f, hz));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::filterRes, 1 }, "Resonanz",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 30.0f, pct));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::filterEnv, 1 }, "Filter-Env",
+                                                       NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 40.0f, pct));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::filterDec, 1 }, "Filter-Decay", msRange (2000.0f, 150.0f), 90.0f, msAttr));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::filterKey, 1 }, "Filter Keytrack",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f, pct));
+
+    // Delay
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::delayOn, 1 }, "Delay an", true));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::delayTime, 1 }, "Delay-Zeit",
+        StringArray { "1/32", "1/16 T", "1/16", "1/16 .", "1/8 T", "1/8", "1/8 .", "1/4 T", "1/4", "1/4 .", "1/2" }, 6));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::delayFb, 1 }, "Delay Feedback",
+                                                       NormalisableRange<float> (0.0f, 95.0f, 0.1f), 45.0f, pct));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::delayPP, 1 }, "Ping-Pong", true));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::delayLow, 1 }, "Delay Low-Cut", hzRange (20.0f, 2000.0f, 200.0f), 150.0f, hz));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::delayHigh, 1 }, "Delay High-Cut", hzRange (1000.0f, 20000.0f, 6000.0f), 6000.0f, hz));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::delayMix, 1 }, "Delay Mix",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 30.0f, pct));
     return layout;
 }
 
@@ -269,7 +416,44 @@ bleep::ArpSettings BleepProcessor::readArpSettings() const
     a.autoEvery = autoEvery[juce::jlimit (0, 4, juce::roundToInt (raw (ParamIDs::autoRoll)))];
     a.seedMode  = raw (ParamIDs::randMode) < 0.5f;
     a.seed      = juce::roundToInt (raw (ParamIDs::seed));
+    a.slotMode  = juce::roundToInt (raw (ParamIDs::slotMode));
+    for (int i = 0; i < kNumSlots; ++i)
+        a.weights[(size_t) i] = raw (ParamIDs::slotWeight (i)) * 0.01f;
     return a;
+}
+
+bleep::FxParams BleepProcessor::readFxParams() const
+{
+    static constexpr double delayBeats[] = { 0.125, 1.0 / 6.0, 0.25, 0.375, 1.0 / 3.0, 0.5, 0.75, 2.0 / 3.0, 1.0, 1.5, 2.0 };
+    bleep::FxParams f;
+    f.combOn      = raw (ParamIDs::combOn) > 0.5f;
+    f.combFreq    = raw (ParamIDs::combFreq);
+    f.combFb      = raw (ParamIDs::combFb) * 0.01f;
+    f.combDamp    = raw (ParamIDs::combDamp) * 0.01f;
+    f.combKey     = raw (ParamIDs::combKey) * 0.01f;
+    f.combCount   = juce::roundToInt (raw (ParamIDs::combCount));
+    f.combRatio2  = raw (ParamIDs::combRatio2);
+    f.combRatio3  = raw (ParamIDs::combRatio3);
+    f.combMix     = raw (ParamIDs::combMix) * 0.01f;
+    f.crushOn     = raw (ParamIDs::crushOn) > 0.5f;
+    f.crushBits   = raw (ParamIDs::crushBits);
+    f.crushRate   = juce::roundToInt (raw (ParamIDs::crushRate));
+    f.crushMix    = raw (ParamIDs::crushMix) * 0.01f;
+    f.filterOn    = raw (ParamIDs::filterOn) > 0.5f;
+    f.filterType  = juce::roundToInt (raw (ParamIDs::filterType));
+    f.filterCut   = raw (ParamIDs::filterCut);
+    f.filterRes   = raw (ParamIDs::filterRes) * 0.01f;
+    f.filterEnv   = raw (ParamIDs::filterEnv) * 0.01f;
+    f.filterDecay = raw (ParamIDs::filterDec);
+    f.filterKey   = raw (ParamIDs::filterKey) * 0.01f;
+    f.delayOn     = raw (ParamIDs::delayOn) > 0.5f;
+    f.delayBeats  = delayBeats[juce::jlimit (0, 10, juce::roundToInt (raw (ParamIDs::delayTime)))];
+    f.delayFb     = raw (ParamIDs::delayFb) * 0.01f;
+    f.delayPingPong = raw (ParamIDs::delayPP) > 0.5f;
+    f.delayLowCut = raw (ParamIDs::delayLow);
+    f.delayHighCut = raw (ParamIDs::delayHigh);
+    f.delayMix    = raw (ParamIDs::delayMix) * 0.01f;
+    return f;
 }
 
 void BleepProcessor::rollSteps()
@@ -281,7 +465,9 @@ void BleepProcessor::rollSteps()
 void BleepProcessor::prepareToPlay (double sampleRate, int)
 {
     arp.prepare (sampleRate);
+    fx.prepare (sampleRate);
     arpMidi.ensureSize (4096);
+    slotMidi.ensureSize (4096);
     liveSynth.setCurrentPlaybackSampleRate (sampleRate);
     slotSynth.setCurrentPlaybackSampleRate (sampleRate);
     currentSR.store (sampleRate);
@@ -321,30 +507,77 @@ void BleepProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
         }
     }
 
-    // Arp erzeugt die Noten (ist er aus, gehen die MIDI-Noten direkt durch)
-    arp.process (midi, arpMidi, n, readArpSettings(), tr);
+    // Neue Slots uebernehmen, ohne den Audio-Thread zu blockieren
+    {
+        const juce::SpinLock::ScopedTryLockType tl (slotLock);
+        if (tl.isLocked())
+            audioSlots = slots;
+    }
+    int mask = 0;
+    for (int i = 0; i < kNumSlots; ++i)
+    {
+        if (audioSlots[(size_t) i] != nullptr)
+            mask |= 1 << i;
+        audioLevels[(size_t) i] = juce::Decibels::decibelsToGain (raw (ParamIDs::slotLevel (i)), -24.0f);
+    }
 
+    // Arp erzeugt die Noten, der MIDI-Kanal sagt welcher Slot spielt
+    auto arpSettings = readArpSettings();
+    arpSettings.slotMask = mask == 0 ? 0xF : mask;
+    arp.process (midi, arpMidi, n, arpSettings, tr);
+
+    const int source = juce::roundToInt (raw (ParamIDs::source));
+
+    // Arp aus: gespielte Noten reihum auf die belegten Slots verteilen
+    slotMidi.clear();
     for (const auto meta : arpMidi)
     {
-        const auto msg = meta.getMessage();
+        auto msg = meta.getMessage();
+        if (! arpSettings.on && msg.isNoteOn())
+        {
+            for (int k = 0; k < kNumSlots; ++k)
+            {
+                directSlot = (directSlot + 1) % kNumSlots;
+                if ((arpSettings.slotMask >> directSlot) & 1)
+                    break;
+            }
+            msg.setChannel (directSlot + 1);
+        }
+        else if (! arpSettings.on && msg.isNoteOff())
+        {
+            continue;   // One-Shot, Note-Off wird nicht gebraucht
+        }
+
         if (msg.isNoteOn())
         {
             lastNote.store (msg.getNoteNumber(), std::memory_order_relaxed);
             noteCounter.fetch_add (1, std::memory_order_relaxed);
+            if (source == 1)
+                slotHits[(size_t) juce::jlimit (0, kNumSlots - 1, msg.getChannel() - 1)].fetch_add (1, std::memory_order_relaxed);
+            if (msg.getVelocity() >= 100)
+            {
+                accentSlot.store (juce::jlimit (0, kNumSlots - 1, msg.getChannel() - 1), std::memory_order_relaxed);
+                accentHits.fetch_add (1, std::memory_order_relaxed);
+            }
         }
+        slotMidi.addEvent (msg, meta.samplePosition);
+    }
+
+    // Vorhoeren per Klick auf einen Slot
+    int aud = pendingAudition.exchange (-1);
+    if (aud >= 0 && audioSlots[(size_t) aud] == nullptr)
+        aud = -1;
+    if (aud >= 0)
+    {
+        if (source != 1)
+            slotMidi.clear();   // im Live-Modus nur den Vorhoer-Ton an die Slots schicken
+        slotMidi.addEvent (juce::MidiMessage::noteOn (aud + 1, audioSlots[(size_t) aud]->rootNote, (juce::uint8) 100), 0);
+        slotHits[(size_t) aud].fetch_add (1, std::memory_order_relaxed);
     }
 
     genParams = readGenParams();
 
-    // Neuen Slot uebernehmen, ohne den Audio-Thread zu blockieren
-    {
-        const juce::SpinLock::ScopedTryLockType tl (slotLock);
-        if (tl.isLocked())
-            audioSlot = slot;
-    }
-
     // Quelle umgeschaltet: haengende Noten der alten Quelle ausklingen lassen
-    const int source = juce::roundToInt (raw (ParamIDs::source));
     if (source != lastSource)
     {
         (lastSource == 0 ? liveSynth : slotSynth).allNotesOff (0, true);
@@ -353,9 +586,19 @@ void BleepProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Die aktive Quelle bekommt das MIDI, die andere klingt nur noch aus
     liveSynth.renderNextBlock (buffer, source == 0 ? arpMidi : emptyMidi, 0, n);
-    slotSynth.renderNextBlock (buffer, source == 1 ? arpMidi : emptyMidi, 0, n);
+    slotSynth.renderNextBlock (buffer, (source == 1 || aud >= 0) ? slotMidi : emptyMidi, 0, n);
 
-    // DC-Blocker (Pulsbreite != 50 % erzeugt Gleichanteil), Output, Pegel fuer die Anzeige
+    // Effekte: jeder Step startet die Filter-Huellkurve neu und setzt die Keytrack-Note
+    int numTrig = 0;
+    for (const auto meta : (source == 1 ? slotMidi : arpMidi))
+    {
+        const auto msg = meta.getMessage();
+        if (msg.isNoteOn() && numTrig < (int) fxTriggers.size())
+            fxTriggers[(size_t) numTrig++] = { meta.samplePosition, msg.getNoteNumber() };
+    }
+    fx.process (buffer, readFxParams(), fxTriggers.data(), numTrig, tr.bpm);
+
+    // DC-Blocker (Pulsbreite != 50 % erzeugt Gleichanteil), Output, Soft-Clip, Pegel fuer die Anzeige
     outGain.setTargetValue (juce::Decibels::decibelsToGain (raw (ParamIDs::output)));
     const int numCh = std::min (2, buffer.getNumChannels());
     for (int i = 0; i < n; ++i)
@@ -369,7 +612,9 @@ void BleepProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
             const float y = x - dcX[ch] + dcR * dcY[ch];
             dcX[ch] = x;
             dcY[ch] = y;
-            d[i] = juce::jlimit (-2.0f, 2.0f, y * g);
+            // Limiter: bis -0.9 dB linear, darueber weich bis maximal 0 dBFS
+            const float o = y * g, ao = std::abs (o);
+            d[i] = ao < 0.9f ? o : std::copysign (0.9f + 0.1f * std::tanh ((ao - 0.9f) / 0.1f), o);
             peak = std::max (peak, std::abs (d[i]));
         }
         env += (peak - env) * (peak > env ? 0.05f : 0.0005f);
@@ -393,12 +638,16 @@ void BleepProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.setProperty ("steps", st.joinIntoString (","), nullptr);
 
     // Slot-Audio mitspeichern, damit das Projekt beim Oeffnen exakt gleich klingt
-    if (auto s = getSlot())
+    for (int i = 0; i < kNumSlots; ++i)
     {
-        juce::MemoryBlock mb (s->audio.getReadPointer (0), (size_t) s->audio.getNumSamples() * sizeof (float));
-        state.setProperty ("slot1", mb.toBase64Encoding(), nullptr);
-        state.setProperty ("slot1sr", s->sampleRate, nullptr);
-        state.setProperty ("slot1root", s->rootNote, nullptr);
+        if (auto sl = getSlot (i))
+        {
+            const juce::String key = "slot" + juce::String (i + 1);
+            juce::MemoryBlock mb (sl->audio.getReadPointer (0), (size_t) sl->audio.getNumSamples() * sizeof (float));
+            state.setProperty (key, mb.toBase64Encoding(), nullptr);
+            state.setProperty (key + "sr", sl->sampleRate, nullptr);
+            state.setProperty (key + "root", sl->rootNote, nullptr);
+        }
     }
 
     if (auto xml = state.createXml())
@@ -412,22 +661,29 @@ void BleepProcessor::setStateInformation (const void* data, int sizeInBytes)
         return;
 
     auto state = juce::ValueTree::fromXml (*xml);
-    bleep::SlotBuffer::Ptr restored;
-    if (state.hasProperty ("slot1"))
+    bleep::SlotArray restored;
+    bool anyRestored = false;
+    for (int i = 0; i < kNumSlots; ++i)
     {
+        const juce::Identifier key ("slot" + juce::String (i + 1));
+        const juce::Identifier keySr (key.toString() + "sr"), keyRoot (key.toString() + "root");
+        if (! state.hasProperty (key))
+            continue;
         juce::MemoryBlock mb;
-        if (mb.fromBase64Encoding (state["slot1"].toString()) && mb.getSize() >= 4 * sizeof (float))
+        if (mb.fromBase64Encoding (state[key].toString()) && mb.getSize() >= 4 * sizeof (float))
         {
-            restored = new bleep::SlotBuffer();
+            auto r = juce::ReferenceCountedObjectPtr<bleep::SlotBuffer> (new bleep::SlotBuffer());
             const int n = (int) (mb.getSize() / sizeof (float));
-            restored->audio.setSize (1, n);
-            std::memcpy (restored->audio.getWritePointer (0), mb.getData(), (size_t) n * sizeof (float));
-            restored->sampleRate = (double) state.getProperty ("slot1sr", 48000.0);
-            restored->rootNote = (int) state.getProperty ("slot1root", 48);
+            r->audio.setSize (1, n);
+            std::memcpy (r->audio.getWritePointer (0), mb.getData(), (size_t) n * sizeof (float));
+            r->sampleRate = (double) state.getProperty (keySr, 48000.0);
+            r->rootNote = (int) state.getProperty (keyRoot, 48);
+            restored[(size_t) i] = r;
+            anyRestored = true;
         }
-        state.removeProperty ("slot1", nullptr);
-        state.removeProperty ("slot1sr", nullptr);
-        state.removeProperty ("slot1root", nullptr);
+        state.removeProperty (key, nullptr);
+        state.removeProperty (keySr, nullptr);
+        state.removeProperty (keyRoot, nullptr);
     }
 
     if (state.hasProperty ("steps"))
@@ -440,7 +696,16 @@ void BleepProcessor::setStateInformation (const void* data, int sizeInBytes)
     }
 
     apvts.replaceState (state);
-    setSlot (restored);
+    if (anyRestored)
+    {
+        for (int i = 0; i < kNumSlots; ++i)
+            setSlot (i, restored[(size_t) i]);
+        lastRenderedSeed = juce::roundToInt (raw (ParamIDs::seed));   // nicht neu rendern, gespeicherter Klang gilt
+    }
+    else
+    {
+        renderSlots();
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

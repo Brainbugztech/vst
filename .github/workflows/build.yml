@@ -14,13 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Schriften holen (Chakra Petch, Share Tech Mono, OFL)
+      - name: Schriften holen (Chakra Petch, Share Tech Mono, Sedgwick Ave Display, OFL)
         shell: bash
         run: |
           base=https://github.com/google/fonts/raw/main/ofl
           curl -fsSL -o Assets/ChakraPetch-SemiBold.ttf $base/chakrapetch/ChakraPetch-SemiBold.ttf || echo "Font fehlt"
           curl -fsSL -o Assets/ChakraPetch-Bold.ttf $base/chakrapetch/ChakraPetch-Bold.ttf || echo "Font fehlt"
           curl -fsSL -o Assets/ShareTechMono-Regular.ttf $base/sharetechmono/ShareTechMono-Regular.ttf || echo "Font fehlt"
+          curl -fsSL -o Plugins/BleepDesigner/Assets/SedgwickAveDisplay-Regular.ttf $base/sedgwickavedisplay/SedgwickAveDisplay-Regular.ttf || echo "Font fehlt"
           ls -la Assets
 
       - name: JUCE-Cache
