@@ -17,6 +17,7 @@ struct SlotBuffer : public juce::ReferenceCountedObject
     juce::AudioBuffer<float> audio;   // mono
     double sampleRate = 48000.0;
     int rootNote = 48;
+    juce::String character;           // z. B. "Zap", leer = nach deinen Reglern
 };
 
 // 4-Punkt-Hermite-Interpolation, damit Repitch nach unten nicht matscht

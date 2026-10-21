@@ -43,32 +43,6 @@ void BleepVoice::renderNextBlock (juce::AudioBuffer<float>& out, int startSample
     }
 }
 
-// ----------------------------------------------------------- Variation
-
-namespace
-{
-    // Wuerfelt einen Bleep um die aktuellen Generator-Einstellungen herum.
-    // amount 0 = identisch, 1 = weit weg.
-    bleep::GenParams vary (bleep::GenParams p, float amount, bleep::SplitMix& rng)
-    {
-        auto r = [&rng] { return (float) (rng.uniform() * 2.0 - 1.0); };
-        const float v = juce::jlimit (0.0f, 1.0f, amount);
-        p.sqOct     = juce::jlimit (-4, 2, p.sqOct + juce::roundToInt (r() * 2.0f * v));
-        p.pw        = juce::jlimit (0.05f, 0.95f, p.pw + r() * 0.4f * v);
-        p.modOct    = juce::jlimit (-4, 0, p.modOct + juce::roundToInt (r() * 1.5f * v));
-        p.pd        = juce::jlimit (0.0f, 1.0f, p.pd + r() * 0.8f * v);
-        if (rng.uniform() < 0.3 * v)
-            p.pitchLink = ! p.pitchLink;
-        p.penvAmt   = juce::jlimit (-48.0f, 48.0f, p.penvAmt + r() * 36.0f * v);
-        p.penvDecay = juce::jlimit (1.0f, 500.0f, p.penvDecay * std::exp2 (r() * 2.5f * v));
-        p.lfoRate   = juce::jlimit (0.1f, 500.0f, p.lfoRate * std::exp2 (r() * 4.0f * v));
-        p.lfoPitch  = juce::jlimit (-24.0f, 24.0f, p.lfoPitch + r() * 12.0f * v);
-        p.lfoPd     = juce::jlimit (-1.0f, 1.0f, p.lfoPd + r() * v);
-        p.decay     = juce::jlimit (5.0f, 2000.0f, p.decay * std::exp2 (r() * 1.5f * v));
-        return p;
-    }
-}
-
 // ----------------------------------------------------------- BleepProcessor
 
 BleepProcessor::BleepProcessor()
@@ -154,13 +128,14 @@ void BleepProcessor::renderSlots()
         if (raw (ParamIDs::slotLock (i)) > 0.5f && getSlot (i) != nullptr)
             continue;
 
-        // Slot 1 bleibt nah am Original, die anderen werden variiert; gleicher Seed = gleiche Bleeps
-        bleep::SplitMix rng (bleep::mixKey ((uint64_t) seedNow, (uint64_t) i, 0x5107ull));
-        const auto p = i == 0 ? vary (base, amount * 0.25f, rng) : vary (base, amount, rng);
+        // Slot 1 bleibt nah an den Reglern, Slot 2-4 bekommen je einen Charakter; gleicher Seed = gleiche Bleeps
+        int character = -1;
+        const auto p = bleep::slotParams (base, amount, seedNow, i, &character);
 
         auto s = juce::ReferenceCountedObjectPtr<bleep::SlotBuffer> (new bleep::SlotBuffer());
         s->sampleRate = sr;
         s->rootNote = root;
+        s->character = character < 0 ? juce::String() : juce::String (bleep::characterName (character));
         s->audio = bleep::renderBleep (p, sr, root, len);
         const float peak = s->audio.getMagnitude (0, 0, s->audio.getNumSamples());
         if (peak > 1.0f)
@@ -222,7 +197,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout
                                                        NormalisableRange<float> (5.0f, 95.0f, 0.1f), 50.0f, pct));
 
     // Triangle-Modulator
-    layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::modOct, 1 }, "Tri-Mod Oktave", -4, 0, -3,
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::shape, 1 }, "Wellenform",
+        NormalisableRange<float> (0.0f, 3.0f, 0.01f), 2.0f,
+        AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int)
+        {
+            static const char* n[] = { "Sin", "Tri", "Sqr", "Saw" };
+            const int i = roundToInt (v);
+            return std::abs (v - (float) i) < 0.05f ? String (n[jlimit (0, 3, i)]) : String (v, 2);
+        })));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::modFine, 1 }, "Mod Fine",
+                                                       NormalisableRange<float> (0.0f, 12.0f, 0.01f), 0.0f, st));
+    layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::modOct, 1 }, "Mod Oktave", -4, 3, -3,
                                                      AudioParameterIntAttributes().withStringFromValueFunction (signedInt)));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::modPd, 1 }, "PD-Amount",
                                                        NormalisableRange<float> (0.0f, 100.0f, 0.1f), 30.0f, pct));
@@ -265,9 +250,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout
 
     // Slot
     {
-        NormalisableRange<float> r (50.0f, 1000.0f, 1.0f);
-        r.setSkewForCentre (300.0f);
-        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::slotLen, 1 }, String::fromUTF8 ("Slot-L\xc3\xa4" "nge"), r, 300.0f, msAttr));
+        NormalisableRange<float> r (50.0f, 2000.0f, 1.0f);
+        r.setSkewForCentre (400.0f);
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::slotLen, 1 }, String::fromUTF8 ("Max. Slot-L\xc3\xa4" "nge"), r, 1200.0f, msAttr));
     }
     layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::rootNote, 1 }, "Root-Note", 24, 96, 48,
         AudioParameterIntAttributes().withStringFromValueFunction ([] (int v, int)
@@ -277,7 +262,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::source, 1 }, "Quelle",
                                                         StringArray { "Live", "Slots" }, 1));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::variation, 1 }, "Variation",
-                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f, pct));
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 75.0f, pct));
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::slotMode, 1 }, "Slot-Modus",
                                                         StringArray { "Random", "No Repeat", "Gewichtet", "Cycle" }, 1));
     for (int i = 0; i < kNumSlots; ++i)
@@ -386,6 +371,8 @@ bleep::GenParams BleepProcessor::readGenParams() const
     p.sqGain    = juce::Decibels::decibelsToGain (raw (ParamIDs::sqLevel), -24.0f);
     p.pw        = raw (ParamIDs::sqPw) * 0.01f;
     p.modOct    = juce::roundToInt (raw (ParamIDs::modOct));
+    p.shape     = raw (ParamIDs::shape);
+    p.modFine   = raw (ParamIDs::modFine);
     p.pd        = raw (ParamIDs::modPd) * 0.01f;
     p.pitchLink = raw (ParamIDs::pitchLink) > 0.5f;
     p.penvAmt   = raw (ParamIDs::penvAmt);
@@ -663,6 +650,7 @@ std::unique_ptr<juce::XmlElement> BleepProcessor::createStateXml()
             state.setProperty (key, mb.toBase64Encoding(), nullptr);
             state.setProperty (key + "sr", sl->sampleRate, nullptr);
             state.setProperty (key + "root", sl->rootNote, nullptr);
+            state.setProperty (key + "char", sl->character, nullptr);
         }
     }
 
@@ -684,7 +672,7 @@ void BleepProcessor::applyStateXml (const juce::XmlElement& xml)
     for (int i = 0; i < kNumSlots; ++i)
     {
         const juce::Identifier key ("slot" + juce::String (i + 1));
-        const juce::Identifier keySr (key.toString() + "sr"), keyRoot (key.toString() + "root");
+        const juce::Identifier keySr (key.toString() + "sr"), keyRoot (key.toString() + "root"), keyChar (key.toString() + "char");
         if (! state.hasProperty (key))
             continue;
         juce::MemoryBlock mb;
@@ -696,12 +684,14 @@ void BleepProcessor::applyStateXml (const juce::XmlElement& xml)
             std::memcpy (r->audio.getWritePointer (0), mb.getData(), (size_t) n * sizeof (float));
             r->sampleRate = (double) state.getProperty (keySr, 48000.0);
             r->rootNote = (int) state.getProperty (keyRoot, 48);
+            r->character = state.getProperty (keyChar, "").toString();
             restored[(size_t) i] = r;
             anyRestored = true;
         }
         state.removeProperty (key, nullptr);
         state.removeProperty (keySr, nullptr);
         state.removeProperty (keyRoot, nullptr);
+        state.removeProperty (keyChar, nullptr);
     }
 
     if (state.hasProperty ("steps"))

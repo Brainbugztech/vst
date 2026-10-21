@@ -6,6 +6,7 @@
 #include "Arpeggiator.h"
 #include "FxChain.h"
 #include "Presets.h"
+#include "BleepCharacter.h"
 
 // Signalweg: Generator -> 4 Slots -> Arp/Sampler -> (Etappe 6: Comb, Crush, Filter, Delay)
 
@@ -14,6 +15,8 @@ namespace ParamIDs
     inline constexpr const char* sqOct     = "sq_oct";
     inline constexpr const char* sqLevel   = "sq_level";
     inline constexpr const char* sqPw      = "sq_pw";
+    inline constexpr const char* shape     = "osc_shape";
+    inline constexpr const char* modFine   = "mod_fine";
     inline constexpr const char* modOct    = "mod_oct";
     inline constexpr const char* modPd     = "mod_pd";
     inline constexpr const char* pitchLink = "pitch_link";

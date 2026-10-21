@@ -331,11 +331,11 @@ BleepEditor::BleepEditor (BleepProcessor& p)
     rebuildPresetMenu();
 
     // Generator
-    genPanels.push_back ({ "SQUARE", "", { makeKnob (sqOct, "Okt"), makeKnob (sqLevel, "Pegel"), makeKnob (sqPw, "PW") }, {}, 46.0f });
-    genPanels.push_back ({ "TRI-MOD", "stumm", { makeKnob (modOct, "Okt"), makeKnob (modPd, "PD") }, {}, 46.0f });
+    genPanels.push_back ({ "OSC", "", { makeKnob (sqOct, "Okt"), makeKnob (ParamIDs::shape, "Form"), makeKnob (sqPw, "PW") }, {}, 46.0f });
+    genPanels.push_back ({ "MOD", "stumm", { makeKnob (modOct, "Okt"), makeKnob (modPd, "PD"), makeKnob (ParamIDs::modFine, "Fine") }, {}, 46.0f });
     genPanels.push_back ({ "PITCH ENV", "", { makeKnob (penvAmt, "Amt"), makeKnob (penvDecay, "Decay") }, {}, 46.0f });
     genPanels.push_back ({ "LFO", "", { makeKnob (lfoRate, "Rate"), makeKnob (lfoPitch, "Pitch"), makeKnob (lfoPd, "PD") }, {}, 46.0f });
-    genPanels.push_back ({ "AMP ENV", "", { makeKnob (ampA, "A"), makeKnob (ampD, "D"), makeKnob (ampS, "S"), makeKnob (ampR, "R") }, {}, 46.0f });
+    genPanels.push_back ({ "AMP ENV", "", { makeKnob (ampA, "A"), makeKnob (ampD, "D"), makeKnob (ampR, "R") }, {}, 46.0f });
     pitchLink = makeToggle (ParamIDs::pitchLink, "PITCH-LINK", "onoff");
 
     generatePanel = { "", "", { makeKnob (variation, "Variation"), makeKnob (slotLen, de ("L\xc3\xa4" "nge")), makeKnob (rootNote, "Root") }, {}, 46.0f };
@@ -565,7 +565,7 @@ void BleepEditor::resized()
         const float w = 24.0f + pnl.cell * (float) pnl.knobs.size();
         pnl.area = { x, gy, w, gh };
         placeKnobs (pnl, x + 12.0f, gy + 30.0f, gy + 44.0f, 66.0f);
-        if (pnl.title == "TRI-MOD")
+        if (pnl.title == "MOD")
             place (pitchLink->button, { x + 12.0f, gy + 113.0f, 92.0f, 17.0f });
         x += w + 8.0f;
     }
@@ -897,6 +897,17 @@ void BleepEditor::paintSlots (juce::Graphics& g)
         {
             g.setColour ((locked ? bleepcol::gold : bleepcol::ink).withAlpha (0.85f));
             g.fillPath (wavePaths[(size_t) i]);
+
+            // Charakter des Slots unten links in der Wellenform
+            const auto& sl = shownSlots[(size_t) i];
+            const auto name = sl->character.isNotEmpty() ? sl->character.toUpperCase() : juce::String ("REGLER");
+            g.setFont (bb::fonts::mono (9.5f * u));
+            const auto tag = juce::Rectangle<float> (wa.getX() + 4.0f * u, wa.getBottom() - 15.0f * u,
+                                                     (float) name.length() * 6.2f * u + 8.0f * u, 12.0f * u);
+            g.setColour (bleepcol::bg.withAlpha (0.8f));
+            g.fillRoundedRectangle (tag, 3.0f * u);
+            g.setColour (sl->character.isNotEmpty() ? bleepcol::red : bleepcol::inkDim);
+            g.drawText (name, tag, juce::Justification::centred);
         }
         else
         {
