@@ -23,6 +23,12 @@ Stereo-Spreizer mit zwei Reglern.
 - **Output**: Ausgangspegel -24 bis +12 dB.
 - **Band-Anzeige oben**: Weichen (Griffe mit Frequenz) seitlich verschieben, jedes Band hoch/runter ziehen = Drive des Bandes. Shift = fein, Doppelklick = Standard, Mausrad geht auch. Band auf 0 = bleibt sauber.
 
+## Brainbugz Bleep Designer
+
+Instrument für Bleep-Blop-Sounds (in Arbeit). Plan: Square mit Phase Distortion durch eine stumme Triangle, 4 Slots mit Lock und Seed, Arp mit Repitch-Sampler, Ausgang Comb → Crush → Filter → Delay.
+
+- **Stand Etappe 1**: Grundgerüst als VST3-Instrument. Jede MIDI-Note spielt einen kurzen Test-Ton, die Anzeige leuchtet bei jedem Anschlag. **Output** regelt den Pegel.
+
 ## Bauen
 
 GitHub Actions baut bei jedem Push auf `main` automatisch die Windows-VST3 (`.github/workflows/build.yml`) und testet sie mit pluginval. Die fertigen Plugins liegen als Artefakt **Brainbugz-VST3** am jeweiligen Lauf und als ZIPs auf dem Branch `builds` (einzeln und als `Brainbugz-alle-VST3.zip`).
@@ -38,6 +44,7 @@ cmake --build build --config Release
 
 - `Plugins/Haas` – Haas-Plugin (DSP in `HaasEngine.h`, Szene in `LabScene.cpp`)
 - `Plugins/BugFuzz` – BugFuzz-Plugin (DSP in `BugFuzzEngine.h`, Band-Anzeige in `BandView.cpp`)
+- `Plugins/BleepDesigner` – Bleep-Designer-Instrument, in Arbeit
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
