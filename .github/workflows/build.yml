@@ -61,10 +61,14 @@ jobs:
           Expand-Archive pluginval.zip -DestinationPath pluginval
           $fail = 0
           foreach ($vst in Get-ChildItem out -Directory -Filter "*.vst3") {
-            $log = "out/pluginval-" + ($vst.BaseName -replace " ", "-") + ".txt"
-            .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --validate-in-process --validate "$($vst.FullName)" *> $log
-            if ($LASTEXITCODE -ne 0) { $fail = 1; Write-Host "FEHLER: $($vst.Name)" } else { Write-Host "OK: $($vst.Name)" }
-            Get-Content $log -Tail 5
+            $name = $vst.BaseName -replace " ", "-"
+            $log = "out/pluginval-$name.txt"
+            $p = Start-Process -FilePath ".\pluginval\pluginval.exe" -Wait -PassThru -NoNewWindow `
+                   -ArgumentList @("--strictness-level", "5", "--skip-gui-tests", "--validate-in-process", "--validate", "`"$($vst.FullName)`"") `
+                   -RedirectStandardOutput $log -RedirectStandardError "out/pluginval-$name-err.txt"
+            Write-Host "$($vst.Name): Exit $($p.ExitCode)"
+            if ($p.ExitCode -ne 0) { $fail = 1 }
+            Get-Content $log -Tail 8
           }
           exit $fail
 

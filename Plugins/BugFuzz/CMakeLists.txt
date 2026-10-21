@@ -17,7 +17,7 @@ juce_add_plugin(BrainbugzBugFuzz
 target_sources(BrainbugzBugFuzz PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
-    Source/LabScene.cpp)
+    Source/BandView.cpp)
 
 target_compile_definitions(BrainbugzBugFuzz PUBLIC
     JUCE_WEB_BROWSER=0

@@ -2,9 +2,10 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
-#include "LabScene.h"
+#include "BandView.h"
 #include "BrainBugzLook.h"
 
+// Schlichtes Multiband-Layout: Kopfzeile, Band-Anzeige oben, Regler unten
 class BugFuzzEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -14,32 +15,25 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    static constexpr int baseW = 990, baseH = 760, headerH = 70, sceneH = 440;
+    static constexpr int baseW = 900, baseH = 520;
 
 private:
     void timerCallback() override;
-    void paintHeader (juce::Graphics&, juce::Rectangle<float>);
-    void paintDeck (juce::Graphics&, juce::Rectangle<float>);
-    juce::Rectangle<float> deckRect (float x, float y, float w, float h) const;
-
-    // ziehbarer Output-Wert in der Anzeige
-    class OutValue;
+    juce::Rectangle<float> R (float x, float y, float w, float h) const { return { x * u, y * u, w * u, h * u }; }
 
     BugFuzzProcessor& proc;
     bb::LookAndFeel lnf;
-    LabScene scene;
+    BandView bands;
     juce::Image logo;
 
-    juce::Slider drive, mix;
-    juce::TextButton octaBtn { "OCTA" }, agBtn { "Auto-Gain" };
-    std::unique_ptr<OutValue> outVal;
+    juce::Slider drive, mix, output;
+    juce::TextButton octaBtn { "OCTA" }, agBtn { "AUTO-GAIN" };
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    std::unique_ptr<SA> driveAtt, mixAtt;
+    std::unique_ptr<SA> driveAtt, mixAtt, outAtt;
     std::unique_ptr<BA> octaAtt, agAtt;
 
-    float u = 1.0f;     // Skalierung gegenüber 990 px Breite
-    double tubePhase = 0.0, lastMs = 0.0;
+    float u = 1.0f; // Skalierung gegenüber 900 px Breite
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BugFuzzEditor)
 };

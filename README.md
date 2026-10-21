@@ -19,8 +19,8 @@ Stereo-Spreizer mit zwei Reglern.
 - **Mix**: Dry/Wet, zeitgleich gemischt (kein Kammfilter).
 - **OCTA**: Gleichrichter-Oktave auf den oberen drei Bändern.
 - **Auto-Gain**: Fuzz-Signal folgt dem Pegel des Originals (an = gleich laut beim Aufdrehen).
-- **Output**: in der Anzeige ziehen, Mausrad, Doppelklick = 0 dB.
-- **Rechter Monitor**: die vier Band-Säulen (Drive je Band) und die drei Weichen-Frequenzen direkt ziehen; Shift = fein, Doppelklick = Standard. Band auf 0 = bleibt sauber.
+- **Output**: Ausgangspegel -24 bis +12 dB.
+- **Band-Anzeige oben**: Weichen (Griffe mit Frequenz) seitlich verschieben, jedes Band hoch/runter ziehen = Drive des Bandes. Shift = fein, Doppelklick = Standard, Mausrad geht auch. Band auf 0 = bleibt sauber.
 
 ## Bauen
 
@@ -36,7 +36,7 @@ cmake --build build --config Release
 ## Ordner
 
 - `Plugins/Haas` – Haas-Plugin (DSP in `HaasEngine.h`, Szene in `LabScene.cpp`)
-- `Plugins/BugFuzz` – BugFuzz-Plugin (DSP in `BugFuzzEngine.h`, Szene in `LabScene.cpp`)
+- `Plugins/BugFuzz` – BugFuzz-Plugin (DSP in `BugFuzzEngine.h`, Band-Anzeige in `BandView.cpp`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
