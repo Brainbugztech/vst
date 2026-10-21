@@ -15,7 +15,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    static constexpr int baseW = 900, baseH = 520;
+    static constexpr int baseW = 900, baseH = 600;
 
 private:
     void timerCallback() override;

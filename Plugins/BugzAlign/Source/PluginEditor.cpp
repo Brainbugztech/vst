@@ -2,7 +2,7 @@
 
 namespace
 {
-    constexpr float knobY = 382.0f, knobS = 96.0f;
+    constexpr float knobY = 506.0f, knobS = 92.0f;
     struct KnobDef { const char* id; const char* label; float cx; bool brain; double def; };
     const KnobDef kKnobs[6] {
         { ParamIDs::amount, "AMOUNT", 70.0f, false, 1.0 },
@@ -67,19 +67,19 @@ BugzAlignEditor::~BugzAlignEditor()
 void BugzAlignEditor::resized()
 {
     u = (float) getWidth() / (float) baseW;
-    view.setBounds (R (20, 76, 860, 230).toNearestInt());
+    view.setBounds (R (20, 76, 860, 348).toNearestInt());
     juce::Slider* sliders[6] { &amount, &split, &window, &glide, &sens, &offset };
     for (int i = 0; i < 6; ++i)
         sliders[i]->setBounds (R (kKnobs[i].cx - knobS / 2, knobY - knobS / 2, knobS, knobS).toNearestInt());
-    holdBtn.setBounds (R (730, 342, 150, 38).toNearestInt());
-    abBtn.setBounds   (R (730, 392, 150, 38).toNearestInt());
-    subBtn.setBounds  (R (730, 442, 150, 38).toNearestInt());
+    holdBtn.setBounds (R (730, 462, 150, 36).toNearestInt());
+    abBtn.setBounds   (R (730, 508, 150, 36).toNearestInt());
+    subBtn.setBounds  (R (730, 554, 150, 36).toNearestInt());
 }
 
 void BugzAlignEditor::timerCallback()
 {
     view.update();
-    repaint (R (0, 430, 720, 80).getSmallestIntegerContainer());
+    repaint (R (0, 548, 720, 50).getSmallestIntegerContainer());
 }
 
 void BugzAlignEditor::paint (juce::Graphics& g)
@@ -112,17 +112,17 @@ void BugzAlignEditor::paint (juce::Graphics& g)
     }
     g.setFont (bb::fonts::mono (12 * u));
     g.setColour (bb::col::inkDim);
-    g.drawText (juce::String::fromUTF8 ("Kick/Bass Phase-Align \xc2\xb7 Sidechain \xc2\xb7 v0.1"),
+    g.drawText (juce::String::fromUTF8 ("Kick/Bass Phase-Align \xc2\xb7 Sidechain \xc2\xb7 linearphasig \xc2\xb7 v0.2"),
                 juce::Rectangle<float> (x0, 42 * u, 400 * u, 16 * u), juce::Justification::left);
     g.drawText ("BRAIN BUGZ", R (680, 0, 200, 70), juce::Justification::centredRight);
 
     g.setFont (bb::fonts::mono (10.5f * u));
     g.setColour (bb::col::inkDim.withAlpha (0.6f));
     g.drawText (juce::String::fromUTF8 ("Auf den Bass \xc2\xb7 Kick per Sidechain \xc2\xb7 Split \xc3\xbc" "ber den Bass-Grundton \xc2\xb7 Doppelklick = Standard"),
-                R (20, 308, 860, 14), juce::Justification::centredRight);
+                R (20, 428, 860, 14), juce::Justification::centredRight);
 
     g.setColour (bb::col::line);
-    g.fillRect (R (20, 324, 860, 1));
+    g.fillRect (R (20, 446, 860, 1));
 
     for (const auto& kd : kKnobs)
     {
@@ -130,10 +130,10 @@ void BugzAlignEditor::paint (juce::Graphics& g)
         for (auto ch : juce::String (kd.label)) spaced << juce::String::charToString (ch) << " ";
         g.setFont (bb::fonts::display (12 * u));
         g.setColour (kd.brain ? bb::col::brain : bb::col::tox);
-        g.drawText (spaced.trim(), R (kd.cx - 60, 436, 120, 18), juce::Justification::centred);
+        g.drawText (spaced.trim(), R (kd.cx - 60, 552, 120, 18), juce::Justification::centred);
         g.setFont (bb::fonts::mono (15 * u));
         g.setColour (bb::col::ink);
-        g.drawText (proc.apvts.getParameter (kd.id)->getCurrentValueAsText(), R (kd.cx - 60, 456, 120, 22),
+        g.drawText (proc.apvts.getParameter (kd.id)->getCurrentValueAsText(), R (kd.cx - 60, 570, 120, 22),
                     juce::Justification::centred);
     }
 }

@@ -48,16 +48,18 @@ Titel-Schrift: Sedgwick Ave Display (SIL Open Font License), wird beim Build gel
 
 Richtet die Phase des Basses automatisch an der Kick aus. Das Plugin kommt auf den **Bass-Kanal**, die Kick wird per **Sidechain** reingeroutet (Plugin-Fenster in Ableton aufklappen → Sidechain → Audio From: Kick-Spur).
 
-Bei jeder Kick misst Bugz Align im Punch-Fenster, wie gut Kick-Sub und Bass-Sub zusammenpassen, und dreht die Phase des Bass-Subs auf den besten Winkel (Phase Rotation per Hilbert-Paar, kein Delay). Der neue Winkel wird per Look-ahead schon kurz vor der Kick weich eingeblendet. Feste Latenz von 180 ms, die Ableton automatisch ausgleicht (gedacht fürs Produzieren, nicht für Live).
+Bei jeder Kick misst Bugz Align im Punch-Fenster, wie gut Kick-Sub und Bass-Sub zusammenpassen, und dreht die Phase des Bass-Subs auf den besten Winkel. Der neue Winkel wird per Look-ahead schon kurz vor der Kick weich eingeblendet. Feste Latenz von ca. 148 ms, die Ableton automatisch ausgleicht (gedacht fürs Produzieren, nicht für Live).
+
+**Clean:** Der Signalweg ist linearphasig (FIR-Tiefpass + FIR-Hilbert per FFT-Faltung). Ausgang = Original + Korrektur des Subs. Bei 0 Grad kommt das Signal bit-genau so raus, wie es reingeht, und oberhalb des Splits wird nichts angefasst (keine Phasenverschiebung der Höhen).
 
 - **Amount**: wie stark korrigiert wird (100 % = voller Winkel).
-- **Split**: nur unterhalb dieser Frequenz wird gedreht, darüber bleibt der Bass unangetastet. Am besten über den Bass-Grundton setzen (Standard 180 Hz). Ganz rechts = **FULL**, dann wird der ganze Bass gedreht.
+- **Split**: nur unterhalb dieser Frequenz wird gedreht. Am besten über den Bass-Grundton setzen (Standard 180 Hz), direkt am Split überlagern sich gedrehter und ungedrehter Anteil. Ganz rechts = **FULL**, dann wird der ganze Bass gedreht.
 - **Window**: Länge des Punch-Fensters nach der Kick, in dem gemessen wird (kurze, knackige Kick = kürzer, lange 808 = länger).
 - **Glide**: wie schnell zum neuen Winkel übergeblendet wird.
 - **Kick Sens**: Empfindlichkeit der Kick-Erkennung.
 - **Offset**: manueller Zusatz-Winkel (funktioniert auch ohne Sidechain als normaler Phasendreher).
 - **HOLD** friert den aktuellen Winkel ein, **A/B VORHER** schaltet die Korrektur zum Vergleichen aus, **SUB CHECK** spielt nur den Sub von Bass + Kick (mono) zum Gegenhören.
-- **Anzeige**: Kick (grün), Bass vorher (gestrichelt) und nachher (pink) im letzten Punch-Fenster, Phasen-Scheibe mit dem aktuellen Winkel, Korrelation vorher/nachher (höher = drückt mehr) und Kick-LED.
+- **Anzeige**: Verlauf über die ganze Breite (bis 8 s) mit Sub von Kick (grün), Bass vorher (grau, per **VORHER** ein/aus) und nachher (pink), genau so, wie es im Ausgang ankommt. Darunter die Phasen-Spur, grüne Linien = erkannte Kicks. **Mausrad** oder **+/−** = Zoom (10 ms bis 8 s), **PAUSE** hält an, dann mit der Maus ziehen = zurückscrollen, **Doppelklick** = zurück zu Live. Unten: Kick-LED, Phase jetzt/erkannt, Korrelation vorher/nachher.
 
 ## Bauen
 

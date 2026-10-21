@@ -5,7 +5,7 @@ juce_add_plugin(BrainbugzBugzAlign
     PLUGIN_CODE Balg
     FORMATS VST3
     PRODUCT_NAME "Brainbugz Bugz Align"
-    VERSION 0.1.0
+    VERSION 0.2.0
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
