@@ -25,4 +25,5 @@ add_subdirectory(Shared)
 add_subdirectory(Plugins/Haas)
 add_subdirectory(Plugins/BugFuzz)
 add_subdirectory(Plugins/BleepDesigner)
+add_subdirectory(Plugins/BugzAlign)
 # Plugins/Phazer: Engine in Arbeit, wird noch nicht gebaut

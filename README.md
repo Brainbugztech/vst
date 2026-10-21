@@ -44,6 +44,21 @@ Instrument für Bleep-Blop-Sounds: generiert 4 kurze Bleeps, friert sie als Samp
 
 Titel-Schrift: Sedgwick Ave Display (SIL Open Font License), wird beim Build geladen.
 
+## Brainbugz Bugz Align
+
+Richtet die Phase des Basses automatisch an der Kick aus. Das Plugin kommt auf den **Bass-Kanal**, die Kick wird per **Sidechain** reingeroutet (Plugin-Fenster in Ableton aufklappen → Sidechain → Audio From: Kick-Spur).
+
+Bei jeder Kick misst Bugz Align im Punch-Fenster, wie gut Kick-Sub und Bass-Sub zusammenpassen, und dreht die Phase des Bass-Subs auf den besten Winkel (Phase Rotation per Hilbert-Paar, kein Delay). Der neue Winkel wird per Look-ahead schon kurz vor der Kick weich eingeblendet. Feste Latenz von 180 ms, die Ableton automatisch ausgleicht (gedacht fürs Produzieren, nicht für Live).
+
+- **Amount**: wie stark korrigiert wird (100 % = voller Winkel).
+- **Split**: nur unterhalb dieser Frequenz wird gedreht, darüber bleibt der Bass unangetastet. Am besten über den Bass-Grundton setzen (Standard 180 Hz). Ganz rechts = **FULL**, dann wird der ganze Bass gedreht.
+- **Window**: Länge des Punch-Fensters nach der Kick, in dem gemessen wird (kurze, knackige Kick = kürzer, lange 808 = länger).
+- **Glide**: wie schnell zum neuen Winkel übergeblendet wird.
+- **Kick Sens**: Empfindlichkeit der Kick-Erkennung.
+- **Offset**: manueller Zusatz-Winkel (funktioniert auch ohne Sidechain als normaler Phasendreher).
+- **HOLD** friert den aktuellen Winkel ein, **A/B VORHER** schaltet die Korrektur zum Vergleichen aus, **SUB CHECK** spielt nur den Sub von Bass + Kick (mono) zum Gegenhören.
+- **Anzeige**: Kick (grün), Bass vorher (gestrichelt) und nachher (pink) im letzten Punch-Fenster, Phasen-Scheibe mit dem aktuellen Winkel, Korrelation vorher/nachher (höher = drückt mehr) und Kick-LED.
+
 ## Bauen
 
 GitHub Actions baut bei jedem Push auf `main` automatisch die Windows-VST3 (`.github/workflows/build.yml`) und testet sie mit pluginval. Die fertigen Plugins liegen als Artefakt **Brainbugz-VST3** am jeweiligen Lauf und als ZIPs auf dem Branch `builds` (einzeln und als `Brainbugz-alle-VST3.zip`).
@@ -60,6 +75,7 @@ cmake --build build --config Release
 - `Plugins/Haas` – Haas-Plugin (DSP in `HaasEngine.h`, Szene in `LabScene.cpp`)
 - `Plugins/BugFuzz` – BugFuzz-Plugin (DSP in `BugFuzzEngine.h`, Band-Anzeige in `BandView.cpp`)
 - `Plugins/BleepDesigner` – Bleep-Designer-Instrument, in Arbeit
+- `Plugins/BugzAlign` – Kick/Bass-Phasenausrichtung (DSP in `AlignEngine.h`, Anzeige in `AlignView.cpp`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
