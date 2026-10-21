@@ -1,48 +1,41 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-// ---------------------------------------------------------------- TestVoice
+// --------------------------------------------------------------- BleepVoice
 
-void TestVoice::startNote (int midiNote, float velocity, juce::SynthesiserSound*, int)
+void BleepVoice::startNote (int midiNote, float velocity, juce::SynthesiserSound*, int)
 {
-    phase = 0.0;
-    inc = juce::MidiMessage::getMidiNoteInHertz (midiNote) / getSampleRate();
-    level = velocity * 0.3f;
-    adsr.setSampleRate (getSampleRate());
-    adsr.setParameters ({ 0.002f, 0.18f, 0.0f, 0.05f });
-    adsr.noteOn();
+    core.prepare (getSampleRate());
+    core.start (juce::MidiMessage::getMidiNoteInHertz (midiNote), velocity, params);
 }
 
-void TestVoice::stopNote (float, bool allowTailOff)
+void BleepVoice::stopNote (float, bool allowTailOff)
 {
     if (allowTailOff)
     {
-        adsr.noteOff();
+        core.release();
     }
     else
     {
-        adsr.reset();
+        core.kill();
         clearCurrentNote();
     }
 }
 
-void TestVoice::renderNextBlock (juce::AudioBuffer<float>& out, int startSample, int numSamples)
+void BleepVoice::renderNextBlock (juce::AudioBuffer<float>& out, int startSample, int numSamples)
 {
     if (! isVoiceActive())
         return;
 
+    core.update (params);
     const int numCh = out.getNumChannels();
     for (int i = 0; i < numSamples; ++i)
     {
-        const float s = (float) std::sin (phase * juce::MathConstants<double>::twoPi) * level * adsr.getNextSample();
+        const float s = core.next (params) * 0.25f;
         for (int ch = 0; ch < numCh; ++ch)
             out.addSample (ch, startSample + i, s);
 
-        phase += inc;
-        if (phase >= 1.0)
-            phase -= 1.0;
-
-        if (! adsr.isActive())
+        if (! core.isActive())
         {
             clearCurrentNote();
             break;
@@ -56,9 +49,10 @@ BleepProcessor::BleepProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "BrainbugzBleepDesigner", createLayout())
 {
+    genParams = readGenParams();
     for (int i = 0; i < kNumVoices; ++i)
-        synth.addVoice (new TestVoice());
-    synth.addSound (new TestSound());
+        synth.addVoice (new BleepVoice (genParams));
+    synth.addSound (new BleepSound());
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout()
@@ -66,22 +60,112 @@ juce::AudioProcessorValueTreeState::ParameterLayout BleepProcessor::createLayout
     using namespace juce;
     AudioProcessorValueTreeState::ParameterLayout layout;
 
-    layout.add (std::make_unique<AudioParameterFloat> (
-        ParameterID { ParamIDs::output, 1 }, "Output", NormalisableRange<float> (-24.0f, 6.0f, 0.1f), -3.0f,
-        AudioParameterFloatAttributes().withLabel ("dB").withStringFromValueFunction ([] (float v, int)
-        {
-            return String (v, 1) + " dB";
-        })));
+    auto signedInt = [] (int v, int) { return v > 0 ? "+" + String (v) : String (v); };
+    auto pct = AudioParameterFloatAttributes().withLabel ("%").withStringFromValueFunction ([] (float v, int)
+    {
+        return String (roundToInt (v)) + " %";
+    });
+    auto msAttr = AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction ([] (float v, int)
+    {
+        return v < 10.0f ? String (v, 1) + " ms" : String (roundToInt (v)) + " ms";
+    });
+    auto st = AudioParameterFloatAttributes().withLabel ("st").withStringFromValueFunction ([] (float v, int)
+    {
+        return (v > 0.0f ? "+" : "") + String (v, std::abs (v) < 10.0f ? 1 : 0);
+    });
+    auto db = AudioParameterFloatAttributes().withLabel ("dB").withStringFromValueFunction ([] (float v, int)
+    {
+        return String (v, 1) + " dB";
+    });
 
+    auto msRange = [] (float max, float centre)
+    {
+        NormalisableRange<float> r (0.0f, max, 0.1f);
+        r.setSkewForCentre (centre);
+        return r;
+    };
+
+    // Square
+    layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::sqOct, 1 }, "Square Oktave", -4, 2, -1,
+                                                     AudioParameterIntAttributes().withStringFromValueFunction (signedInt)));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::sqLevel, 1 }, "Square Pegel",
+                                                       NormalisableRange<float> (-24.0f, 0.0f, 0.1f), 0.0f, db));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::sqPw, 1 }, "Pulsbreite",
+                                                       NormalisableRange<float> (5.0f, 95.0f, 0.1f), 50.0f, pct));
+
+    // Triangle-Modulator
+    layout.add (std::make_unique<AudioParameterInt> (ParameterID { ParamIDs::modOct, 1 }, "Tri-Mod Oktave", -4, 0, -3,
+                                                     AudioParameterIntAttributes().withStringFromValueFunction (signedInt)));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::modPd, 1 }, "PD-Amount",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 30.0f, pct));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::pitchLink, 1 }, "Pitch-Link", true));
+
+    // Pitch-Envelope
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::penvAmt, 1 }, "Pitch-Env Amount",
+                                                       NormalisableRange<float> (-48.0f, 48.0f, 0.1f), 24.0f, st));
+    {
+        NormalisableRange<float> r (1.0f, 500.0f, 0.1f);
+        r.setSkewForCentre (60.0f);
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::penvDecay, 1 }, "Pitch-Env Decay", r, 60.0f, msAttr));
+    }
+
+    // LFO
+    {
+        NormalisableRange<float> r (0.1f, 500.0f, 0.01f);
+        r.setSkewForCentre (6.0f);
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::lfoRate, 1 }, "LFO Rate", r, 4.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction ([] (float v, int)
+            {
+                return String (v, v < 10.0f ? 2 : (v < 100.0f ? 1 : 0)) + " Hz";
+            })));
+    }
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::lfoPitch, 1 }, "LFO Pitch",
+                                                       NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f, st));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::lfoPd, 1 }, "LFO PD",
+                                                       NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 0.0f, pct));
+
+    // Amp-Envelope
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::ampA, 1 }, "Attack", msRange (2000.0f, 50.0f), 1.0f, msAttr));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::ampD, 1 }, "Decay", msRange (2000.0f, 200.0f), 180.0f, msAttr));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::ampS, 1 }, "Sustain",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f, pct));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::ampR, 1 }, "Release", msRange (2000.0f, 100.0f), 40.0f, msAttr));
+
+    // Ausgang
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::output, 1 }, "Output",
+                                                       NormalisableRange<float> (-24.0f, 6.0f, 0.1f), -3.0f, db));
     return layout;
+}
+
+bleep::GenParams BleepProcessor::readGenParams() const
+{
+    bleep::GenParams p;
+    p.sqOct     = juce::roundToInt (raw (ParamIDs::sqOct));
+    p.sqGain    = juce::Decibels::decibelsToGain (raw (ParamIDs::sqLevel), -24.0f);
+    p.pw        = raw (ParamIDs::sqPw) * 0.01f;
+    p.modOct    = juce::roundToInt (raw (ParamIDs::modOct));
+    p.pd        = raw (ParamIDs::modPd) * 0.01f;
+    p.pitchLink = raw (ParamIDs::pitchLink) > 0.5f;
+    p.penvAmt   = raw (ParamIDs::penvAmt);
+    p.penvDecay = raw (ParamIDs::penvDecay);
+    p.lfoRate   = raw (ParamIDs::lfoRate);
+    p.lfoPitch  = raw (ParamIDs::lfoPitch);
+    p.lfoPd     = raw (ParamIDs::lfoPd) * 0.01f;
+    p.attack    = raw (ParamIDs::ampA);
+    p.decay     = raw (ParamIDs::ampD);
+    p.sustain   = raw (ParamIDs::ampS) * 0.01f;
+    p.release   = raw (ParamIDs::ampR);
+    return p;
 }
 
 void BleepProcessor::prepareToPlay (double sampleRate, int)
 {
     synth.setCurrentPlaybackSampleRate (sampleRate);
     outGain.reset (sampleRate, 0.02);
-    outGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (apvts.getRawParameterValue (ParamIDs::output)->load()));
+    outGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (raw (ParamIDs::output)));
+    dcR = (float) std::exp (-juce::MathConstants<double>::twoPi * 10.0 / sampleRate);
     env = 0.0f;
+    dcX[0] = dcX[1] = dcY[0] = dcY[1] = 0.0f;
 }
 
 bool BleepProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -100,7 +184,6 @@ void BleepProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     if (n == 0)
         return;
 
-    // Letzte Note fuer die Anzeige merken
     for (const auto meta : midi)
     {
         const auto msg = meta.getMessage();
@@ -111,10 +194,12 @@ void BleepProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
         }
     }
 
+    genParams = readGenParams();
     synth.renderNextBlock (buffer, midi, 0, n);
 
-    outGain.setTargetValue (juce::Decibels::decibelsToGain (apvts.getRawParameterValue (ParamIDs::output)->load()));
-    const int numCh = buffer.getNumChannels();
+    // DC-Blocker (Pulsbreite != 50 % erzeugt Gleichanteil), Output, Pegel fuer die Anzeige
+    outGain.setTargetValue (juce::Decibels::decibelsToGain (raw (ParamIDs::output)));
+    const int numCh = std::min (2, buffer.getNumChannels());
     for (int i = 0; i < n; ++i)
     {
         const float g = outGain.getNextValue();
@@ -122,7 +207,11 @@ void BleepProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
         for (int ch = 0; ch < numCh; ++ch)
         {
             auto* d = buffer.getWritePointer (ch);
-            d[i] *= g;
+            const float x = d[i];
+            const float y = x - dcX[ch] + dcR * dcY[ch];
+            dcX[ch] = x;
+            dcY[ch] = y;
+            d[i] = juce::jlimit (-2.0f, 2.0f, y * g);
             peak = std::max (peak, std::abs (d[i]));
         }
         env += (peak - env) * (peak > env ? 0.05f : 0.0005f);
