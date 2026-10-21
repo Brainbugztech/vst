@@ -108,7 +108,7 @@ public:
     static constexpr int kNumSlots = bleep::kNumSlots;
 
     BleepProcessor();
-    ~BleepProcessor() override = default;
+    ~BleepProcessor() override { stopTimer(); }
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
