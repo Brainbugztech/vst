@@ -231,7 +231,7 @@ void BrainfuzzContent::showOptions()
     m.addItem (3, "Preset-Ordner oeffnen");
     m.addItem (4, "Preset-Liste neu laden");
     m.addSeparator();
-    m.addItem (5, "Brainfuzz " JucePlugin_VersionString " – Brain Bugz", false);
+    m.addItem (5, "Brainfuzz " JucePlugin_VersionString " - Brain Bugz", false);
     juce::Component::SafePointer<BrainfuzzContent> safe (this);
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&optionsBtn), [safe] (int r)
     {

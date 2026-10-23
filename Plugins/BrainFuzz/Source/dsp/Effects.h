@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – Effekte pro Band: Bit Crusher, Chorus (bis 3 Stimmen), Reverb (FDN)
+// Brainfuzz - Effekte pro Band: Bit Crusher, Chorus (bis 3 Stimmen), Reverb (FDN)
 // plus Hilfsbausteine: Verzoegerung, Allpass, einfache Filter, Dekorrelator fuer "Spread".
 
 #include <vector>

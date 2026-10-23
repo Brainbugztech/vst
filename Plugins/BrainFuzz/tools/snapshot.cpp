@@ -1,4 +1,4 @@
-// Brainfuzz – rendert die Oberflaeche mit laufendem Testaudio in ein PNG (nur fuer Entwicklung)
+// Brainfuzz - rendert die Oberflaeche mit laufendem Testaudio in ein PNG (nur fuer Entwicklung)
 // Wird nur mit -DBRAINFUZZ_SNAPSHOT=ON gebaut: brainfuzz_snapshot <out.png> [preset-index] [scale] [fx-tab]
 #include "../Source/PluginProcessor.h"
 #include "../Source/PluginEditor.h"

@@ -36,7 +36,26 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Bauen
-        run: cmake --build build --config Release --parallel
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build --config Release --parallel 2>&1 | tee build.log
+
+      - name: Build-Fehler auf Branch "build-log" ablegen
+        if: failure()
+        shell: bash
+        run: |
+          mkdir logpub
+          grep -E "error|Error|fatal" build.log | grep -v "warning" | sort -u | head -200 > logpub/errors.txt || true
+          tail -300 build.log > logpub/tail.txt || true
+          echo "Commit: $GITHUB_SHA" > logpub/info.txt
+          cd logpub
+          git init -q -b build-log
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Build-Log ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" build-log
 
       - name: VST3 einsammeln
         shell: pwsh

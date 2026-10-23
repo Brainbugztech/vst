@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – 4x-Oversampling mit zwei linearphasigen Halbband-FIR-Stufen (polyphas)
+// Brainfuzz - 4x-Oversampling mit zwei linearphasigen Halbband-FIR-Stufen (polyphas)
 // Stufe 1: 47 Taps (Basis <-> 2x), Stufe 2: 19 Taps (2x <-> 4x)
 // Die Gesamtlatenz ist auf ganze Basis-Samples aufgerundet (kLatency), damit
 // der saubere Weg mit einer einfachen Verzoegerung exakt zeitgleich gehalten werden kann.

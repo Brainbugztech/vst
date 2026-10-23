@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – Retro-Synthwave-Look: Nachtviolett, Neon-Pink, Cyan, Sonnenuntergang
+// Brainfuzz - Retro-Synthwave-Look: Nachtviolett, Neon-Pink, Cyan, Sonnenuntergang
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "BrainBugzLook.h"

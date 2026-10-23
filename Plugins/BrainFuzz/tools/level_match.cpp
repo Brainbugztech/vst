@@ -1,4 +1,4 @@
-// Brainfuzz – Pegel-Abgleich der Werkspresets
+// Brainfuzz - Pegel-Abgleich der Werkspresets
 // Rendert jedes Preset mit synthetischem Testmaterial (Kick, Hats, Saw-Bass, Akkorde) und
 // berechnet den Output, mit dem das Preset so laut ist wie das Original.
 // Schreibt ../Source/dsp/PresetLevels.h. Mit "--wav <ordner>" zusaetzlich WAV-Dateien zum Reinhoeren.
@@ -148,7 +148,7 @@ int main (int argc, char** argv)
     }
 
     std::ofstream h ("../Source/dsp/PresetLevels.h");
-    h << "#pragma once\n\n// Automatisch erzeugt von tools/level_match.cpp – nicht von Hand bearbeiten.\n"
+    h << "#pragma once\n\n// Automatisch erzeugt von tools/level_match.cpp - nicht von Hand bearbeiten.\n"
          "// Output-Pegel pro Werkspreset, damit alle Presets so laut sind wie das Original.\n\n"
          "#include <string>\n\nnamespace bfz\n{\n\ninline float presetLevelDb (const std::string& name)\n{\n";
     for (const auto& [n, d] : result)

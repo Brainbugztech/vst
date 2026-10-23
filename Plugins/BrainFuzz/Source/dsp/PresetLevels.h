@@ -1,6 +1,6 @@
 #pragma once
 
-// Automatisch erzeugt von tools/level_match.cpp – nicht von Hand bearbeiten.
+// Automatisch erzeugt von tools/level_match.cpp - nicht von Hand bearbeiten.
 // Output-Pegel pro Werkspreset, damit alle Presets so laut sind wie das Original.
 
 #include <string>

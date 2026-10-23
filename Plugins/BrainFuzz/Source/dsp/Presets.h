@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – 40 Werkspresets in Gruppen (ohne JUCE)
+// Brainfuzz - 40 Werkspresets in Gruppen (ohne JUCE)
 // Jedes Preset setzt nur, was vom Init abweicht. Der Ausgangspegel (Pegel-Abgleich) kommt aus
 // PresetLevels.h, das tools/level_match.cpp aus echten Renderings berechnet.
 

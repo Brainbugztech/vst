@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – sieben Saettigungs-Kennlinien, von hartem Splatter-Fuzz bis weicher Tape-Waerme
+// Brainfuzz - sieben Saettigungs-Kennlinien, von hartem Splatter-Fuzz bis weicher Tape-Waerme
 // Jede Kennlinie: f(0) = 0, Steigung bei 0 ungefaehr 1 (kleine Signale bleiben gleich laut),
 // begrenzt auf etwa +-1. "Bite" (0..1) formt innerhalb des Typs, wie hart er zubeisst.
 

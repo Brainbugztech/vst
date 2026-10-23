@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – Bedienelemente: Regler mit Beschriftung und tippbarem Wert, Schalter, Auswahl-Leisten
+// Brainfuzz - Bedienelemente: Regler mit Beschriftung und tippbarem Wert, Schalter, Auswahl-Leisten
 
 #include "Theme.h"
 #include "../PluginProcessor.h"

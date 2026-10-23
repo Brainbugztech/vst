@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – zentrale Parameter-Tabelle (ohne JUCE)
+// Brainfuzz - zentrale Parameter-Tabelle (ohne JUCE)
 // Plugin, Presets und Test-Tools benutzen dieselbe Liste und dieselbe Umrechnung in EngineParams.
 
 #include "BrainFuzzEngine.h"

@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainbugz Brainfuzz – Engine (ohne JUCE, damit sie in den Test-Tools laeuft)
+// Brainbugz Brainfuzz - Engine (ohne JUCE, damit sie in den Test-Tools laeuft)
 //
 // Signalweg pro Band:
 //   Weiche -> [FX Pre] -> Saettigung (4x Oversampling) -> Tight -> [FX Post]

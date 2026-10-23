@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – analoge Filter-Prototypen und digitale Biquad-Kaskaden
+// Brainfuzz - analoge Filter-Prototypen und digitale Biquad-Kaskaden
 // Typen: Butterworth, Linkwitz-Riley, Chebyshev I/II, Elliptic, Bessel, Legendre, Gaussian
 // Alle Tiefpass-Prototypen (ausser LR) sind auf -3 dB bei w = 1 normiert, LR auf -6 dB.
 // Ohne JUCE, damit die Engine auch in den Test-Tools laeuft.
@@ -139,7 +139,7 @@ inline void normaliseCutoff (Zpk& z, double level)
 {
     setDcGain (z);
     double lo = 1e-3, hi = 1e3;
-    // |H| faellt (fast) monoton um die Grenzfrequenz – Bisektion auf log-Skala, von unten gesucht
+    // |H| faellt (fast) monoton um die Grenzfrequenz - Bisektion auf log-Skala, von unten gesucht
     // Erst grob: erstes w, bei dem |H| < level
     double w = lo;
     const double stepF = 1.02;

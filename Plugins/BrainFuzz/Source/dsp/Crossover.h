@@ -1,6 +1,6 @@
 #pragma once
 
-// Brainfuzz – 4-Band-Weiche mit 8 Filtertypen und 12/24/48 dB
+// Brainfuzz - 4-Band-Weiche mit 8 Filtertypen und 12/24/48 dB
 //
 // Aufbau (Baum mit Ausgleich):
 //   Band 1 = LP1 * C2 * C3      Band 2 = HP1 * LP2 * C3
