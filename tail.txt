@@ -1,0 +1,300 @@
+          [
+              _Other1=const char (&)[7],
+              _Other2=int
+          ]
+              D:\a\vst\vst\Plugins\BleepDesigner\Source\Presets.h(25,55):
+              see the first reference to 'std::pair<const char *,float>::pair' in 'bleep::factoryPresets'
+  
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244: 'initializing': conversion from '_Ty' to '_Ty2', possible loss of data [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         with [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         [ [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:             _Ty=int [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         ] [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         and [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         [ [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:             _Ty2=float [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         ] [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+  (compiling source file '../../../Plugins/BleepDesigner/Source/PluginEditor.cpp')
+      C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54):
+      the template instantiation context (the oldest one first) is
+          D:\a\vst\vst\Plugins\BleepDesigner\Source\Presets.h(29,13):
+          see reference to function template instantiation 'std::pair<const char *,float>::pair<const char(&)[7],int,0>(_Other1,_Other2 &&) noexcept' being compiled
+          with
+          [
+              _Other1=const char (&)[7],
+              _Other2=int
+          ]
+              D:\a\vst\vst\Plugins\BleepDesigner\Source\Presets.h(25,55):
+              see the first reference to 'std::pair<const char *,float>::pair' in 'bleep::factoryPresets'
+  
+  StepGrid.cpp
+  juce_audio_processors.cpp
+  juce_audio_processors_ara.cpp
+  juce_audio_processors_lv2_libs.cpp
+  juce_gui_extra.cpp
+  Analyser.cpp
+  BandModule.cpp
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244: 'initializing': conversion from '_Ty' to '_Ty2', possible loss of data [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         with [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         [ [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:             _Ty=int [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         ] [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         and [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         [ [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:             _Ty2=float [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54): warning C4244:         ] [D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner.vcxproj]
+  (compiling source file '../../../Plugins/BleepDesigner/Source/StepGrid.cpp')
+      C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\14.51.36231\include\utility(277,54):
+      the template instantiation context (the oldest one first) is
+          D:\a\vst\vst\Plugins\BleepDesigner\Source\Presets.h(29,13):
+          see reference to function template instantiation 'std::pair<const char *,float>::pair<const char(&)[7],int,0>(_Other1,_Other2 &&) noexcept' being compiled
+          with
+          [
+              _Other1=const char (&)[7],
+              _Other2=int
+          ]
+              D:\a\vst\vst\Plugins\BleepDesigner\Source\Presets.h(25,55):
+              see the first reference to 'std::pair<const char *,float>::pair' in 'bleep::factoryPresets'
+  
+  juce_gui_basics.cpp
+  juce_audio_processors_ara.cpp
+  juce_audio_processors_lv2_libs.cpp
+  juce_gui_extra.cpp
+  SidePanels.cpp
+D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,89): error C2440: '<function-style-cast>': cannot convert from 'const bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25> *' to 'juce::Component::SafePointer<bfz::ui::Analyser>' [D:\a\vst\vst\build\Plugins\BrainFuzz\BrainbugzBrainfuzz.vcxproj]
+      D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,89):
+      'juce::Component::SafePointer<bfz::ui::Analyser>::SafePointer': no overloaded function could convert all the argument types
+          D:\a\vst\vst\build\_deps\juce-src\modules\juce_gui_basics\components\juce_Component.h(2398,9):
+          could be 'juce::Component::SafePointer<bfz::ui::Analyser>::SafePointer(const juce::Component::SafePointer<bfz::ui::Analyser> &) noexcept'
+              D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,89):
+              'juce::Component::SafePointer<bfz::ui::Analyser>::SafePointer(const juce::Component::SafePointer<bfz::ui::Analyser> &) noexcept': cannot convert argument 1 from 'const bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25> *' to 'const juce::Component::SafePointer<bfz::ui::Analyser> &'
+                  D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,90):
+                  Reason: cannot convert from 'const bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25> *' to 'const juce::Component::SafePointer<bfz::ui::Analyser>'
+          D:\a\vst\vst\build\_deps\juce-src\modules\juce_gui_basics\components\juce_Component.h(2395,9):
+          or       'juce::Component::SafePointer<bfz::ui::Analyser>::SafePointer(ComponentType *)'
+          with
+          [
+              ComponentType=bfz::ui::Analyser
+          ]
+              D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,89):
+              'juce::Component::SafePointer<bfz::ui::Analyser>::SafePointer(ComponentType *)': cannot convert argument 1 from 'const bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25> *' to 'ComponentType *'
+          with
+          [
+              ComponentType=bfz::ui::Analyser
+          ]
+                  D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,90):
+                  Types pointed to are unrelated; conversion requires reinterpret_cast, C-style cast or parenthesized function-style cast
+          D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,89):
+          while trying to match the argument list '(const bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25> *)'
+  
+D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,67): error C2119: 'safe': the type for 'auto' cannot be deduced from an empty initializer [D:\a\vst\vst\build\Plugins\BrainFuzz\BrainbugzBrainfuzz.vcxproj]
+D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(393,22): error C2446: '!=': no conversion from 'nullptr' to 'const <error type>' [D:\a\vst\vst\build\Plugins\BrainFuzz\BrainbugzBrainfuzz.vcxproj]
+      D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(393,25):
+      A native nullptr can only be converted to bool or, using reinterpret_cast, to an integral type
+  
+D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(394,9): error C2439: 'bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25>::()::<lambda_c57f23c3660ad1527ead9a32887b6444>::safe': member could not be initialized [D:\a\vst\vst\build\Plugins\BrainFuzz\BrainbugzBrainfuzz.vcxproj]
+      D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(394,9):
+      see declaration of 'bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25>::()::<lambda_c57f23c3660ad1527ead9a32887b6444>::safe'
+  
+D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(394,9): error C2512: 'bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25>::()::<lambda_c57f23c3660ad1527ead9a32887b6444>': no appropriate default constructor available [D:\a\vst\vst\build\Plugins\BrainFuzz\BrainbugzBrainfuzz.vcxproj]
+      D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(394,9):
+      Invalid aggregate initialization
+          D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(394,9):
+          'bfz::ui::Analyser::editValue::<lambda_a6f7c092d833903d87c1fd93ead94b25>::()::<lambda_c57f23c3660ad1527ead9a32887b6444>::safe': private and protected members cannot be initialized without a constructor
+  
+D:\a\vst\vst\Plugins\BrainFuzz\Source\ui\Analyser.cpp(391,31): error C2672: 'juce::MessageManager::callAsync': no matching overloaded function found [D:\a\vst\vst\build\Plugins\BrainFuzz\BrainbugzBrainfuzz.vcxproj]
+      D:\a\vst\vst\build\_deps\juce-src\modules\juce_events\messages\juce_MessageManager.h(116,17):
+      could be 'bool juce::MessageManager::callAsync(Function &&)'
+  
+  juce_graphics.cpp
+  juce_gui_basics.cpp
+  juce_audio_processors.cpp
+  juce_graphics.cpp
+  juce_audio_processors_ara.cpp
+  juce_audio_processors_lv2_libs.cpp
+  juce_gui_extra.cpp
+  juce_gui_basics.cpp
+  juce_graphics_Harfbuzz.cpp
+  juce_graphics.cpp
+  juce_events.cpp
+  juce_graphics_Harfbuzz.cpp
+  juce_core.cpp
+  juce_events.cpp
+  juce_core.cpp
+  juce_core_CompilationTime.cpp
+  juce_data_structures.cpp
+  juce_graphics_Harfbuzz.cpp
+  juce_audio_basics.cpp
+  juce_dsp.cpp
+  juce_core_CompilationTime.cpp
+  juce_data_structures.cpp
+  juce_events.cpp
+  juce_audio_formats.cpp
+  juce_audio_basics.cpp
+  juce_core.cpp
+  juce_graphics_Sheenbidi.c
+  juce_core_CompilationTime.cpp
+  juce_data_structures.cpp
+  BrainbugzBleepDesigner.vcxproj -> D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner_artefacts\Release\Brainbugz Bleep Designer_SharedCode.lib
+  juce_graphics_Sheenbidi.c
+  BrainbugzBugFuzz.vcxproj -> D:\a\vst\vst\build\Plugins\BugFuzz\BrainbugzBugFuzz_artefacts\Release\Brainbugz BugFuzz_SharedCode.lib
+  Generating BrainbugzBugzAlign_artefacts/JuceLibraryCode/BrainbugzBugzAlign_resources.rc
+  Building Custom Rule D:/a/vst/vst/Plugins/BugzAlign/CMakeLists.txt
+  juce_audio_basics.cpp
+  juce_dsp.cpp
+  juce_audio_formats.cpp
+  Building Custom Rule D:/a/vst/vst/Plugins/BleepDesigner/CMakeLists.txt
+  juce_VST3ManifestHelper.cpp
+  BrainbugzBugzAlign_rc_lib.vcxproj -> D:\a\vst\vst\build\Plugins\BugzAlign\BrainbugzBugzAlign_rc_lib.dir\Release\BrainbugzBugzAlign_rc_lib.lib
+  Building Custom Rule D:/a/vst/vst/Plugins/BugzAlign/CMakeLists.txt
+  PluginProcessor.cpp
+  PluginEditor.cpp
+  Generating BrainbugzHaas_artefacts/JuceLibraryCode/BrainbugzHaas_resources.rc
+  Building Custom Rule D:/a/vst/vst/Plugins/Haas/CMakeLists.txt
+  Building Custom Rule D:/a/vst/vst/Plugins/BugzAlign/CMakeLists.txt
+  juce_VST3ManifestHelper.cpp
+  BrainbugzHaas_rc_lib.vcxproj -> D:\a\vst\vst\build\Plugins\Haas\BrainbugzHaas_rc_lib.dir\Release\BrainbugzHaas_rc_lib.lib
+  AlignView.cpp
+  juce_audio_processors.cpp
+  BrainbugzBleepDesigner_vst3_helper.vcxproj -> D:\a\vst\vst\build\Plugins\BleepDesigner\Release\BrainbugzBleepDesigner_vst3_helper.exe
+  Building Custom Rule D:/a/vst/vst/Plugins/Haas/CMakeLists.txt
+  PluginProcessor.cpp
+  PluginEditor.cpp
+  BrainbugzBugzAlign_vst3_helper.vcxproj -> D:\a\vst\vst\build\Plugins\BugzAlign\Release\BrainbugzBugzAlign_vst3_helper.exe
+  juce_audio_processors_ara.cpp
+  juce_audio_processors_lv2_libs.cpp
+  juce_gui_extra.cpp
+  juce_gui_basics.cpp
+  LabScene.cpp
+  juce_audio_processors.cpp
+  Building Custom Rule D:/a/vst/vst/Plugins/Haas/CMakeLists.txt
+  juce_graphics.cpp
+  juce_VST3ManifestHelper.cpp
+  juce_audio_processors_ara.cpp
+  juce_audio_processors_lv2_libs.cpp
+  juce_gui_extra.cpp
+  juce_gui_basics.cpp
+  BrainbugzHaas_vst3_helper.vcxproj -> D:\a\vst\vst\build\Plugins\Haas\Release\BrainbugzHaas_vst3_helper.exe
+  juce_graphics.cpp
+  Generating BrainbugzSnareHead_artefacts/JuceLibraryCode/BrainbugzSnareHead_resources.rc
+  Building Custom Rule D:/a/vst/vst/Plugins/SnareHead/CMakeLists.txt
+  BrainbugzSnareHead_rc_lib.vcxproj -> D:\a\vst\vst\build\Plugins\SnareHead\BrainbugzSnareHead_rc_lib.dir\Release\BrainbugzSnareHead_rc_lib.lib
+  juce_graphics_Harfbuzz.cpp
+  Generating juce_binarydata_SnareHeadAssets/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_SnareHeadAssets/JuceLibraryCode/BinaryData2.cpp, juce_binarydata_SnareHeadAssets/JuceLibraryCode/SnareHeadAssets.h
+  Building Custom Rule D:/a/vst/vst/Plugins/SnareHead/CMakeLists.txt
+  BinaryData1.cpp
+  BinaryData2.cpp
+  juce_events.cpp
+  Generating Code...
+  SnareHeadAssets.vcxproj -> D:\a\vst\vst\build\Plugins\SnareHead\Release\SnareHeadAssets.lib
+  Building Custom Rule D:/a/vst/vst/Plugins/SnareHead/CMakeLists.txt
+  juce_core.cpp
+  juce_VST3ManifestHelper.cpp
+  juce_graphics_Harfbuzz.cpp
+  juce_core_CompilationTime.cpp
+  juce_data_structures.cpp
+  juce_events.cpp
+  BrainbugzSnareHead_vst3_helper.vcxproj -> D:\a\vst\vst\build\Plugins\SnareHead\Release\BrainbugzSnareHead_vst3_helper.exe
+  juce_audio_basics.cpp
+  juce_dsp.cpp
+  juce_audio_formats.cpp
+  Building Custom Rule D:/a/vst/vst/Plugins/SnareHead/CMakeLists.txt
+  juce_core.cpp
+  juce_core_CompilationTime.cpp
+  juce_data_structures.cpp
+  PluginProcessor.cpp
+  PluginEditor.cpp
+  juce_audio_basics.cpp
+  juce_graphics_Sheenbidi.c
+  BrainbugzBugzAlign.vcxproj -> D:\a\vst\vst\build\Plugins\BugzAlign\BrainbugzBugzAlign_artefacts\Release\Brainbugz Bugz Align_SharedCode.lib
+  juce_audio_processors.cpp
+  juce_audio_processors_ara.cpp
+  Building Custom Rule D:/a/vst/vst/Plugins/BugFuzz/CMakeLists.txt
+  juce_audio_processors_lv2_libs.cpp
+  juce_graphics_Sheenbidi.c
+  juce_gui_extra.cpp
+  juce_audio_plugin_client_AAX.cpp
+  juce_audio_plugin_client_AAX_utils.cpp
+  juce_audio_plugin_client_ARA.cpp
+  juce_audio_plugin_client_LV2.cpp
+  juce_audio_plugin_client_Standalone.cpp
+  juce_audio_plugin_client_Unity.cpp
+  juce_audio_plugin_client_VST2.cpp
+  juce_audio_plugin_client_VST3.cpp
+  BrainbugzHaas.vcxproj -> D:\a\vst\vst\build\Plugins\Haas\BrainbugzHaas_artefacts\Release\Brainbugz Haas_SharedCode.lib
+  Building Custom Rule D:/a/vst/vst/Plugins/Haas/CMakeLists.txt
+  juce_audio_plugin_client_AAX.cpp
+  juce_audio_plugin_client_AAX_utils.cpp
+  juce_audio_plugin_client_ARA.cpp
+  juce_audio_plugin_client_LV2.cpp
+  juce_audio_plugin_client_Standalone.cpp
+  juce_audio_plugin_client_Unity.cpp
+  juce_audio_plugin_client_VST2.cpp
+  juce_audio_plugin_client_VST3.cpp
+  juce_gui_basics.cpp
+  juce_graphics.cpp
+     Creating library D:/a/vst/vst/build/Plugins/BugFuzz/BrainbugzBugFuzz_artefacts/Release/VST3/Brainbugz BugFuzz.lib and object D:/a/vst/vst/build/Plugins/BugFuzz/BrainbugzBugFuzz_artefacts/Release/VST3/Brainbugz BugFuzz.exp
+  Generating code
+  Building Custom Rule D:/a/vst/vst/Plugins/BleepDesigner/CMakeLists.txt
+  juce_graphics_Harfbuzz.cpp
+  juce_events.cpp
+  juce_core.cpp
+  juce_core_CompilationTime.cpp
+  juce_data_structures.cpp
+  juce_audio_basics.cpp
+  juce_graphics_Sheenbidi.c
+  BrainbugzSnareHead.vcxproj -> D:\a\vst\vst\build\Plugins\SnareHead\BrainbugzSnareHead_artefacts\Release\Brainbugz Snare Head_SharedCode.lib
+  Building Custom Rule D:/a/vst/vst/Plugins/SnareHead/CMakeLists.txt
+  juce_audio_plugin_client_AAX.cpp
+  juce_audio_plugin_client_AAX_utils.cpp
+  juce_audio_plugin_client_ARA.cpp
+  juce_audio_plugin_client_LV2.cpp
+  juce_audio_plugin_client_Standalone.cpp
+  juce_audio_plugin_client_Unity.cpp
+  juce_audio_plugin_client_VST2.cpp
+  juce_audio_plugin_client_VST3.cpp
+     Creating library D:/a/vst/vst/build/Plugins/SnareHead/BrainbugzSnareHead_artefacts/Release/VST3/Brainbugz Snare Head.lib and object D:/a/vst/vst/build/Plugins/SnareHead/BrainbugzSnareHead_artefacts/Release/VST3/Brainbugz Snare Head.exp
+  Generating code
+  Finished generating code
+  BrainbugzBugFuzz_VST3.vcxproj -> D:\a\vst\vst\build\Plugins\BugFuzz\BrainbugzBugFuzz_artefacts\Release\VST3\Brainbugz BugFuzz.vst3\Contents\x86_64-win\Brainbugz BugFuzz.vst3
+  removing moduleinfo.json
+  creating D:/a/vst/vst/build/Plugins/BugFuzz/BrainbugzBugFuzz_artefacts/Release/VST3/Brainbugz BugFuzz.vst3
+     Creating library D:/a/vst/vst/build/Plugins/Haas/BrainbugzHaas_artefacts/Release/VST3/Brainbugz Haas.lib and object D:/a/vst/vst/build/Plugins/Haas/BrainbugzHaas_artefacts/Release/VST3/Brainbugz Haas.exp
+  Generating code
+  Finished generating code
+  BrainbugzSnareHead_VST3.vcxproj -> D:\a\vst\vst\build\Plugins\SnareHead\BrainbugzSnareHead_artefacts\Release\VST3\Brainbugz Snare Head.vst3\Contents\x86_64-win\Brainbugz Snare Head.vst3
+  removing moduleinfo.json
+  creating D:/a/vst/vst/build/Plugins/SnareHead/BrainbugzSnareHead_artefacts/Release/VST3/Brainbugz Snare Head.vst3
+  Finished generating code
+  BrainbugzHaas_VST3.vcxproj -> D:\a\vst\vst\build\Plugins\Haas\BrainbugzHaas_artefacts\Release\VST3\Brainbugz Haas.vst3\Contents\x86_64-win\Brainbugz Haas.vst3
+  Building Custom Rule D:/a/vst/vst/Plugins/BugzAlign/CMakeLists.txt
+  removing moduleinfo.json
+  creating D:/a/vst/vst/build/Plugins/Haas/BrainbugzHaas_artefacts/Release/VST3/Brainbugz Haas.vst3
+  juce_audio_plugin_client_AAX.cpp
+  juce_audio_plugin_client_AAX_utils.cpp
+  juce_audio_plugin_client_ARA.cpp
+  juce_audio_plugin_client_LV2.cpp
+  juce_audio_plugin_client_Standalone.cpp
+  juce_audio_plugin_client_Unity.cpp
+  juce_audio_plugin_client_VST2.cpp
+  juce_audio_plugin_client_VST3.cpp
+  juce_audio_plugin_client_AAX.cpp
+  juce_audio_plugin_client_AAX_utils.cpp
+  juce_audio_plugin_client_ARA.cpp
+  juce_audio_plugin_client_LV2.cpp
+  juce_audio_plugin_client_Standalone.cpp
+  juce_audio_plugin_client_Unity.cpp
+  juce_audio_plugin_client_VST2.cpp
+  juce_audio_plugin_client_VST3.cpp
+     Creating library D:/a/vst/vst/build/Plugins/BugzAlign/BrainbugzBugzAlign_artefacts/Release/VST3/Brainbugz Bugz Align.lib and object D:/a/vst/vst/build/Plugins/BugzAlign/BrainbugzBugzAlign_artefacts/Release/VST3/Brainbugz Bugz Align.exp
+  Generating code
+     Creating library D:/a/vst/vst/build/Plugins/BleepDesigner/BrainbugzBleepDesigner_artefacts/Release/VST3/Brainbugz Bleep Designer.lib and object D:/a/vst/vst/build/Plugins/BleepDesigner/BrainbugzBleepDesigner_artefacts/Release/VST3/Brainbugz Bleep Designer.exp
+  Generating code
+  Finished generating code
+  BrainbugzBugzAlign_VST3.vcxproj -> D:\a\vst\vst\build\Plugins\BugzAlign\BrainbugzBugzAlign_artefacts\Release\VST3\Brainbugz Bugz Align.vst3\Contents\x86_64-win\Brainbugz Bugz Align.vst3
+  Finished generating code
+  BrainbugzBleepDesigner_VST3.vcxproj -> D:\a\vst\vst\build\Plugins\BleepDesigner\BrainbugzBleepDesigner_artefacts\Release\VST3\Brainbugz Bleep Designer.vst3\Contents\x86_64-win\Brainbugz Bleep Designer.vst3
+  removing moduleinfo.json
+  creating D:/a/vst/vst/build/Plugins/BleepDesigner/BrainbugzBleepDesigner_artefacts/Release/VST3/Brainbugz Bleep Designer.vst3
+  removing moduleinfo.json
+  creating D:/a/vst/vst/build/Plugins/BugzAlign/BrainbugzBugzAlign_artefacts/Release/VST3/Brainbugz Bugz Align.vst3
