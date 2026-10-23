@@ -79,6 +79,29 @@ Snare-Synth für metallisch klingende Psy/Hitech-Snares (Instrument, per MIDI an
 
 Titel-Schrift: Creepster (SIL Open Font License), wird beim Build geladen.
 
+## Brainbugz Brainfuzz
+
+4-Band-Sättigung mit Stereo-Breite und Effekten pro Band. Das Signal wird an drei Weichen in vier Bänder geteilt, jedes Band bekommt eigenen Drive, Level, Width und Spread, dazu Crush, Chorus und Reverb. Sättigung läuft mit 4x Oversampling (linearphasig, Latenz 28 Samples, wird automatisch ausgeglichen).
+
+- **Analyser** (oben): Live-Spektrum jedes Bandes in seiner Farbe, weiße Linie = Gesamt-Ausgang. **Grenzen ziehen** = Weichen verschieben, **Griff hoch/runter** = Drive des Bandes. Shift = fein, Doppelklick = Standard, Mausrad ueber einem Band = Drive. **Frequenz- oder Drive-Wert anklicken** = eintippen (z. B. `2.5k`).
+- **Band-Module**: **S** Solo, **M** Mute, **B** Bypass (Band sauber), **Drive** (0–36 dB, 0 = sauber), **Level**, **Width** (vorhandene Breite, 0 % = mono, 200 % = doppelt), **Spread** (zusätzliche Breite aus der Mitte). Unten das Stereo-Bild mit Korrelation.
+- **Mono-sicher**: Width und Spread verändern die Mono-Summe nicht (L+R bleibt gleich), Spread funktioniert auch auf Mono-Quellen.
+- **Effekte pro Band** (Reiter Crush / Chorus / Reverb, Klick = anzeigen, Doppelklick oder **ON** = an/aus):
+  - **Crush**: Bits (24 bis 1), Down (Downsampling bis 40x), Mix
+  - **Chorus**: 1–3 Stimmen, Rate, Depth, Mix
+  - **Reverb**: Size, Length, Width, Pre-Delay, Lo Cut, Hi Cut, Mix
+  - **PRE / POST**: vor oder nach der Sättigung. **BAND / WIDTH / BOTH**: auf dem Band, nur auf der zusätzlichen Breite (Spread) oder beides. Reverb nur auf WIDTH = breiter Hall, der in Mono verschwindet.
+- **Saturation**: 7 Typen von hart nach warm: **Splat**, **Fuzz**, **Fold**, **Diode**, **Crunch**, **Tube**, **Tape**. **Bite** formt, wie hart der Typ zubeißt. Daneben die Kennlinie.
+- **Filter**: 8 Weichen-Typen (**Butterworth, Linkwitz-Riley, Chebyshev I/II, Elliptic, Bessel, Legendre, Gaussian**) mit 12/24/48 dB. Linkwitz-Riley summiert perfekt flach, die anderen haben ihren eigenen Charakter an den Übergängen (max. +-3 dB).
+- **Tight**: Verzerrung erzeugt Anteile außerhalb des Bandes (z. B. ein verzerrtes Hi-Hat-Band, das bis in den Sub reicht). **HP** / **LP** filtern nur diese Verzerrungs-Anteile an den Bandgrenzen (24/48 dB), das saubere Band bleibt unangetastet.
+- **Mono Bass**: alles unterhalb der Frequenz bleibt in der Mitte.
+- **Master**: **Input** / **Output** (mit **LINK**: Input hoch = Output runter), Pegelanzeigen, **LIMIT** (-0.1 dBFS, GR-Anzeige). **FX Master** Crush / Chorus / Reverb (alle Bänder zusammen, 0–200 %). **Parallel**: **Sat** (Sättigung gegen sauber), **Spread** (gesamte Zusatz-Breite), **Mix** (gesamt, phasengleich gemischt).
+- **Presets**: 40 Werkspresets, pegelangeglichen, in Gruppen (Basics, Crossover Types, Saturation, Bass, Drums, Synth & Vocals, FX Combos). **LOCK** behält Input, Output, Effekte oder Tight beim Blättern. **SAVE** / **OPTIONS** wie bei den anderen Plugins, eigene Presets in `Dokumente\Brain Bugz\Brainfuzz\Presets` (.bfz).
+- **UNDO / REDO**, **BYPASS** (ganzes Plugin), **OPTIONS** → Fenstergröße (75–200 %), die Fensterecke lässt sich auch ziehen.
+- Tools ohne JUCE: `Plugins/BrainFuzz/tools/engine_test.cpp` (Tests: Latenz, Summe, Mono-Sicherheit, Tight, CPU), `level_match.cpp` (berechnet den Pegel-Abgleich der Presets, `--wav` rendert Hörbeispiele).
+
+Titel-Schrift: Audiowide (SIL Open Font License), wird beim Build geladen.
+
 ## Bauen
 
 GitHub Actions baut bei jedem Push auf `main` automatisch die Windows-VST3 (`.github/workflows/build.yml`) und testet sie mit pluginval. Die fertigen Plugins liegen als Artefakt **Brainbugz-VST3** am jeweiligen Lauf und als ZIPs auf dem Branch `builds` (einzeln und als `Brainbugz-alle-VST3.zip`).
@@ -97,6 +120,7 @@ cmake --build build --config Release
 - `Plugins/BleepDesigner` – Bleep-Designer-Instrument, in Arbeit
 - `Plugins/BugzAlign` – Kick/Bass-Phasenausrichtung (DSP in `AlignEngine.h`, Anzeige in `AlignView.cpp`)
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
+- `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
