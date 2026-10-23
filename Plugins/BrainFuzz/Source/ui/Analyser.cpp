@@ -376,7 +376,8 @@ void Analyser::editValue (int paramIndex, juce::Rectangle<float> where)
     editor->setText (proc.param (paramIndex)->getCurrentValueAsText(), false);
     editor->selectAll();
     editor->setBounds (where.expanded (4.0f, 3.0f).toNearestInt());
-    auto done = [this, paramIndex] (bool apply)
+    juce::Component::SafePointer<Analyser> safe (this);
+    auto done = [this, safe, paramIndex] (bool apply)
     {
         if (editor == nullptr) return;
         if (apply)
@@ -388,7 +389,7 @@ void Analyser::editValue (int paramIndex, juce::Rectangle<float> where)
             p->setValueNotifyingHost (v);
             p->endChangeGesture();
         }
-        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<Analyser> (this)]
+        juce::MessageManager::callAsync ([safe]
         {
             if (safe != nullptr) { safe->editor.reset(); safe->repaint(); }
         });
