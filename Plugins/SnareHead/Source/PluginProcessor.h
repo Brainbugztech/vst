@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include "SnareEngine.h"
 #include "Presets.h"
 
@@ -30,7 +31,16 @@ namespace ParamIDs
     inline constexpr const char* width     = "width";
     inline constexpr const char* volume    = "volume";
     inline constexpr const char* keyTrack  = "key_track";
+    inline constexpr const char* smpLevel  = "smp_level";
+    inline constexpr const char* smpPitch  = "smp_pitch";
+    inline constexpr const char* smpStart  = "smp_start";
+    inline constexpr const char* smpRev    = "smp_reverse";
+    inline constexpr const char* smpShape  = "smp_shape";
 }
+
+// Frequenz-Text: "880", "1.2k", "A", "A5", "F#5", "Bb" -> Hz (Noten ohne/mit falscher Oktave landen im Bereich lo..hi)
+float parseFreqText (const juce::String& text, float lo, float hi);
+juce::String noteNameForHz (float hz, bool withCents = true);
 
 class SnareHeadProcessor : public juce::AudioProcessor
 {
@@ -80,6 +90,19 @@ public:
     juce::String getCurrentPresetName() const { return currentPresetName; }
     bool isPresetModified() const;
 
+    // --- Eigenes Sample (Message-Thread) ---
+    bool loadSampleFile (const juce::File& file, juce::String& error);
+    void clearSample();
+    std::shared_ptr<const snarehead::SampleData> getSample() const;
+    juce::String getSampleName() const { return sampleName; }
+    std::atomic<int> sampleVersion { 0 };   // zaehlt hoch, wenn sich das Sample aendert (fuer die Anzeige)
+    float analyzeSample();                  // staerkste Resonanz 650 Hz - 1,7 kHz, 0 = nichts gefunden
+    static bool isSupportedAudioFile (const juce::String& path);
+
+    // Hz/Note-Anzeige (wird im Projekt gespeichert)
+    bool getNoteMode (const juce::String& key) const { return (bool) apvts.state.getProperty (key, false); }
+    void setNoteMode (const juce::String& key, bool on) { apvts.state.setProperty (key, on, nullptr); }
+
     // --- UI ---
     void audition (float velocity = 0.9f) { pendingAudition.store (velocity); }
     std::atomic<int> hitCounter { 0 };
@@ -90,6 +113,20 @@ public:
 
 private:
     float raw (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
+    bool setSampleFromWav (const juce::MemoryBlock& wav, const juce::String& name);
+    void addSampleTo (juce::ValueTree& state) const;
+    void restoreSampleFrom (const juce::ValueTree& state, bool clearIfMissing);
+    void timerPurge();
+
+    // Sample: Message-Thread setzt "sample", Audio-Thread holt sich die Kopie per try-lock.
+    // Alte Samples bleiben in "retired", bis der Audio-Thread sie sicher losgelassen hat.
+    mutable juce::SpinLock sampleLock;
+    std::shared_ptr<const snarehead::SampleData> sample, audioSample;
+    std::vector<std::shared_ptr<const snarehead::SampleData>> retired;
+    juce::MemoryBlock sampleWav;   // Original als WAV fuer Projekt/Preset
+    juce::String sampleName;
+    double currentSR = 48000.0;
+    std::unique_ptr<juce::Timer> purgeTimer;
     void setParamPlain (const char* id, float value);
     juce::String fingerprint() const;
     void markClean() { cleanPrint = fingerprint(); }

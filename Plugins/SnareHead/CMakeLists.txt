@@ -5,7 +5,7 @@ juce_add_plugin(BrainbugzSnareHead
     PLUGIN_CODE Bsnh
     FORMATS VST3
     PRODUCT_NAME "Brainbugz Snare Head"
-    VERSION 0.1.0
+    VERSION 0.2.0
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
@@ -38,6 +38,7 @@ target_link_libraries(BrainbugzSnareHead
         BrainBugzShared
         SnareHeadAssets
         juce::juce_audio_processors
+        juce::juce_audio_formats
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

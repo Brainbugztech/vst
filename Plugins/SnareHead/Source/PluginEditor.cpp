@@ -183,7 +183,8 @@ void sh::LookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, 
 
 void sh::LookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool)
 {
-    g.setFont (display ((float) b.getHeight() * 0.5f, true));
+    const bool small = (bool) b.getProperties().getWithDefault ("small", false);
+    g.setFont (small ? mono ((float) b.getHeight() * 0.82f) : display ((float) b.getHeight() * 0.5f, true));
     g.setColour (b.getToggleState() ? col::magenta : col::ink);
     g.drawFittedText (b.getButtonText(), b.getLocalBounds().reduced (4, 0), juce::Justification::centred, 1);
 }
@@ -214,6 +215,16 @@ void sh::LookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& la
 
 // ================================================================ Knob
 
+double NoteSlider::snapValue (double v, DragMode)
+{
+    if (! noteMode || ! noteMode() || v <= 0.0) return v;
+    int midi = (int) std::round (69.0 + 12.0 * std::log2 (v / 440.0));
+    auto hzOf = [] (int m) { return 440.0 * std::pow (2.0, (m - 69) / 12.0); };
+    while (hzOf (midi) < getMinimum() - 0.01) ++midi;
+    while (hzOf (midi) > getMaximum() + 0.01) --midi;
+    return juce::jlimit (getMinimum(), getMaximum(), hzOf (midi));
+}
+
 Knob::Knob (juce::AudioProcessorValueTreeState& state, const char* paramId, const juce::String& label, bool big)
     : param (state.getParameter (paramId)), name (label), isBig (big)
 {
@@ -225,29 +236,232 @@ Knob::Knob (juce::AudioProcessorValueTreeState& state, const char* paramId, cons
     att = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, paramId, slider);
     if (param != nullptr)
         slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
-    slider.onValueChange = [this] { repaint(); };
+
+    // Wert anklicken = eintippen
+    valueLabel.setEditable (true, true, false);
+    valueLabel.setJustificationType (juce::Justification::centred);
+    valueLabel.setFont (mono (isBig ? 16.0f : 13.5f));
+    valueLabel.setColour (juce::Label::textColourId, isBig ? col::lilac : col::ink);
+    valueLabel.setColour (juce::Label::textWhenEditingColourId, col::ink);
+    valueLabel.setColour (juce::Label::backgroundWhenEditingColourId, col::bg);
+    valueLabel.setColour (juce::Label::outlineWhenEditingColourId, col::magenta);
+    valueLabel.setMouseCursor (juce::MouseCursor::IBeamCursor);
+    valueLabel.setTooltip ("Klicken und Wert eintippen");
+    valueLabel.onEditorShow = [this]
+    {
+        if (auto* ed = valueLabel.getCurrentTextEditor())
+        {
+            ed->setJustification (juce::Justification::centred);
+            ed->selectAll();
+        }
+    };
+    valueLabel.onTextChange = [this]
+    {
+        if (param == nullptr) return;
+        const auto t = valueLabel.getText().trim();
+        if (t.isNotEmpty())
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->getValueForText (t));
+            param->endChangeGesture();
+        }
+        refreshValue();
+    };
+    addAndMakeVisible (valueLabel);
+
+    slider.onValueChange = [this] { refreshValue(); };
+    refreshValue();
+}
+
+void Knob::enableNoteMode (SnareHeadProcessor& p, const juce::String& stateKey)
+{
+    proc = &p;
+    noteKey = stateKey;
+    slider.noteMode = [this] { return isNoteMode(); };
+    noteBtn.setTooltip ("Anzeige Hz / Note umschalten (Note = rastet auf Halbtoene)");
+    noteBtn.getProperties().set ("small", true);
+    noteBtn.onClick = [this]
+    {
+        proc->setNoteMode (noteKey, ! isNoteMode());
+        if (isNoteMode())
+            slider.setValue (slider.snapValue (slider.getValue(), juce::Slider::notDragging), juce::sendNotificationSync);
+        refreshValue();
+    };
+    addAndMakeVisible (noteBtn);
+    refreshValue();
+    resized();
+}
+
+void Knob::refreshValue()
+{
+    if (param == nullptr) return;
+    const bool note = isNoteMode();
+    juce::String txt = note ? noteNameForHz ((float) slider.getValue(), true) : param->getCurrentValueAsText();
+    if (! valueLabel.isBeingEdited())
+        valueLabel.setText (txt, juce::dontSendNotification);
+    valueLabel.setAlpha (dimmed ? 0.35f : 1.0f);
+    if (proc != nullptr)
+    {
+        noteBtn.setButtonText (note ? "NOTE" : "Hz");
+        noteBtn.setToggleState (note, juce::dontSendNotification);
+    }
+    repaint();
 }
 
 void Knob::resized()
 {
     auto r = getLocalBounds();
-    r.removeFromTop (isBig ? 20 : 16);
-    r.removeFromBottom (isBig ? 20 : 16);
+    auto top = r.removeFromTop (isBig ? 20 : 16);
+    valueLabel.setBounds (r.removeFromBottom (isBig ? 20 : 16));
     slider.setBounds (r);
+    if (proc != nullptr)
+        noteBtn.setBounds (top.getRight() - 42, top.getY(), 42, top.getHeight());
 }
 
 void Knob::paint (juce::Graphics& g)
 {
     const float a = dimmed ? 0.35f : 1.0f;
     auto r = getLocalBounds();
+    auto top = r.removeFromTop (isBig ? 20 : 16);
+    if (proc != nullptr) top = top.withTrimmedRight (34);
     g.setColour (col::inkDim.withAlpha (a));
     g.setFont (display (isBig ? 15.0f : 12.5f, true));
-    g.drawFittedText (name.toUpperCase(), r.removeFromTop (isBig ? 20 : 16), juce::Justification::centred, 1);
-    g.setColour ((isBig ? col::lilac : col::ink).withAlpha (a));
-    g.setFont (mono (isBig ? 16.0f : 13.5f));
-    const juce::String value = param != nullptr ? param->getCurrentValueAsText() : juce::String();
-    g.drawFittedText (value, r.removeFromBottom (isBig ? 20 : 16), juce::Justification::centred, 1);
+    g.drawFittedText (name.toUpperCase(), top, juce::Justification::centred, 1);
 }
+
+// ================================================================ SampleView
+
+void SampleView::rebuildPeaks()
+{
+    const auto sd = proc.getSample();
+    shownVersion = proc.sampleVersion.load();
+    shownWidth = getWidth();
+    peaks.clear();
+    lengthMs = 0.0;
+    if (sd == nullptr || sd->length() == 0 || getWidth() <= 0) return;
+    lengthMs = sd->length() / sd->sampleRate * 1000.0;
+    const int w = getWidth();
+    peaks.resize ((size_t) w, { 0.0f, 0.0f });
+    const double per = (double) sd->length() / w;
+    for (int x = 0; x < w; ++x)
+    {
+        const int a = (int) (x * per), b = std::min (sd->length(), (int) ((x + 1) * per) + 1);
+        float lo = 0.0f, hi = 0.0f;
+        for (int i = a; i < b; ++i)
+        {
+            const float v = 0.5f * (sd->ch[0][(size_t) i] + sd->ch[1][(size_t) i]);
+            lo = std::min (lo, v); hi = std::max (hi, v);
+        }
+        peaks[(size_t) x] = { lo, hi };
+    }
+}
+
+void SampleView::paint (juce::Graphics& g)
+{
+    if (shownVersion != proc.sampleVersion.load() || shownWidth != getWidth()) rebuildPeaks();
+    auto r = getLocalBounds().toFloat();
+    g.setColour (col::bg);
+    g.fillRoundedRectangle (r, 8.0f);
+    if (dragOver)
+    {
+        g.setColour (col::magenta.withAlpha (0.15f));
+        g.fillRoundedRectangle (r, 8.0f);
+        g.setColour (col::magenta);
+        g.drawRoundedRectangle (r.reduced (1.0f), 8.0f, 2.0f);
+    }
+
+    const auto p = proc.readParams();
+    if (peaks.empty())
+    {
+        g.setFont (display (16.0f, true));
+        g.setColour (dragOver ? col::magenta : col::lilac);
+        g.drawText (dragOver ? "Loslassen = laden" : "Eigene Snare hier reinziehen oder klicken",
+                    r.withTrimmedBottom (r.getHeight() * 0.52f), juce::Justification::centredBottom);
+        g.setFont (mono (12.0f));
+        g.setColour (col::inkDim);
+        g.drawText ("WAV  AIFF  FLAC  MP3  OGG   -  geht auch direkt aus Ableton", r.withTrimmedTop (r.getHeight() * 0.58f),
+                    juce::Justification::centredTop);
+        return;
+    }
+
+    const float mid = r.getCentreY(), half = r.getHeight() * 0.42f;
+    const int w = (int) peaks.size();
+    juce::Path wave;
+    for (int x = 0; x < w; ++x)
+    {
+        const int sx = p.smpReverse ? (w - 1 - x) : x; // rueckwaerts: so anzeigen, wie es abgespielt wird
+        wave.addRectangle ((float) x, mid - peaks[(size_t) sx].second * half, 1.0f,
+                           std::max (1.0f, (peaks[(size_t) sx].second - peaks[(size_t) sx].first) * half));
+    }
+    juce::ColourGradient grad (col::magenta, 0, mid - half, col::purple, 0, mid + half, false);
+    g.setGradientFill (grad);
+    g.fillPath (wave);
+
+    // Start
+    const float sx = p.smpStart * r.getWidth();
+    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.fillRect (0.0f, 0.0f, sx, r.getHeight());
+    g.setColour (col::magenta);
+    g.fillRect (sx - 1.0f, 0.0f, 2.0f, r.getHeight());
+    g.fillEllipse (sx - 5.0f, r.getBottom() - 12.0f, 10.0f, 10.0f);
+
+    // Tempo der Wiedergabe (Pitch) fuer Huellkurve und Abspielkopf
+    const double rate = std::pow (2.0, p.smpPitch / 12.0);
+    auto msToX = [&] (double playMs) { return sx + (float) (playMs * rate / lengthMs) * r.getWidth(); };
+    if (p.smpShape)
+    {
+        juce::Path env;
+        const float holdTau = p.hold * 3.0f;
+        for (int i = 0; i <= 120; ++i)
+        {
+            const float t = (p.hold + p.release) * (float) i / 120.0f;
+            float e;
+            if (t < p.hold) e = std::exp (-t / holdTau);
+            else { const float u = 1.0f - (t - p.hold) / std::max (1.0f, p.release); e = std::exp (-p.hold / holdTau) * u * u * u; }
+            const float x = msToX (t), y = r.getBottom() - 4.0f - e * (r.getHeight() - 10.0f);
+            if (i == 0) env.startNewSubPath (x, y); else env.lineTo (x, y);
+        }
+        g.setColour (col::lilac);
+        g.strokePath (env, juce::PathStrokeType (2.0f));
+        const float endX = msToX (p.hold + p.release);
+        if (endX < r.getRight())
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRect (endX, 0.0f, r.getRight() - endX, r.getHeight());
+        }
+    }
+
+    if (sinceHitMs < lengthMs / rate)
+    {
+        const float x = msToX (sinceHitMs);
+        if (x < r.getRight()) { g.setColour (col::ink.withAlpha (0.85f)); g.drawVerticalLine ((int) x, 0.0f, r.getHeight()); }
+    }
+
+    g.setFont (display (13.0f, true));
+    g.setColour (col::ink);
+    g.drawText (proc.getSampleName() + (p.smpReverse ? "   << REV" : ""), 8, 2, getWidth() / 2, 16, juce::Justification::centredLeft);
+    g.setFont (mono (12.0f));
+    g.setColour (col::inkDim);
+    const bool showStatus = status.isNotEmpty() && juce::Time::getMillisecondCounterHiRes() < statusUntil;
+    g.setColour (showStatus ? col::magenta : col::inkDim);
+    g.drawText (showStatus ? status : juce::String ((int) std::round (lengthMs)) + " ms   ziehen = Start",
+                getWidth() / 2, 2, getWidth() / 2 - 8, 16, juce::Justification::centredRight);
+}
+
+void SampleView::setStartFromX (float x)
+{
+    if (auto* prm = proc.apvts.getParameter (ParamIDs::smpStart))
+        prm->setValueNotifyingHost (prm->convertTo0to1 (juce::jlimit (0.0f, 0.5f, x / (float) getWidth())));
+}
+
+void SampleView::mouseDown (const juce::MouseEvent& e)
+{
+    if (peaks.empty()) { if (onLoadRequest) onLoadRequest(); return; }
+    gesture (proc.apvts, ParamIDs::smpStart, true);
+    setStartFromX (e.position.x);
+}
+void SampleView::mouseDrag (const juce::MouseEvent& e) { if (! peaks.empty()) setStartFromX (e.position.x); }
+void SampleView::mouseUp (const juce::MouseEvent&) { if (! peaks.empty()) gesture (proc.apvts, ParamIDs::smpStart, false); }
 
 // ================================================================ EqView
 
@@ -272,7 +486,7 @@ void EqView::paint (juce::Graphics& g)
     const float top = 16.0f, bottom = r.getHeight() - 16.0f;
     auto dbToY = [&] (float dbv) { return juce::jmap (dbv, -3.0f, 20.0f, bottom, top); };
 
-    // Boost-Bereich 700 Hz – 1,6 kHz
+    // Boost-Bereich 700 Hz - 1,6 kHz
     const float x0 = hzToX (700.0f), x1 = hzToX (1600.0f);
     g.setColour (col::purple.withAlpha (0.07f));
     g.fillRect (x0, 0.0f, x1 - x0, r.getHeight());
@@ -600,10 +814,32 @@ SnareHeadEditor::SnareHeadEditor (SnareHeadProcessor& p)
       verbCut (p.apvts, ParamIDs::verbCut, "Cut"),
       noisy (p.apvts, ParamIDs::noisy, "Amount", true),
       width (p.apvts, ParamIDs::width, "Width"),
-      volume (p.apvts, ParamIDs::volume, "Volume")
+      volume (p.apvts, ParamIDs::volume, "Volume"),
+      smpLevel (p.apvts, ParamIDs::smpLevel, "Level"),
+      smpPitch (p.apvts, ParamIDs::smpPitch, "Pitch"),
+      smpStart (p.apvts, ParamIDs::smpStart, "Start"),
+      sampleView (p)
 {
     setLookAndFeel (&lnf);
     noisy.slider.getProperties().set ("noisy", true);
+    tune.enableNoteMode (p, "tuneNoteMode");
+    eqFreq.enableNoteMode (p, "eqNoteMode");
+
+    for (auto* c : std::initializer_list<juce::Component*> { &smpLevel, &smpPitch, &smpStart, &sampleView,
+             &loadBtn, &clearBtn, &revBtn, &shapeBtn, &analyzeBtn })
+        addAndMakeVisible (c);
+    revBtn.setClickingTogglesState (true);
+    shapeBtn.setClickingTogglesState (true);
+    revAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.apvts, ParamIDs::smpRev, revBtn);
+    shapeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (p.apvts, ParamIDs::smpShape, shapeBtn);
+    revBtn.setTooltip ("Sample rueckwaerts");
+    shapeBtn.setTooltip ("Hold/Release (Shape) schneiden auch das Sample");
+    analyzeBtn.setTooltip ("Resonanz im Sample suchen und Tune + Res-EQ draufsetzen");
+    clearBtn.setTooltip ("Sample entfernen");
+    loadBtn.onClick = [this] { openSampleChooser(); };
+    sampleView.onLoadRequest = [this] { openSampleChooser(); };
+    clearBtn.onClick = [this] { proc.clearSample(); sampleView.repaint(); };
+    analyzeBtn.onClick = [this] { runAnalyze(); };
 
     for (auto* c : std::initializer_list<juce::Component*> { &logo, &eqView, &envView, &gateView,
              &tune, &spread, &metal, &punch, &ring, &noise, &noiseTone, &hold, &release,
@@ -643,7 +879,7 @@ SnareHeadEditor::SnareHeadEditor (SnareHeadProcessor& p)
     saveBtn.onClick = [this] { savePreset (proc.getCurrentPreset() < proc.getNumFactoryPresets()); };
     moreBtn.onClick = [this] { showPresetMenu(); };
 
-    setSize (1040, 660);
+    setSize (1040, 810);
     refreshPresetBox();
     startTimerHz (60);
 }
@@ -730,6 +966,82 @@ void SnareHeadEditor::showPresetMenu()
     });
 }
 
+// ----------------------------------------------------------------- Sample laden / Analyse
+
+bool SnareHeadEditor::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& f : files)
+        if (SnareHeadProcessor::isSupportedAudioFile (f)) return true;
+    return false;
+}
+
+void SnareHeadEditor::filesDropped (const juce::StringArray& files, int, int)
+{
+    sampleView.dragOver = false;
+    for (const auto& f : files)
+        if (SnareHeadProcessor::isSupportedAudioFile (f)) { loadSample (juce::File (f)); break; }
+    sampleView.repaint();
+}
+
+void SnareHeadEditor::openSampleChooser()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Snare laden", juce::File(), "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
+    juce::Component::SafePointer<SnareHeadEditor> safe (this);
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [safe] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr) return;
+        const auto f = fc.getResult();
+        if (f.existsAsFile()) safe->loadSample (f);
+    });
+}
+
+void SnareHeadEditor::loadSample (const juce::File& f)
+{
+    juce::String error;
+    if (! proc.loadSampleFile (f, error))
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Snare Head", error);
+        return;
+    }
+    // frisch geladen: Sample hoerbar machen und anspielen
+    if (auto* prm = proc.apvts.getParameter (ParamIDs::smpLevel))
+        if (proc.readParams().smpLevel <= -29.9f)
+            prm->setValueNotifyingHost (prm->convertTo0to1 (0.0f));
+    sampleView.status = "geladen - ANALYZE sucht die Resonanz";
+    sampleView.statusUntil = juce::Time::getMillisecondCounterHiRes() + 4000.0;
+    sampleView.repaint();
+    proc.audition (0.9f);
+}
+
+void SnareHeadEditor::runAnalyze()
+{
+    if (proc.getSample() == nullptr) { openSampleChooser(); return; }
+    float hz = proc.analyzeSample();
+    if (hz <= 0.0f)
+    {
+        sampleView.status = "keine Resonanz gefunden";
+    }
+    else
+    {
+        const float found = hz;
+        while (hz < 700.0f) hz *= 2.0f;
+        while (hz > 1600.0f) hz *= 0.5f;
+        for (auto* id : { ParamIDs::tune, ParamIDs::eqFreq })
+            if (auto* prm = proc.apvts.getParameter (id))
+            {
+                prm->beginChangeGesture();
+                prm->setValueNotifyingHost (prm->convertTo0to1 (hz));
+                prm->endChangeGesture();
+            }
+        sampleView.status = "Resonanz " + juce::String (juce::roundToInt (found)) + " Hz (" + noteNameForHz (found)
+                          + ") > Tune + Res EQ";
+    }
+    sampleView.statusUntil = juce::Time::getMillisecondCounterHiRes() + 5000.0;
+    sampleView.repaint();
+    proc.audition (0.9f);
+}
+
 void SnareHeadEditor::timerCallback()
 {
     const int hits = proc.hitCounter.load();
@@ -752,8 +1064,8 @@ void SnareHeadEditor::timerCallback()
 
     const auto p = proc.readParams();
     const bool gateDim = p.verbSync > 0;
-    if (verbGate.dimmed != gateDim) { verbGate.dimmed = gateDim; verbGate.repaint(); }
-    if (eqFreq.dimmed != p.eqLink) { eqFreq.dimmed = p.eqLink; eqFreq.repaint(); }
+    if (verbGate.dimmed != gateDim) { verbGate.dimmed = gateDim; verbGate.refreshValue(); }
+    if (eqFreq.dimmed != p.eqLink) { eqFreq.dimmed = p.eqLink; eqFreq.refreshValue(); }
 
     if (proc.getCurrentPresetName() != shownPresetName || proc.isPresetModified() != shownModified
         || proc.getPresetNames().size() != shownPresetCount || presetBox.getSelectedId() != proc.getCurrentPreset() + 1)
@@ -761,6 +1073,11 @@ void SnareHeadEditor::timerCallback()
 
     repaint (rSticker.expanded (24));
     repaint (rOut);
+    sampleView.sinceHitMs = since;
+    sampleView.repaint();
+    const bool hasSample = proc.getSample() != nullptr;
+    for (auto* k : { &smpLevel, &smpPitch, &smpStart })
+        if (k->dimmed == hasSample) { k->dimmed = ! hasSample; k->refreshValue(); }
 }
 
 void SnareHeadEditor::drawPanel (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title, bool hot)
@@ -808,7 +1125,7 @@ void SnareHeadEditor::paint (juce::Graphics& g)
     g.drawText ("SNARE HEAD", 16, 10, 300, 36, juce::Justification::centredLeft);
     g.setFont (mono (12.0f));
     g.setColour (col::inkDim);
-    g.drawText ("BRAIN BUGZ  //  SNARE SYNTH  v0.1", 200, 19, 260, 18, juce::Justification::centredLeft);
+    g.drawText ("BRAIN BUGZ  //  SNARE SYNTH  v0.2", 200, 19, 260, 18, juce::Justification::centredLeft);
 
     drawPanel (g, rRing, "Ring");
     drawPanel (g, rNoise, "Noise");
@@ -817,6 +1134,7 @@ void SnareHeadEditor::paint (juce::Graphics& g)
     drawPanel (g, rVerb, "Reverb");
     drawPanel (g, rNoisy, "Xtreme Noisy", proc.readParams().noisy > 0.3f);
     drawPanel (g, rOut, "Out");
+    drawPanel (g, rSample, "Sample", proc.getSample() != nullptr);
 
     g.setFont (mono (11.0f));
     g.setColour (col::inkDim);
@@ -920,4 +1238,18 @@ void SnareHeadEditor::resized()
     width.setBounds (rOut.getX() + 6, rOut.getY() + 38, 75, 100);
     volume.setBounds (rOut.getX() + 81, rOut.getY() + 38, 75, 100);
     keyBtn.setBounds (rOut.getX() + 12, rOut.getY() + 150, rOut.getWidth() - 24, 28);
+
+    // Sample
+    rSample = { 16, 656, 1008, 140 };
+    int bx = rSample.getX() + 130;
+    for (auto [b, w] : { std::pair<juce::TextButton*, int> { &loadBtn, 70 }, { &revBtn, 56 }, { &shapeBtn, 72 }, { &analyzeBtn, 92 }, { &clearBtn, 32 } })
+    {
+        b->setBounds (bx, rSample.getY() + 7, w, 24);
+        bx += w + 6;
+    }
+    sampleView.setBounds (rSample.getX() + 10, rSample.getY() + 38, 650, 92);
+    const int kx = rSample.getX() + 672;
+    smpLevel.setBounds (kx, rSample.getY() + 34, 110, 100);
+    smpPitch.setBounds (kx + 110, rSample.getY() + 34, 110, 100);
+    smpStart.setBounds (kx + 220, rSample.getY() + 34, 110, 100);
 }

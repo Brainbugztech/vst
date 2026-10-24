@@ -65,13 +65,16 @@ Bei jeder Kick misst Bugz Align im Punch-Fenster, wie gut Kick-Sub und Bass-Sub 
 
 Snare-Synth für metallisch klingende Psy/Hitech-Snares (Instrument, per MIDI anschlagen, jede Note = Snare). Kein tiefer Körper, sondern ein klingender Ton-Cluster + Rauschen + eckige Block-Hüllkurve. Signalweg: Ring + Noise → Res-EQ → Xtreme Noisy → Reverb mit Gate → Width/Out.
 
-- **Ring**: **Tune** (700 Hz – 1,6 kHz, Ton-Cluster aus 6 Resonanzen), **Spread** (zieht den Cluster auseinander = Schweben/Schimmern), **Metal** (von harmonisch zu unharmonischem Blech-Klang), **Punch** (Klick + kurzer Pitch-Drop), **Ring** (Pegel des Tons).
+- **Ring**: **Tune** (700 Hz – 1,6 kHz = F5 bis G6, Ton-Cluster aus 6 Resonanzen), **Spread** (zieht den Cluster auseinander = Schweben/Schimmern), **Metal** (von harmonisch zu unharmonischem Blech-Klang), **Punch** (Klick + kurzer Pitch-Drop), **Ring** (Pegel des Tons).
 - **Noise**: **Level** und **Tone** (bandbegrenztes Rauschen, 1,5 – 9 kHz).
 - **Shape**: **Hold** (wie lange die Snare voll steht) und **Release** (wie schnell sie danach weg ist, kurz = harter Cut).
 - **Res EQ**: Resonanz-Boost **700 Hz – 1,6 kHz** mit **Freq**, **Boost** (bis +18 dB) und **Q**. Anzeige mit Notenname und den Ring-Teiltönen. In der Anzeige ziehen = Freq/Boost, Mausrad = Q. **LINK** legt den EQ automatisch auf den Ring-Ton.
 - **Reverb**: großer Hall (**Size**, **Mix**) mit **Gate**: **Gate** = wie lange der Hall nachklingen darf (30 ms – 2 s, ganz rechts = aus), **Cut** = harter Schnitt bis kurzes Ausblenden, darunter **Sync** auf Notenwerte (1/64 – 1/1, folgt dem Ableton-Tempo). In der Anzeige ziehen = Gate-Zeit. Jeder Schlag startet das Gate neu.
 - **Xtreme Noisy**: ein Regler für Comb (Blechdose), Ringmod, Drive und Bitcrush. Ab 30 % klebt der XTREME-NOISY-Sticker drauf.
 - **Out**: **Width** (0 = mono, Mitte = natürlich, rechts = extra breit), **Volume**, **KEY TRACK** (MIDI-Note stimmt um, C3 = Tune; aus = jede Note klingt gleich).
+- **Hz / NOTE** (Knopf an Tune und Res-Freq): im Note-Modus zeigt der Regler den Ton an und rastet auf Halbtöne.
+- **Werte eintippen**: Wert unter einem Regler anklicken und eintippen. Bei Tune/Freq gehen Hz (`880`, `1.2k`) und Noten (`A`, `A5`, `F#`, `Bb6`). Liegt die Oktave außerhalb von 700 Hz – 1,6 kHz, wird sie automatisch reingeschoben (`A1` → A5 = 880 Hz).
+- **Sample** (unten): eigene Snare reinziehen (auch direkt aus Ableton) oder **LOAD** (WAV, AIFF, FLAC, MP3, OGG, max. 10 s). Das Sample läuft mit dem Synth durch Res-EQ, Xtreme Noisy, Reverb/Gate und Width. **Level** (ganz links = aus), **Pitch** (±24 Halbtöne), **Start** (auch in der Wellenform ziehen), **REV** = rückwärts, **SHAPE** = Hold/Release schneiden auch das Sample, **ANALYZE** = sucht die Resonanz im Sample und setzt Tune + Res-EQ drauf, **X** = Sample entfernen. Wer nur das eigene Sample bearbeiten will: Ring und Noise auf 0. Das Sample wird im Projekt und in eigenen Presets gespeichert; Werkspresets lassen ein geladenes Sample stehen (zum Layern).
 - **Logo anklicken** = Snare anspielen (weiter unten geklickt = härter).
 - **Presets**: 20 Werkspresets (12 Psy/Hitech, 8 Xtreme Noisy/Industrial), Pfeile blättern, **SAVE** / **...** wie beim Bleep Designer. Eigene Presets liegen in `Dokumente\Brain Bugz\Snare Head\Presets` (.snarehead).
 - Doppelklick auf einen Regler = Standardwert.
