@@ -1,6 +1,7 @@
 :root{--bg:#090b0d;--panel:#11161a;--panel2:#171e23;--line:#25303a;--line2:#33424e;--fg:#e7efe4;--muted:#8c9a93;--tox:#b6ff1f;--tox-ink:#0b1200;--pink:#ff2f8e;--amber:#ffaa28;--danger:#ff4d4d;
  --f-display:"Chakra Petch","Segoe UI",system-ui,sans-serif;--f-body:"Segoe UI",system-ui,sans-serif;--f-mono:Consolas,ui-monospace,monospace;color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 var(--f-body);display:flex;flex-direction:column}
 button,input,select,textarea{font:inherit;color:inherit}
