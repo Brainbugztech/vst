@@ -1,0 +1,115 @@
+#pragma once
+
+#include <juce_audio_processors/juce_audio_processors.h>
+#include <array>
+#include <functional>
+
+#include "PluginProcessor.h"
+#include "PrizmLookAndFeel.h"
+
+// Small animated prism: a white beam enters, a spectrum fans out.
+class PrismGlyph : public juce::Component
+{
+public:
+    void setPhase (float newPhase) { phase = newPhase; repaint(); }
+    void paint (juce::Graphics& g) override;
+
+private:
+    float phase = 0.0f;
+};
+
+// Pill-shaped two-way switch with a sliding thumb.
+class ModeSwitch : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    std::function<void (int)> onChange;
+
+    void setMode (int newMode);
+    bool advance(); // animates the thumb, returns true while moving
+    void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+private:
+    int mode = 0;
+    float thumb = 0.0f; // 0 = left, 1 = right
+};
+
+// The 12 pitch classes: lit = in key, glow = live output energy of that note.
+class KeyStrip : public juce::Component
+{
+public:
+    std::function<void (int)> onToggle;
+
+    void setState (prizm::PitchMask newMask, int newRoot, bool newMidi);
+    void setEnergy (const std::array<float, 12>& e) { energy = e; repaint(); }
+    void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
+
+private:
+    int cellAt (int x) const;
+    juce::Rectangle<float> cellBounds (int pc) const;
+
+    prizm::PitchMask mask = 0;
+    int root = -1;
+    int hover = -1;
+    bool midi = false;
+    std::array<float, 12> energy {};
+};
+
+class PrizmAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
+{
+public:
+    explicit PrizmAudioProcessorEditor (PrizmAudioProcessor&);
+    ~PrizmAudioProcessorEditor() override;
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+private:
+    void timerCallback() override;
+    void setMode (int mode);
+    void updateEnergy();
+
+    struct Knob
+    {
+        juce::Slider slider;
+        juce::String title, hint;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+    };
+
+    PrizmAudioProcessor& processor;
+    prizm::PrizmLookAndFeel lnf;
+    juce::Image logo, texture;
+    juce::Image staticLayer; // texture + panels + logo + title, rendered once per size
+    void renderStaticLayer (float scale);
+    void drawHoloPanel (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& tag, const juce::String& code);
+    juce::Rectangle<int> scanBand (juce::Rectangle<int> panel, float phase) const;
+
+    PrismGlyph prism;
+    ModeSwitch modeSwitch;
+    juce::TextButton midiButton { "MIDI KEY" };
+    juce::ComboBox keyBox, scaleBox;
+    KeyStrip keyStrip;
+    std::array<Knob, 5> knobs;
+    juce::TooltipWindow tooltips { this, 600 };
+
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> keyAttachment, scaleAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> midiAttachment;
+
+    juce::String latencyText;
+    bool midiShown = false;
+    float animPhase = 0.0f;
+    std::array<float, 12> shownEnergy {};
+    float energyRef = 0.0f;
+    uint32_t lastCounter = 0;
+    int idleTicks = 0;
+
+    juce::Rectangle<int> logoArea, titleArea, keyPanel, keyLabelArea, scaleLabelArea, stripLabelArea, readoutArea, knobPanel, footerArea;
+    juce::Rectangle<int> lastScanA, lastScanB;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PrizmAudioProcessorEditor)
+};

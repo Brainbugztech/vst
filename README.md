@@ -104,6 +104,25 @@ Titel-Schrift: Creepster (SIL Open Font License), wird beim Build geladen.
 
 Titel-Schrift: Audiowide (SIL Open Font License), wird beim Build geladen.
 
+## Brainbugz Prizm
+
+Harmonic Sweetener: zieht beliebiges Audio in eine Tonart. Schiefe Pads, Noise, Drums oder ganze Loops klingen danach „in Key“. Zwei Modi, oben rechts umschaltbar:
+
+- **Zero Latency**: Resonatorbank, ein Filter pro erlaubter Note ab C1. Keine Latenz, gut für Live und Recording.
+- **High Quality**: Phase-Vocoder, schiefe Frequenzanteile werden auf die nächste Note der Tonart **verschoben** statt weggefiltert. Latenz 4096 Samples (bei 88,2/96 kHz 8192), wird dem Host gemeldet.
+
+Regler:
+
+- **Key / Scale**: Grundton und Skala (Dur, Moll, Kirchentonarten, Pentatonik, Blues, Dur-/Moll-Akkord, chromatisch).
+- **Noten-Leiste**: grün = erlaubter Ton, Klick schaltet einen Ton an/aus (Skala wechselt auf Custom). Das Leuchten zeigt live, welche Töne gerade rauskommen.
+- **MIDI KEY**: Noten auf den MIDI-Eingang des Plugins bestimmen die Tonart, der letzte Akkord bleibt aktiv (Leiste wird pink).
+- **Strength**: wie stark in die Tonart gezogen wird (High Quality: 50 % = halber Weg).
+- **Color**: 0–100 % macht den Klang tonaler, **über 100 %** (pinker Bogen) kommt ein farbiger Nachhall-Tail dazu, bei 200 % bis ca. 3 s.
+- **Clear**: Transienten kommen trocken durch, alte Resonanzen werden bei neuen Hits gedämpft.
+- **Mix** (im High-Quality-Modus latenzkorrigiert) und **Output** (−24 bis +12 dB, Soft-Limiter am Ausgang).
+
+Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft Tonhöhe, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
+
 ## Bauen
 
 GitHub Actions baut bei jedem Push auf `main` automatisch die Windows-VST3 (`.github/workflows/build.yml`) und testet sie mit pluginval. Die fertigen Plugins liegen als Artefakt **Brainbugz-VST3** am jeweiligen Lauf und als ZIPs auf dem Branch `builds` (einzeln und als `Brainbugz-alle-VST3.zip`).
@@ -123,6 +142,7 @@ cmake --build build --config Release
 - `Plugins/BugzAlign` – Kick/Bass-Phasenausrichtung (DSP in `AlignEngine.h`, Anzeige in `AlignView.cpp`)
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
+- `Plugins/Prizm` – Harmonic Sweetener (Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
