@@ -72,3 +72,6 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 .dlg-box p{margin:0}
 .row-end{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
 @media (max-width:1100px){.overlay{width:290px}}
+
+/* Discord ist vorerst ausgeblendet (DISCORD_AN = false in app.js) */
+.no-discord #overlay,.no-discord #bOverlay,.no-discord .dc-field{display:none!important}

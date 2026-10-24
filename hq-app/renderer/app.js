@@ -1,3 +1,6 @@
+// Discord-Bereich vorerst aus. Zum Wieder-Einschalten hier auf true stellen.
+const DISCORD_AN = false;
+if (!DISCORD_AN) document.body.classList.add('no-discord');
 const $ = s => document.querySelector(s);
 const bridge = window.hq || new Proxy({}, { get: () => async () => { throw new Error('Verbindung zum Programm fehlt'); } });
 let state = { ready: false };
@@ -141,6 +144,7 @@ $('#setForm').addEventListener('submit', async e => {
   cfg = await bridge.getSettings();
   if (!cfg.overlayOpen) { $('#overlay').classList.add('hidden'); $('#bOverlay').setAttribute('aria-pressed', 'false'); }
   setBoard(); renderLed(); renderMembers(); renderVoice();
+  if (!DISCORD_AN) return;
   bridge.onState(applyState);
   const s = await bridge.state(); if (s.ready) applyState(s);
   else if (cfg.hasToken) { notice('Verbinde mit Discord …'); setTimeout(async () => { const t = await bridge.state(); if (t.ready) { notice(''); applyState(t); } else { const r = await bridge.connect(); r.ok ? (notice(''), applyState(r.state)) : notice(r.error); } }, 2500); }

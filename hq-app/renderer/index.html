@@ -56,11 +56,11 @@
     <label class="lbl" for="sBoard">Link zum Board (claude.ai/artifact/…)</label>
     <input id="sBoard" placeholder="https://claude.ai/artifact/…">
     <p class="muted">Beim ersten Start im Board einmal bei claude.ai anmelden. Die Anmeldung bleibt danach gespeichert.</p>
-    <label class="lbl" for="sToken">Discord-Bot-Token</label>
-    <input id="sToken" type="password" autocomplete="off" placeholder="Token einfügen (wird verschlüsselt auf diesem PC gespeichert)">
+    <label class="lbl dc-field" for="sToken">Discord-Bot-Token</label>
+    <input class="dc-field" id="sToken" type="password" autocomplete="off" placeholder="Token einfügen (wird verschlüsselt auf diesem PC gespeichert)">
     <p class="muted" id="tokenState"></p>
-    <label class="lbl" for="sGuild">Discord-Server</label>
-    <select id="sGuild"></select>
+    <label class="lbl dc-field" for="sGuild">Discord-Server</label>
+    <select class="dc-field" id="sGuild"></select>
     <div class="row-end"><button class="btn" type="button" id="sCancel">Schließen</button><button class="btn primary" type="submit" id="sSave" value="save">Speichern</button></div>
   </form>
 </dialog>
