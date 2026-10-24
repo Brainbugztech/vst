@@ -1,5 +1,5 @@
 const $ = s => document.querySelector(s);
-const hq = window.hq || new Proxy({}, { get: () => async () => { throw new Error('Verbindung zum Programm fehlt'); } });
+const bridge = window.hq || new Proxy({}, { get: () => async () => { throw new Error('Verbindung zum Programm fehlt'); } });
 let state = { ready: false };
 let cfg = {};
 let curChannel = '';
@@ -64,7 +64,7 @@ function updateSend() {
 async function loadMessages() {
   const ul = $('#msgs'); ul.replaceChildren();
   if (!curChannel) return;
-  const r = await hq.messages(curChannel);
+  const r = await bridge.messages(curChannel);
   if (!r.ok) { ul.append(el('li', 'muted', r.error)); return; }
   if (!r.list.length) ul.append(el('li', 'muted', 'Noch keine Nachrichten.'));
   r.list.forEach(m => {
@@ -90,11 +90,11 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   for (const id of ['who', 'voice', 'chat']) $('#p-' + id).hidden = id !== t.dataset.tab;
   if (t.dataset.tab === 'chat') loadMessages();
 }));
-$('#chSel').addEventListener('change', e => { curChannel = e.target.value; hq.setSettings({ channelId: curChannel }); updateSend(); loadMessages(); });
+$('#chSel').addEventListener('change', e => { curChannel = e.target.value; bridge.setSettings({ channelId: curChannel }); updateSend(); loadMessages(); });
 $('#sendForm').addEventListener('submit', async e => {
   e.preventDefault(); const t = $('#sendText').value.trim(); if (!t || !curChannel) return;
   $('#sendBtn').disabled = true;
-  const r = await hq.send(curChannel, t);
+  const r = await bridge.send(curChannel, t);
   $('#sendBtn').disabled = false;
   if (r.ok) { $('#sendText').value = ''; loadMessages(); } else $('#sendHint').textContent = r.error;
 });
@@ -102,7 +102,7 @@ $('#sendText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ct
 $('#bReload').addEventListener('click', () => { const b = $('#board'); try { b.reload(); } catch { setBoard(); } });
 $('#bOverlay').addEventListener('click', async e => {
   const open = $('#overlay').classList.toggle('hidden') === false;
-  e.currentTarget.setAttribute('aria-pressed', String(open)); await hq.setSettings({ overlayOpen: open });
+  e.currentTarget.setAttribute('aria-pressed', String(open)); await bridge.setSettings({ overlayOpen: open });
 });
 
 const dlg = $('#dlg');
@@ -115,7 +115,7 @@ function fillGuilds() {
 }
 async function openSettings() {
   dlg.showModal();
-  try { cfg = await hq.getSettings(); } catch (e) { $('#tokenState').textContent = 'Fehler beim Laden der Einstellungen: ' + (e && e.message || e); return; }
+  try { cfg = await bridge.getSettings(); } catch (e) { $('#tokenState').textContent = 'Fehler beim Laden der Einstellungen: ' + (e && e.message || e); return; }
   $('#sBoard').value = cfg.boardUrl || ''; $('#sToken').value = '';
   $('#tokenState').textContent = cfg.hasToken ? 'Ein Token ist gespeichert. Leer lassen, um ihn zu behalten.' : 'Noch kein Token gespeichert. Den Token findest du im Discord-Developer-Portal unter Bot. Gib ihn niemandem weiter.';
   fillGuilds();
@@ -128,20 +128,20 @@ $('#setForm').addEventListener('submit', async e => {
   const url = $('#sBoard').value.trim();
   if (url && !/^https:\/\/claude\.ai\//.test(url)) { $('#tokenState').textContent = 'Der Board-Link muss mit https://claude.ai/ anfangen.'; return; }
   const guild = $('#sGuild').value;
-  cfg = await hq.setSettings({ boardUrl: url, ...(guild ? { guildId: guild } : {}) });
+  cfg = await bridge.setSettings({ boardUrl: url, ...(guild ? { guildId: guild } : {}) });
   setBoard();
   const tok = $('#sToken').value.trim();
   dlg.close();
-  if (tok) { notice('Verbinde mit Discord …'); const r = await hq.setToken(tok); cfg = await hq.getSettings(); r.ok ? (notice(''), applyState(r.state)) : notice(r.error); }
-  else if (guild) { const s = await hq.state(); applyState(s); }
+  if (tok) { notice('Verbinde mit Discord …'); const r = await bridge.setToken(tok); cfg = await bridge.getSettings(); r.ok ? (notice(''), applyState(r.state)) : notice(r.error); }
+  else if (guild) { const s = await bridge.state(); applyState(s); }
 });
 
 (async () => {
   if (!window.hq) { notice('Die App hat sich nicht richtig gestartet (Verbindung zum Programm fehlt). Schließ sie und starte BugzHQ.exe neu. Mit F12 siehst du Details.'); return; }
-  cfg = await hq.getSettings();
+  cfg = await bridge.getSettings();
   if (!cfg.overlayOpen) { $('#overlay').classList.add('hidden'); $('#bOverlay').setAttribute('aria-pressed', 'false'); }
   setBoard(); renderLed(); renderMembers(); renderVoice();
-  hq.onState(applyState);
-  const s = await hq.state(); if (s.ready) applyState(s);
-  else if (cfg.hasToken) { notice('Verbinde mit Discord …'); setTimeout(async () => { const t = await hq.state(); if (t.ready) { notice(''); applyState(t); } else { const r = await hq.connect(); r.ok ? (notice(''), applyState(r.state)) : notice(r.error); } }, 2500); }
+  bridge.onState(applyState);
+  const s = await bridge.state(); if (s.ready) applyState(s);
+  else if (cfg.hasToken) { notice('Verbinde mit Discord …'); setTimeout(async () => { const t = await bridge.state(); if (t.ready) { notice(''); applyState(t); } else { const r = await bridge.connect(); r.ok ? (notice(''), applyState(r.state)) : notice(r.error); } }, 2500); }
 })();
