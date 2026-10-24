@@ -1,5 +1,5 @@
 const $ = s => document.querySelector(s);
-const hq = window.hq;
+const hq = window.hq || new Proxy({}, { get: () => async () => { throw new Error('Verbindung zum Programm fehlt'); } });
 let state = { ready: false };
 let cfg = {};
 let curChannel = '';
@@ -114,10 +114,11 @@ function fillGuilds() {
   if (cfg.guildId) sel.value = cfg.guildId;
 }
 async function openSettings() {
-  cfg = await hq.getSettings();
+  dlg.showModal();
+  try { cfg = await hq.getSettings(); } catch (e) { $('#tokenState').textContent = 'Fehler beim Laden der Einstellungen: ' + (e && e.message || e); return; }
   $('#sBoard').value = cfg.boardUrl || ''; $('#sToken').value = '';
   $('#tokenState').textContent = cfg.hasToken ? 'Ein Token ist gespeichert. Leer lassen, um ihn zu behalten.' : 'Noch kein Token gespeichert. Den Token findest du im Discord-Developer-Portal unter Bot. Gib ihn niemandem weiter.';
-  fillGuilds(); dlg.showModal();
+  fillGuilds();
 }
 $('#bSettings').addEventListener('click', openSettings);
 $('#bFirst').addEventListener('click', openSettings);
@@ -136,6 +137,7 @@ $('#setForm').addEventListener('submit', async e => {
 });
 
 (async () => {
+  if (!window.hq) { notice('Die App hat sich nicht richtig gestartet (Verbindung zum Programm fehlt). Schließ sie und starte BugzHQ.exe neu. Mit F12 siehst du Details.'); return; }
   cfg = await hq.getSettings();
   if (!cfg.overlayOpen) { $('#overlay').classList.add('hidden'); $('#bOverlay').setAttribute('aria-pressed', 'false'); }
   setBoard(); renderLed(); renderMembers(); renderVoice();

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const store = require('./store');
 const dc = require('./discord');
@@ -8,9 +8,12 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1500, height: 900, minWidth: 900, minHeight: 600, backgroundColor: '#090b0d', title: 'Bugz HQ',
     icon: path.join(__dirname, 'icon.png'),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, webviewTag: true }
+    // sandbox aus, damit das Preload-Skript sicher geladen wird; die Seite selbst bleibt isoliert (contextIsolation, kein nodeIntegration)
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false, webviewTag: true }
   });
   win.setMenuBarVisibility(false);
+  win.webContents.on('preload-error', (_e, p, err) => dialog.showErrorBox('Bugz HQ: Start-Fehler', 'Das Preload-Skript ließ sich nicht laden:\n' + p + '\n\n' + (err && err.stack || err)));
+  win.webContents.on('before-input-event', (e, input) => { if (input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key.toUpperCase() === 'I'))) win.webContents.toggleDevTools(); });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   // Das Board läuft in einem eigenen Webview: nur claude.ai darf dort rein, alles andere geht in den Browser.
