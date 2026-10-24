@@ -43,19 +43,6 @@ struct Params {
     float width = 0.5f;       // 0 mono, 0.5 natural, 1 extra wide
     float volume = 0.f;       // dB -24..+6
     bool keyTrack = false;    // MIDI note transposes tune (C3/60 = tune)
-    // Sample layer (own snare, runs through the whole chain)
-    float smpLevel = 0.f;     // dB -30..+12 (-30 = off)
-    float smpPitch = 0.f;     // semitones -24..+24
-    float smpStart = 0.f;     // 0..0.5 of the sample length
-    bool smpReverse = false;
-    bool smpShape = false;    // Hold/Release also cut the sample
-};
-
-// Loaded user sample (always 2 channels, owned by the plugin, read-only for the engine)
-struct SampleData {
-    std::vector<float> ch[2];
-    double sampleRate = 44100.0;
-    int length() const { return (int)ch[0].size(); }
 };
 
 // note divisions in quarter notes: 1/64 1/32 1/16T 1/16 1/8T 1/8 1/4 1/2 1/1
@@ -209,23 +196,8 @@ public:
     void prepare(float sr) { fs = sr; for (auto& f : nf) f.reset(); for (auto& f : nl) f.reset(); for (auto& f : nb) f.reset(); }
     bool isActive() const { return active; }
 
-    void start(float f0_, float vel, const Params& p, uint32_t seed, const SampleData* sd = nullptr, float keyRatio = 1.f) {
+    void start(float f0_, float vel, const Params& p, uint32_t seed) {
         rng.s = seed | 1u;
-        smp = nullptr;
-        if (sd != nullptr && sd->length() > 4 && p.smpLevel > -29.9f) {
-            const int len = sd->length();
-            const double rate = sd->sampleRate / fs * std::pow(2.0, p.smpPitch / 12.0) * keyRatio;
-            const double st = std::clamp(p.smpStart, 0.f, 0.95f) * (len - 1);
-            sRev = p.smpReverse;
-            sPos = sRev ? (len - 2) - st : st;
-            sInc = sRev ? -rate : rate;
-            // level 0 dB = sample plays at its own level at the output (engine scales by kHeadroom)
-            sGain = dbToGain(p.smpLevel) * 4.f;
-            sShape = p.smpShape;
-            sFadeIn = st > 0.5 ? 1.f / (0.002f * fs) : 1.f; // short fade when starting mid-sample
-            sFadeAmt = st > 0.5 ? 0.f : 1.f;
-            smp = sd;
-        }
         f0 = f0_;
         amp = std::pow(vel, 0.8f);
         bright = 0.7f + 0.3f * vel;
@@ -238,7 +210,6 @@ public:
         update(p);
     }
     void chokeOut() { if (active) { choke = true; } }
-    void dropSample() { smp = nullptr; }
 
     // ratios (relative to tune) and normalised amplitudes of the ring partials - also used by the UI
     static void ringPartials(const Params& p, float* ratioOut, float* ampOut) {
@@ -268,8 +239,6 @@ public:
         holdS = std::max(1.f, p.hold * 0.001f * fs);
         relS = std::max(1.f, p.release * 0.001f * fs);
         holdTau = p.hold * 0.001f * fs * 3.0f;
-        sShape = p.smpShape;
-        if (smp != nullptr) sGain = p.smpLevel > -29.9f ? dbToGain(p.smpLevel) * 4.f : 0.f;
         float nfc = 1500.f * std::pow(6.f, p.noiseTone) * bright;
         for (auto& f : nf) f.set(nfc * 0.3f, 0.7f, fs);              // highpass
         for (auto& f : nl) f.set(std::min(nfc * 1.7f, 16000.f), 0.7f, fs); // lowpass
@@ -280,59 +249,21 @@ public:
     inline void tick(float& L, float& R) {
         if (!active) return;
         // box envelope
-        float env = 0.f;
-        bool envDone = false;
+        float env;
         float att = std::min(1.f, t / (0.0004f * fs));
         if (t < holdS) env = std::exp(-t / holdTau);
         else {
             float x = (t - holdS) / relS;
-            if (x >= 1.f) envDone = true;
-            else {
-                float e0 = std::exp(-holdS / holdTau);
-                float u = 1.f - x;
-                env = e0 * u * u * u;
-            }
+            if (x >= 1.f) { active = false; return; }
+            float e0 = std::exp(-holdS / holdTau);
+            float u = 1.f - x;
+            env = e0 * u * u * u;
         }
         env *= att;
         if (choke) {
             chokeGain -= 1.f / (0.004f * fs);
             if (chokeGain <= 0) { active = false; return; }
             env *= chokeGain;
-        }
-
-        // sample layer
-        if (smp != nullptr) {
-            if (sShape && envDone) smp = nullptr;
-            else {
-                const int len = smp->length();
-                const int i0 = (int)std::floor(sPos);
-                if (i0 < 0 || i0 >= len - 1) smp = nullptr;
-                else {
-                    const float fr = (float)(sPos - i0);
-                    const int im = std::max(i0 - 1, 0), i2 = i0 + 1, i3 = std::min(i0 + 2, len - 1);
-                    float g = sGain * amp * (sShape ? env : att * (choke ? chokeGain : 1.f)) * sFadeAmt;
-                    // short fade at the end of the sample so it never clicks
-                    const double left = sRev ? sPos : (len - 1) - sPos;
-                    const float endFade = (float)std::min(1.0, left / std::max(1.0, std::fabs(sInc) * 0.003 * fs));
-                    g *= endFade;
-                    for (int c = 0; c < 2; ++c) {
-                        const float* d = smp->ch[c].data();
-                        const float y0 = d[im], y1 = d[i0], y2 = d[i2], y3 = d[i3];
-                        // 4-point Hermite
-                        const float c1 = 0.5f * (y2 - y0), c2 = y0 - 2.5f * y1 + 2.f * y2 - 0.5f * y3;
-                        const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
-                        const float v = ((c3 * fr + c2) * fr + c1) * fr + y1;
-                        (c == 0 ? L : R) += v * g;
-                    }
-                    sPos += sInc;
-                    sFadeAmt = std::min(1.f, sFadeAmt + sFadeIn);
-                }
-            }
-        }
-        if (envDone) {
-            if (smp == nullptr) active = false;
-            t += 1.f;
-            return;
         }
 
         float pEnv = 1.f + punch * 0.6f * std::exp(-t / (0.006f * fs));
@@ -380,10 +311,6 @@ private:
     float ratio[kPartials]{}, pa[kPartials]{};
     float stereoDetune = 1, fmIdx = 0, punch = 0, ringLevel = 1, noiseLevel = 0.5f, widthN = 0.5f;
     float holdS = 1000, relS = 100, holdTau = 1000;
-    const SampleData* smp = nullptr;
-    double sPos = 0, sInc = 1;
-    float sGain = 1, sFadeIn = 1, sFadeAmt = 1;
-    bool sRev = false, sShape = false;
     Svf nf[2], nl[2], nb[2];
     Rng rng;
 };
@@ -421,12 +348,6 @@ public:
     }
     const Params& getParams() const { return params; }
     float getBpm() const { return bpm; }
-    // audio thread: swap the sample (voices playing the old one stop it immediately)
-    void setSample(const SampleData* s) {
-        if (s == sample) return;
-        sample = s;
-        for (auto& v : voices) v.dropSample();
-    }
     // current reverb gate length in ms (resolves tempo sync), >= 1999 = gate off
     static float gateLengthMs(const Params& p, float bpm) {
         if (p.verbSync > 0 && p.verbSync < 10) return kSyncDivs[p.verbSync] * 60000.f / bpm;
@@ -443,8 +364,7 @@ public:
         Voice* target = nullptr;
         for (auto& v : voices) if (!v.isActive()) { target = &v; break; }
         if (!target) target = &voices[(size_t)(nextVoice++ % voices.size())];
-        const float keyRatio = params.keyTrack ? std::pow(2.f, (float)(note - 60) / 12.f) : 1.f;
-        target->start(f0, std::clamp(velocity, 0.f, 1.f), params, seed, sample, keyRatio);
+        target->start(f0, std::clamp(velocity, 0.f, 1.f), params, seed);
         seed = seed * 1664525u + 1013904223u;
         gateT = 0; // retrigger reverb gate
     }
@@ -526,7 +446,6 @@ private:
     float fs = 44100, bpm = 145, curF0 = 800, outGain = 1;
     Params params;
     std::array<Voice, 3> voices;
-    const SampleData* sample = nullptr;
     unsigned nextVoice = 0;
     uint32_t seed = 12345u;
     Biquad eq[2], dcHp[2];

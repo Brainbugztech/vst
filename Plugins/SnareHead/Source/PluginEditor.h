@@ -67,28 +67,6 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> att;
 };
 
-// Wellenform des eigenen Samples: Start ziehen, Klick (leer) = laden
-class SampleView : public juce::Component
-{
-public:
-    explicit SampleView (SnareHeadProcessor& p) : proc (p) { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
-    void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override;
-    std::function<void()> onLoadRequest;
-    float sinceHitMs = 1e9f;
-    bool dragOver = false;
-    juce::String status;          // kurze Meldung (z. B. Analyse-Ergebnis)
-    double statusUntil = 0.0;
-private:
-    SnareHeadProcessor& proc;
-    std::vector<std::pair<float, float>> peaks;
-    int shownVersion = -1, shownWidth = -1;
-    double lengthMs = 0.0;
-    void rebuildPeaks();
-    void setStartFromX (float x);
-};
 
 // Res-EQ Anzeige: Glocke + Ring-Teiltoene + Note
 class EqView : public juce::Component
@@ -143,7 +121,7 @@ private:
 
 } // namespace sh
 
-class SnareHeadEditor : public juce::AudioProcessorEditor, public juce::FileDragAndDropTarget, private juce::Timer
+class SnareHeadEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
     explicit SnareHeadEditor (SnareHeadProcessor&);
@@ -152,16 +130,8 @@ public:
     void paintOverChildren (juce::Graphics&) override;
     void resized() override;
 
-    bool isInterestedInFileDrag (const juce::StringArray& files) override;
-    void filesDropped (const juce::StringArray& files, int, int) override;
-    void fileDragEnter (const juce::StringArray&, int, int) override { sampleView.dragOver = true; sampleView.repaint(); }
-    void fileDragExit (const juce::StringArray&) override { sampleView.dragOver = false; sampleView.repaint(); }
-
 private:
     void timerCallback() override;
-    void openSampleChooser();
-    void loadSample (const juce::File&);
-    void runAnalyze();
     void refreshPresetBox();
     void savePreset (bool askName);
     void showPresetMenu();
@@ -180,11 +150,6 @@ private:
     sh::Knob eqFreq, eqGain, eqQ;
     sh::Knob verbSize, verbMix, verbGate, verbCut;
     sh::Knob noisy, width, volume;
-    sh::Knob smpLevel, smpPitch, smpStart;
-    sh::SampleView sampleView;
-    juce::TextButton loadBtn { "LOAD" }, clearBtn { "X" }, revBtn { "REV" }, shapeBtn { "SHAPE" }, analyzeBtn { "ANALYZE" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> revAtt, shapeAtt;
-    std::unique_ptr<juce::FileChooser> chooser;
 
     juce::TextButton linkBtn { "LINK" }, keyBtn { "KEY TRACK" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> linkAtt, keyAtt;
@@ -197,7 +162,7 @@ private:
     bool shownModified = false;
     int shownPresetCount = -1;
 
-    juce::Rectangle<int> rRing, rNoise, rShape, rEq, rVerb, rNoisy, rOut, rLogo, rSticker, rSample;
+    juce::Rectangle<int> rRing, rNoise, rShape, rEq, rVerb, rNoisy, rOut, rLogo, rSticker;
     int lastHits = 0;
     float stickerPulse = 0.0f, meter = 0.0f;
     double lastHitTime = -1.0;
