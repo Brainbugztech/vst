@@ -1,0 +1,44 @@
+﻿BRAIN BUGZ CLOUD - Regeln fuer Benett und Dexter
+==================================================
+
+ORDNER
+------
+_Inbox (zum Einsortieren)  Alles Neue erstmal hier rein, wer Zeit hat sortiert ein.
+01_Projekte               Ableton-Projekte. Ein Ordner pro Track ("Trackname Project").
+   _Vorlagen              Eure Start-Templates (Default Sets, Routing usw.)
+   _Archiv                Alte/abgebrochene Projekte
+02_Presets                Ableton Racks, Synth-Presets, Presets fuer unsere Brain-Bugz-Plugins
+   Presetpacks            Fertige Packs zum Weitergeben/Verkaufen (ein Unterordner pro Pack)
+03_Samples                Nach Kategorie sortiert, gekaufte Packs komplett unter Samplepacks
+04_Plugins
+   Brain Bugz Builds      Fertige .vst3-Builds unserer Plugins (Ordner pro Version, z.B. "v1.2")
+   Installer              Installer von Fremd-Plugins (nur was ihr beide nutzen duerft)
+05_Tracks                 Fertige Master (WAV + MP3), Stems, Demos, Release-Material
+
+ABLETON - WICHTIG
+-----------------
+1. Vor dem Teilen immer: Datei > "Alles sammeln und speichern".
+   Dann liegen alle Samples im Projektordner und beim anderen fehlt nichts.
+2. Nie gleichzeitig dasselbe Set offen haben. Im HQ-Board beim Projekt
+   eintragen, wer gerade dran ist.
+3. Neue Version statt ueberschreiben: "Trackname v3 Benett.als".
+4. Gleiche Plugins nutzen oder vorher Audio bouncen (Freeze & Flatten),
+   sonst fehlen beim anderen Plugins.
+5. In Ableton im Browser unter "Orte" > "Ordner hinzufuegen" die Ordner
+   02_Presets und 03_Samples einbinden. Die Ableton User Library NICHT
+   in die Cloud verschieben.
+
+PLUGINS
+-------
+Plugins laufen in Ableton nicht direkt aus der Cloud. Die .vst3 aus
+04_Plugins nach  C:\Program Files\Common Files\VST3  kopieren und in
+Ableton neu scannen.
+
+GOOGLE DRIVE
+------------
+- Google Drive fuer Desktop: Ordner "Brain Bugz Cloud" per Rechtsklick
+  "Offline verfuegbar" machen (oder in den Einstellungen "Dateien spiegeln"),
+  sonst laedt Ableton Samples erst beim Abspielen herunter.
+- Der Speicher zaehlt beim Besitzer des Ordners (Benett). Grosse
+  gekaufte Samplepacks lieber nur lokal behalten, wenn es eng wird.
+- Geloeschtes liegt 30 Tage im Drive-Papierkorb.

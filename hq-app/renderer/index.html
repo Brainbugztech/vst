@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Bugz HQ</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://cdn.discordapp.com; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src https://claude.ai; connect-src 'none'; media-src 'self' file:">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="head.webp" alt=""><h1>Bugz <span>HQ</span></h1></div>
+  <div class="viewsw" role="tablist" aria-label="Ansicht">
+    <button class="vs on" id="vBoard" role="tab" aria-selected="true" type="button">Board</button>
+    <button class="vs" id="vCloud" role="tab" aria-selected="false" type="button">Cloud <i class="vs-dot" id="cloudDot"></i></button>
+  </div>
+  <nav class="top-actions">
+    <button id="bReload" class="btn" type="button">Board neu laden</button>
+    <button id="bOverlay" class="btn" type="button" aria-pressed="true">Discord</button>
+    <button id="bSettings" class="btn" type="button">Einstellungen</button>
+  </nav>
+</header>
+
+<div class="layout" id="layout">
+  <section class="boardpane" id="boardpane">
+    <div class="empty-board" id="noBoard" hidden>
+      <img src="logo.webp" alt="">
+      <p>Trag in den Einstellungen den Link zu eurem Board ein.</p>
+      <button class="btn primary" type="button" id="bFirst">Einstellungen öffnen</button>
+    </div>
+    <webview id="board" partition="persist:board"></webview>
+
+    <!-- Cloud: liegt über dem Board, damit das Board im Hintergrund geladen bleibt -->
+    <section class="cloudpane" id="cloudpane" hidden>
+      <div class="c-setup" id="cSetup" hidden>
+        <img src="logo.webp" alt="">
+        <h2>Cloud-Ordner nicht gefunden</h2>
+        <p>Die App sucht <b>Brain Bugz Cloud</b> in deinem Google Drive (Meine Ablage). Dafür muss <b>Google Drive für Desktop</b> laufen und der Ordner angelegt bzw. mit dir geteilt sein.</p>
+        <div class="row-c"><button class="btn primary" id="cDetect" type="button">Nochmal suchen</button><button class="btn" id="cChoose" type="button">Ordner selbst wählen</button></div>
+        <p class="muted">Dexter: geteilten Ordner auf drive.google.com unter „Für mich freigegeben“ per Rechtsklick → „Verknüpfung zu Meine Ablage hinzufügen“.</p>
+      </div>
+
+      <aside class="c-side" id="cSide">
+        <div class="c-side-head"><b>Cloud</b><span class="sync" id="cSync"><i></i>Sync über Google Drive</span></div>
+        <nav class="c-tree" id="cTree" aria-label="Ordner"></nav>
+        <div class="c-side-foot"><span class="muted" id="cPath" title=""></span><button class="lnk" id="cChange" type="button">Ändern</button></div>
+      </aside>
+
+      <div class="c-main" id="cMain">
+        <div class="c-bar">
+          <nav class="crumbs" id="cCrumbs" aria-label="Pfad"></nav>
+          <div class="c-actions">
+            <button class="btn" id="cNew" type="button">+ Ordner</button>
+            <button class="btn" id="cReveal" type="button">Im Explorer</button>
+          </div>
+        </div>
+        <div class="c-fix" id="cFix" hidden><span id="cFixTxt"></span><button class="btn primary" id="cFixBtn" type="button">Struktur anlegen</button></div>
+        <div class="c-body" id="cBody"></div>
+        <div class="c-hint muted">Dateien hier reinziehen zum Hochladen · Dateien rausziehen, z.B. direkt in Ableton · Doppelklick öffnet</div>
+        <div class="player" id="player" hidden>
+          <button class="pbtn" id="pPlay" type="button" aria-label="Abspielen">▶</button>
+          <div class="pinfo"><b id="pName"></b><div class="pbar" id="pBar"><i id="pFill"></i></div></div>
+          <span class="muted" id="pTime"></span>
+          <button class="pbtn x" id="pClose" type="button" aria-label="Schließen">✕</button>
+          <audio id="pAudio" preload="auto"></audio>
+        </div>
+        <div class="drop" id="cDrop" hidden><div class="drop-box"><div class="drop-ico">⇣</div><b>Loslassen zum Hochladen</b><span id="cDropTo"></span></div></div>
+        <div class="c-progress" id="cProg" hidden><i id="cProgFill"></i><span id="cProgTxt"></span></div>
+      </div>
+    </section>
+  </section>
+
+  <aside class="overlay" id="overlay" aria-label="Discord">
+    <div class="ov-head"><i class="led" id="led"></i><b id="gname">Discord</b><span id="gstat" class="muted"></span></div>
+    <div class="notice" id="notice" hidden></div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-tab="who" role="tab">Wer ist da</button>
+      <button class="tab" data-tab="voice" role="tab">Voice</button>
+      <button class="tab" data-tab="chat" role="tab">Chat</button>
+    </div>
+
+    <div class="panel" id="p-who"><ul class="list" id="members"></ul></div>
+    <div class="panel" id="p-voice" hidden><ul class="list" id="voice"></ul></div>
+    <div class="panel chat" id="p-chat" hidden>
+      <label class="lbl" for="chSel">Channel</label>
+      <select id="chSel"></select>
+      <ul class="msgs" id="msgs" aria-live="polite"></ul>
+      <form id="sendForm" class="send">
+        <textarea id="sendText" rows="2" placeholder="Nachricht oder Update an den Channel …"></textarea>
+        <div class="send-row"><span class="muted" id="sendHint"></span><button class="btn primary" type="submit" id="sendBtn">Senden</button></div>
+      </form>
+    </div>
+  </aside>
+</div>
+
+<dialog id="dlgNew">
+  <form method="dialog" id="newForm" class="dlg-box">
+    <h2>Neuer Ordner</h2>
+    <label class="lbl" for="newName">Name</label>
+    <input id="newName" autocomplete="off" placeholder="z.B. Trackname Project">
+    <p class="muted" id="newIn"></p>
+    <div class="row-end"><button class="btn" type="button" id="newCancel">Abbrechen</button><button class="btn primary" type="submit">Anlegen</button></div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<dialog id="dlg">
+  <form method="dialog" id="setForm" class="dlg-box">
+    <h2>Einstellungen</h2>
+    <label class="lbl" for="sBoard">Link zum Board (claude.ai/artifact/…)</label>
+    <input id="sBoard" placeholder="https://claude.ai/artifact/…">
+    <p class="muted">Beim ersten Start im Board einmal bei claude.ai anmelden. Die Anmeldung bleibt danach gespeichert.</p>
+    <label class="lbl dc-field" for="sToken">Discord-Bot-Token</label>
+    <input class="dc-field" id="sToken" type="password" autocomplete="off" placeholder="Token einfügen (wird verschlüsselt auf diesem PC gespeichert)">
+    <p class="muted" id="tokenState"></p>
+    <label class="lbl dc-field" for="sGuild">Discord-Server</label>
+    <select class="dc-field" id="sGuild"></select>
+    <div class="row-end"><button class="btn" type="button" id="sCancel">Schließen</button><button class="btn primary" type="submit" id="sSave" value="save">Speichern</button></div>
+  </form>
+</dialog>
+<script src="app.js"></script>
+<script src="cloud-ui.js"></script>
+</body>
+</html>
