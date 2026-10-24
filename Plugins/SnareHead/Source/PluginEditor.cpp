@@ -748,6 +748,7 @@ void SnareHeadEditor::refreshPresetBox()
         for (int i = 0; i < nf; ++i)
         {
             if (i == 12) presetBox.addSectionHeading ("XTREME NOISY");
+            if (i == 20) presetBox.addSectionHeading ("ACAJOU");
             presetBox.addItem (names[i], i + 1);
         }
         if (names.size() > nf)
@@ -892,7 +893,7 @@ void SnareHeadEditor::paint (juce::Graphics& g)
     g.drawText ("SNARE HEAD", 16, 10, 300, 36, juce::Justification::centredLeft);
     g.setFont (mono (12.0f));
     g.setColour (col::inkDim);
-    g.drawText ("BRAIN BUGZ  //  SNARE SYNTH  v0.2", 200, 19, 260, 18, juce::Justification::centredLeft);
+    g.drawText ("BRAIN BUGZ  //  SNARE SYNTH  v0.3", 200, 19, 260, 18, juce::Justification::centredLeft);
 
     drawPanel (g, rRing, "Ring");
     drawPanel (g, rNoise, "Noise");

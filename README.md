@@ -75,7 +75,7 @@ Snare-Synth für metallisch klingende Psy/Hitech-Snares (Instrument, per MIDI an
 - **Hz / NOTE** (Knopf an Tune und Res-Freq): im Note-Modus zeigt der Regler den Ton an und rastet auf Halbtöne.
 - **Werte eintippen**: Wert unter einem Regler anklicken und eintippen. Bei Tune/Freq gehen Hz (`880`, `1.2k`) und Noten (`A`, `A5`, `F#`, `Bb6`). Liegt die Oktave außerhalb von 700 Hz – 1,6 kHz, wird sie automatisch reingeschoben (`A1` → A5 = 880 Hz).
 - **Logo anklicken** = Snare anspielen (weiter unten geklickt = härter).
-- **Presets**: 20 Werkspresets (12 Psy/Hitech, 8 Xtreme Noisy/Industrial), Pfeile blättern, **SAVE** / **...** wie beim Bleep Designer. Eigene Presets liegen in `Dokumente\Brain Bugz\Snare Head\Presets` (.snarehead).
+- **Presets**: 26 Werkspresets (12 Psy/Hitech, 8 Xtreme Noisy/Industrial, 6 Acajou = nachgebaute Snares), Pfeile blättern, **SAVE** / **...** wie beim Bleep Designer. Eigene Presets liegen in `Dokumente\Brain Bugz\Snare Head\Presets` (.snarehead).
 - Doppelklick auf einen Regler = Standardwert.
 - `Plugins/SnareHead/tools/render.cpp` rendert alle Presets als WAV (Engine ist ohne JUCE testbar).
 

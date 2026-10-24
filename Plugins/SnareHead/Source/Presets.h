@@ -92,6 +92,31 @@ inline std::vector<Preset> factoryPresets() {
         p.tune = 740; p.spread = 0.5f; p.metal = 0.55f; p.punch = 0.6f; p.noiseLevel = 0.5f; p.noiseTone = 0.55f;
         p.hold = 120; p.release = 60; p.noisy = 0.5f; p.eqFreq = 740; p.eqGain = 5; p.eqQ = 4;
         p.verbSize = 0.95f; p.verbMix = 0.6f; p.verbSync = 7; p.verbCut = 0.03f; p.width = 0.8f; p.volume = 5.4f; });
+    add("Acajou 5", false, [](Params& p) {
+        p.tune = 1484.0; p.spread = 0.65f; p.metal = 0.8f; p.ringLevel = 0.19f; p.punch = 0.94f;
+        p.noiseLevel = 1.0f; p.noiseTone = 0.53f; p.hold = 123.0; p.release = 165.0;
+        p.eqFreq = 963.0; p.eqGain = 18.0; p.eqQ = 1.3; p.noisy = 0.16f; p.volume = 4.0f; });
+    add("Acajou 13", false, [](Params& p) {
+        p.tune = 707.0; p.spread = 0.43f; p.metal = 0.17f; p.ringLevel = 0.44f; p.punch = 0.83f;
+        p.noiseLevel = 0.19f; p.noiseTone = 0.53f; p.hold = 186.0; p.release = 110.0;
+        p.eqFreq = 1097.0; p.eqGain = 18.0; p.eqQ = 2.0; p.noisy = 0.09f; p.volume = 6.0f; });
+    add("Acajou 21", false, [](Params& p) {
+        p.tune = 867.0; p.spread = 0.13f; p.metal = 0.11f; p.ringLevel = 0.73f; p.punch = 0.5f;
+        p.noiseLevel = 0.94f; p.noiseTone = 0.69f; p.hold = 210.0; p.release = 60.0;
+        p.eqFreq = 1135.0; p.eqGain = 15.0; p.eqQ = 1.4; p.noisy = 0.12f; p.volume = -0.8f; });
+    add("Acajou 23", false, [](Params& p) {
+        p.tune = 780.0; p.spread = 0.18f; p.metal = 0.07f; p.ringLevel = 0.43f; p.punch = 0.38f;
+        p.noiseLevel = 0.97f; p.noiseTone = 0.79f; p.hold = 187.0; p.release = 98.0;
+        p.eqFreq = 1091.0; p.eqGain = 17.5; p.eqQ = 4.1; p.noisy = 0.05f; p.volume = 4.4f; });
+    add("Acajou 24", false, [](Params& p) {
+        p.tune = 1278.0; p.spread = 0.24f; p.metal = 0.92f; p.ringLevel = 0.29f; p.punch = 0.24f;
+        p.noiseLevel = 0.67f; p.noiseTone = 0.68f; p.hold = 40.0; p.release = 204.0;
+        p.eqFreq = 1227.0; p.eqGain = 17.1; p.eqQ = 2.4; p.noisy = 0.07f; p.volume = 6.0f; });
+    add("Acajou 26", false, [](Params& p) {
+        p.tune = 891.0; p.spread = 0.75f; p.metal = 0.79f; p.ringLevel = 0.55f; p.punch = 0.53f;
+        p.noiseLevel = 0.96f; p.noiseTone = 0.78f; p.hold = 152.0; p.release = 149.0;
+        p.eqFreq = 950.0; p.eqGain = 17.3; p.eqQ = 1.7; p.noisy = 0.34f; p.volume = 3.4f; });
+
     return v;
 }
 
