@@ -3,6 +3,13 @@ name: Build Windows VST3
 on:
   push:
     branches: [ main ]
+  # Auch Pull Requests bauen und mit Pluginval testen, damit man vor dem Merge sieht, ob alles grün ist.
+  # Die VST3s gibt es dann als Download am Lauf; der Branch "builds" bleibt für den Stand von main reserviert.
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - 'hq-app/**'
+      - '**.md'
   workflow_dispatch:
 
 permissions:
@@ -49,6 +56,7 @@ jobs:
           grep -E "error|Error|fatal" build.log | grep -v "warning" | sort -u | head -200 > logpub/errors.txt || true
           tail -300 build.log > logpub/tail.txt || true
           echo "Commit: $GITHUB_SHA" > logpub/info.txt
+          echo "Branch: ${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" >> logpub/info.txt
           cd logpub
           git init -q -b build-log
           git config user.name "github-actions"
@@ -111,6 +119,7 @@ jobs:
           Compress-Archive -Path (Get-ChildItem out -Directory -Filter "*.vst3").FullName -DestinationPath out/Brainbugz-alle-VST3.zip -Force
 
       - name: Auf Branch "builds" ablegen
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           mkdir pub && cp out/*.zip out/build-info.txt out/pluginval-*.txt pub/ 2>/dev/null || true
