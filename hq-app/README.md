@@ -1,7 +1,8 @@
 # Bugz HQ (Windows-App)
 
-Ein Fenster mit dem Brain-Bugz-Projektboard links und einem Discord-Overlay rechts:
-wer ist online, wer sitzt in welchem Voice-Channel, Chat lesen und Updates posten.
+Ein Fenster mit zwei Ansichten (oben umschalten oder Strg+1 / Strg+2):
+- **Board**: das Brain-Bugz-Projektboard (plus Discord-Overlay, gerade ausgeblendet)
+- **Cloud**: euer gemeinsamer Ordner „Brain Bugz Cloud“ aus Google Drive
 
 ## Exe holen
 GitHub → Actions → "Build Bugz HQ" → neuester Lauf → Artifact **BugzHQ** herunterladen,
@@ -20,3 +21,26 @@ entpacken, `BugzHQ.exe` auf den Desktop legen. Keine Installation nötig.
 4. Token unter *Bot → Reset Token* kopieren. Den Token nie in Chats, Repos oder Screenshots zeigen.
 
 Jeder von euch (Benett, Dexter) trägt den Token bei sich lokal ein. Ihr könnt denselben Bot benutzen.
+
+## Cloud einrichten
+Die Cloud-Ansicht zeigt den lokalen Ordner, den **Google Drive für Desktop** synct.
+Die App lädt nichts selbst hoch, das macht Google Drive im Hintergrund.
+
+1. Google Drive für Desktop installieren und anmelden: https://www.google.com/drive/download/
+2. **Benett** (einmalig): `cloud-setup/CLOUD_EINRICHTEN.bat` doppelklicken. Legt „Brain Bugz Cloud“
+   mit allen Unterordnern in *Meine Ablage* an. Dann auf drive.google.com den Ordner mit Dexter teilen (Bearbeiter).
+3. **Dexter**: auf drive.google.com unter *Für mich freigegeben* den Ordner per Rechtsklick
+   → *Verknüpfung zu „Meine Ablage“ hinzufügen*.
+4. Die App findet den Ordner von selbst. Sonst in der Cloud-Ansicht auf *Ordner selbst wählen*.
+
+Tipp: Den Ordner in Google Drive für Desktop auf „Offline verfügbar“ stellen, damit Samples sofort laden.
+
+### Was die Cloud-Ansicht kann
+- Übersicht mit Kacheln (Projekte, Presets, Samples, Plugins, Tracks, Inbox) inkl. Anzahl, Größe und „NEU“ für Dateien der letzten 24 h
+- Ordnerbaum links, Inhalt rechts, Doppelklick öffnet Datei/Ordner
+- **Drag & Drop rein**: Dateien/Ordner aus dem Explorer auf den Inhalt, eine Kachel oder einen Ordner links ziehen
+- **Rausziehen**: Dateien direkt in Ableton oder den Explorer ziehen
+- **Verschieben**: innerhalb der App von einem Ordner in einen anderen ziehen
+- **Vorhören**: Play-Knopf bei Audio-Dateien, Leertaste = Play/Pause
+- Aktualisiert sich automatisch, wenn der andere etwas hochlädt
+- Es wird nie etwas überschrieben: gleiche Namen bekommen „(2)“ dran. Löschen geht nur im Explorer.

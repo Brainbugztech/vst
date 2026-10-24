@@ -1,7 +1,7 @@
 # Brain Bugz: Regeln für Claude
 
 Dieses Repo gehört Benett und Dexter. Wir bauen VST3-Plugins (JUCE, Windows, Build über GitHub Actions)
-und die Windows-App `hq-app/` (Projektboard + Discord-Overlay).
+und die Windows-App `hq-app/` (Projektboard, Cloud-Ordner „Brain Bugz Cloud“ über Google Drive, Discord-Overlay).
 
 ## So arbeitest du hier
 1. **Nie direkt auf `main`.** Lege für jeden Auftrag einen eigenen Branch an (`claude/<projekt>-<kurzbeschreibung>`)

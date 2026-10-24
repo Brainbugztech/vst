@@ -1,7 +1,9 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, nativeImage } = require('electron');
+const { pathToFileURL } = require('url');
 const path = require('path');
 const store = require('./store');
 const dc = require('./discord');
+const cloud = require('./cloud');
 
 let win;
 function createWindow() {
@@ -36,8 +38,45 @@ async function connectFromSettings() {
   } catch (e) { return { ok: false, error: dc.describeError(e) }; }
 }
 
+// Cloud-Ordner: gespeicherten Pfad nehmen, sonst automatisch suchen
+function cloudStart() {
+  let p = store.load().cloudPath;
+  if (!p || !require('fs').existsSync(p)) { const d = cloud.detect(); if (d) { p = d; store.patch({ cloudPath: d }); } }
+  cloud.setRoot(p || '');
+  cloud.watch(() => { if (win && !win.isDestroyed()) win.webContents.send('cloud:changed'); });
+  return cloud.status();
+}
+const safe = fn => async (...a) => { try { return { ok: true, data: await fn(...a) } } catch (e) { return { ok: false, error: String(e && e.message || e) } } };
+let dragIcon = null;
+
 app.whenReady().then(() => {
   createWindow();
+  cloudStart();
+  ipcMain.handle('cloud:status', () => cloud.status());
+  ipcMain.handle('cloud:detect', () => { store.patch({ cloudPath: '' }); return cloudStart(); });
+  ipcMain.handle('cloud:choose', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Cloud-Ordner "Brain Bugz Cloud" wählen', properties: ['openDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return cloud.status();
+    store.patch({ cloudPath: r.filePaths[0] }); return cloudStart();
+  });
+  ipcMain.handle('cloud:ensure', safe(() => cloud.ensureStructure()));
+  ipcMain.handle('cloud:list', safe(rel => cloud.list(rel)));
+  ipcMain.handle('cloud:subdirs', safe(rel => cloud.subdirs(rel)));
+  ipcMain.handle('cloud:stats', safe(rel => cloud.stats(rel)));
+  ipcMain.handle('cloud:mkdir', safe((rel, name) => cloud.mkdir(rel, name)));
+  ipcMain.handle('cloud:import', safe((paths, rel) => cloud.importPaths(Array.isArray(paths) ? paths : [], rel,
+    p => { if (win && !win.isDestroyed()) win.webContents.send('cloud:progress', p); })));
+  ipcMain.handle('cloud:move', safe((rels, rel) => cloud.importPaths((Array.isArray(rels) ? rels : []).map(r => cloud.abs(r)), rel)));
+  ipcMain.handle('cloud:open', safe(async rel => { const e = await shell.openPath(cloud.abs(rel)); if (e) throw new Error(e); }));
+  ipcMain.handle('cloud:reveal', safe(rel => { const p = cloud.abs(rel); if (require('fs').statSync(p).isDirectory()) return shell.openPath(p); shell.showItemInFolder(p); }));
+  ipcMain.handle('cloud:fileurl', safe(rel => pathToFileURL(cloud.abs(rel)).href));
+  // Datei aus der App herausziehen, z.B. ein Sample direkt in Ableton
+  ipcMain.on('cloud:drag', (e, rel) => {
+    try {
+      if (!dragIcon) dragIcon = nativeImage.createFromPath(path.join(__dirname, 'icon.png')).resize({ width: 48, height: 48 });
+      e.sender.startDrag({ file: cloud.abs(rel), icon: dragIcon });
+    } catch {}
+  });
   ipcMain.handle('settings:get', () => store.publicView());
   ipcMain.handle('settings:set', (_e, p) => { store.patch(p || {}); return store.publicView(); });
   ipcMain.handle('token:set', async (_e, t) => { store.setToken(String(t || '').trim()); return connectFromSettings(); });
@@ -49,4 +88,4 @@ app.whenReady().then(() => {
   if (store.getToken()) connectFromSettings().then(r => { if (r.ok) push(r.state); });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('window-all-closed', async () => { await dc.disconnect(); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', async () => { cloud.unwatch(); await dc.disconnect(); if (process.platform !== 'darwin') app.quit(); });

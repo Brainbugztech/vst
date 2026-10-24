@@ -2,7 +2,7 @@
   "name": "bugz-hq",
   "productName": "Bugz HQ",
   "version": "0.1.0",
-  "description": "Brain Bugz HQ: Projekt-Board und Discord-Overlay",
+  "description": "Brain Bugz HQ: Projekt-Board, Cloud-Ordner und Discord-Overlay",
   "main": "main.js",
   "author": "Brain Bugz",
   "license": "UNLICENSED",
@@ -21,7 +21,7 @@
     "appId": "tech.brainbugz.hq",
     "productName": "Bugz HQ",
     "icon": "icon.ico",
-    "files": ["main.js", "preload.js", "discord.js", "store.js", "renderer/**/*", "icon.png", "package.json"],
+    "files": ["main.js", "preload.js", "discord.js", "store.js", "cloud.js", "renderer/**/*", "icon.png", "package.json"],
     "win": { "target": "portable" },
     "portable": { "artifactName": "BugzHQ.exe" }
   }

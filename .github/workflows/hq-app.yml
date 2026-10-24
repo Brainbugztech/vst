@@ -24,7 +24,7 @@ jobs:
       - name: Code prüfen
         shell: bash
         run: |
-          for f in main.js preload.js discord.js store.js renderer/app.js; do node --check "$f"; done
+          for f in main.js preload.js discord.js store.js cloud.js renderer/app.js renderer/cloud-ui.js; do node --check "$f"; done
 
       - name: Exe bauen
         run: npm run dist
