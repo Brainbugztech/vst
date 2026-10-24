@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Bugz HQ</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://cdn.discordapp.com; style-src 'self'; script-src 'self'; frame-src https://claude.ai; connect-src 'none'">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="head.webp" alt=""><h1>Bugz <span>HQ</span></h1></div>
+  <nav class="top-actions">
+    <button id="bReload" class="btn" type="button">Board neu laden</button>
+    <button id="bOverlay" class="btn" type="button" aria-pressed="true">Discord</button>
+    <button id="bSettings" class="btn" type="button">Einstellungen</button>
+  </nav>
+</header>
+
+<div class="layout" id="layout">
+  <section class="boardpane" id="boardpane">
+    <div class="empty-board" id="noBoard" hidden>
+      <img src="logo.webp" alt="">
+      <p>Trag in den Einstellungen den Link zu eurem Board ein.</p>
+      <button class="btn primary" type="button" id="bFirst">Einstellungen öffnen</button>
+    </div>
+    <webview id="board" partition="persist:board" allowpopups="false"></webview>
+  </section>
+
+  <aside class="overlay" id="overlay" aria-label="Discord">
+    <div class="ov-head"><i class="led" id="led"></i><b id="gname">Discord</b><span id="gstat" class="muted"></span></div>
+    <div class="notice" id="notice" hidden></div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-tab="who" role="tab">Wer ist da</button>
+      <button class="tab" data-tab="voice" role="tab">Voice</button>
+      <button class="tab" data-tab="chat" role="tab">Chat</button>
+    </div>
+
+    <div class="panel" id="p-who"><ul class="list" id="members"></ul></div>
+    <div class="panel" id="p-voice" hidden><ul class="list" id="voice"></ul></div>
+    <div class="panel chat" id="p-chat" hidden>
+      <label class="lbl" for="chSel">Channel</label>
+      <select id="chSel"></select>
+      <ul class="msgs" id="msgs" aria-live="polite"></ul>
+      <form id="sendForm" class="send">
+        <textarea id="sendText" rows="2" placeholder="Nachricht oder Update an den Channel …"></textarea>
+        <div class="send-row"><span class="muted" id="sendHint"></span><button class="btn primary" type="submit" id="sendBtn">Senden</button></div>
+      </form>
+    </div>
+  </aside>
+</div>
+
+<dialog id="dlg">
+  <form method="dialog" id="setForm" class="dlg-box">
+    <h2>Einstellungen</h2>
+    <label class="lbl" for="sBoard">Link zum Board (claude.ai/artifact/…)</label>
+    <input id="sBoard" placeholder="https://claude.ai/artifact/…">
+    <p class="muted">Beim ersten Start im Board einmal bei claude.ai anmelden. Die Anmeldung bleibt danach gespeichert.</p>
+    <label class="lbl" for="sToken">Discord-Bot-Token</label>
+    <input id="sToken" type="password" autocomplete="off" placeholder="Token einfügen (wird verschlüsselt auf diesem PC gespeichert)">
+    <p class="muted" id="tokenState"></p>
+    <label class="lbl" for="sGuild">Discord-Server</label>
+    <select id="sGuild"></select>
+    <div class="row-end"><button class="btn" type="button" id="sCancel">Schließen</button><button class="btn primary" type="submit" id="sSave" value="save">Speichern</button></div>
+  </form>
+</dialog>
+<script src="app.js"></script>
+</body>
+</html>
