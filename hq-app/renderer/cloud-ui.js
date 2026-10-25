@@ -17,6 +17,8 @@
     file: '<path d="M6 3h8l4 4v14H6z M14 3v4h4"/>',
     zip: '<path d="M6 3h12v18H6z M12 3v2m0 2v2m0 2v2m-1 2h2v3h-2z"/>',
     img: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/>',
+    dl: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
     midi: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M8 6v7M12 6v7M16 6v7"/>'
   };
   const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[k] || I.file}</svg>`;
@@ -57,7 +59,7 @@
   const statCache = new Map();
   function statsOf(rel) { const c = statCache.get(rel); if (c && Date.now() - c.t < 8000) return c.p; const p = api.stats(rel); statCache.set(rel, { t: Date.now(), p }); return p; }
   let toastT;
-  function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3500); }
+  function toast(msg, err) { const t = $('#toast'); t.onclick = null; t.style.cursor = ''; t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3500); }
 
   // ---------- Ansicht umschalten ----------
   function show(view) {
@@ -145,7 +147,7 @@
     const list = r.data;
     if (!list.length) { body.innerHTML = `<div class="empty"><div style="font-size:30px">⇣</div><b>Noch leer</b>Zieh Dateien oder Ordner hier rein. Google Drive lädt sie automatisch hoch.</div>`; return; }
     const wrap = document.createElement('div'); wrap.className = 'rows';
-    wrap.innerHTML = '<div class="rh"><span></span><span>Name</span><span>Typ</span><span class="sz">Größe</span><span class="dt">Geändert</span></div>';
+    wrap.innerHTML = '<div class="rh"><span></span><span>Name</span><span>Typ</span><span class="sz">Größe</span><span class="dt">Geändert</span><span></span></div>';
     for (const e of list) wrap.append(row(e));
     body.replaceChildren(wrap);
   }
@@ -178,12 +180,15 @@
     if (e.dir) r.dataset.drop = e.rel;
     const neu = !e.dir && Date.now() - e.mtime < NEU_MS ? '<span class="new">NEU</span>' : '';
     const play = isAudio(e) ? `<button class="play" type="button" aria-label="Vorhören">${playing === e.rel && !$('#pAudio').paused ? '❚❚' : '▶'}</button>` : '';
-    r.innerHTML = `<span class="ti">${svg(ico)}${play}</span><span class="nm"><span title="${esc(e.name)}">${esc(e.name)}</span>${neu}</span><span class="ty">${esc(label)}</span><span class="sz">${e.dir ? e.count + ' Obj.' : fmtSize(e.size)}</span><span class="dt">${fmtDate(e.mtime)}</span>`;
+    r.innerHTML = `<span class="ti">${svg(ico)}${play}</span><span class="nm"><span title="${esc(e.name)}">${esc(e.name)}</span>${neu}</span><span class="ty">${esc(label)}</span><span class="sz">${e.dir ? e.count + ' Obj.' : fmtSize(e.size)}</span><span class="dt">${fmtDate(e.mtime)}</span><span class="act"><button class="dl" type="button" title="Herunterladen" aria-label="Herunterladen">${svg('dl')}</button><button class="del" type="button" title="Löschen" aria-label="Löschen"${prot(e.rel) ? ' disabled' : ''}>${svg('trash')}</button></span>`;
     r.addEventListener('click', ev => {
       if (ev.target.closest('.play')) { ev.stopPropagation(); playFile(e); return; }
+      if (ev.target.closest('.dl')) { ev.stopPropagation(); download(e); return; }
+      if (ev.target.closest('.del')) { ev.stopPropagation(); remove(e); return; }
       sel = e.rel; document.querySelectorAll('.row.sel').forEach(x => x.classList.remove('sel')); r.classList.add('sel');
     });
-    r.addEventListener('dblclick', async () => {
+    r.addEventListener('dblclick', async ev => {
+      if (ev.target.closest('.act')) return;
       if (e.dir) return go(e.rel);
       const o = await api.open(e.rel); if (!o.ok) toast(o.error, true);
     });
@@ -195,6 +200,36 @@
     });
     return r;
   }
+
+  // ---------- Herunterladen / Löschen ----------
+  // Hauptordner und Standard-Ordner sind geschützt (die App prüft das zusätzlich im Hintergrund)
+  const prot = rel => !rel.includes('/') || (st.struktur || []).some(s => s.toLowerCase() === rel.toLowerCase());
+  async function download(e) {
+    const r = await api.download(e.rel);
+    if (!r.ok) { toast(r.error, true); return; }
+    if (!r.data) return; // abgebrochen
+    toast(`„${e.name}“ heruntergeladen. Klick zum Anzeigen.`);
+    const t = $('#toast'); t.style.cursor = 'pointer';
+    t.onclick = () => { api.showFile(r.data); t.hidden = true; t.onclick = null; t.style.cursor = ''; };
+  }
+  async function remove(e) {
+    if (prot(e.rel)) { toast('Standard-Ordner können nicht gelöscht werden.', true); return; }
+    if (playing === e.rel) $('#pClose').click();
+    const r = await api.remove(e.rel);
+    if (!r.ok) { toast(r.error, true); return; }
+    if (!r.data) return; // abgebrochen
+    if (sel === e.rel) sel = '';
+    toast(`„${e.name}“ gelöscht.`);
+    refresh();
+  }
+  document.addEventListener('keydown', ev => {
+    if ($('#cloudpane').hidden || !sel || /INPUT|TEXTAREA/.test(document.activeElement.tagName) || document.querySelector('dialog[open]')) return;
+    const e = [...document.querySelectorAll('.row')].find(x => x.dataset.rel === sel);
+    if (!e) return;
+    const name = sel.split('/').pop();
+    if (ev.key === 'Delete') { ev.preventDefault(); remove({ rel: sel, name }); }
+    if (ev.ctrlKey && ev.key.toLowerCase() === 'd') { ev.preventDefault(); download({ rel: sel, name }); }
+  });
 
   // ---------- Navigation ----------
   async function go(rel) { cur = rel || ''; sel = ''; if (cur) { const t = cur.split('/')[0]; open.add(t); } await renderTree(); await renderBody(); }

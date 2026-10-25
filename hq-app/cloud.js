@@ -52,7 +52,7 @@ function inside(p) { if (!root) return false; const r = path.relative(root, path
 function status() {
   let ok = false; try { ok = !!root && fs.statSync(root).isDirectory(); } catch {}
   const fehlend = ok ? STRUKTUR.filter(s => !fs.existsSync(abs(s))) : STRUKTUR.slice();
-  return { root, ok, fehlend: fehlend.length };
+  return { root, ok, fehlend: fehlend.length, struktur: STRUKTUR };
 }
 
 async function ensureStructure() {
@@ -144,6 +144,22 @@ async function importPaths(srcs, destRel, onProgress) {
   return res;
 }
 
+// Standard-Ordner (und die Hauptordner oben) dürfen nicht gelöscht werden, sonst fehlt Dexter plötzlich die Struktur.
+function isProtected(rel) {
+  const r = String(rel || '').replace(/^[\\/]+|[\\/]+$/g, '').split(path.sep).join('/');
+  if (!r || !r.includes('/')) return true;
+  return STRUKTUR.some(s => s.toLowerCase() === r.toLowerCase());
+}
+
+// Datei oder Ordner aus der Cloud an einen Ort auf dem PC kopieren (Original bleibt in der Cloud).
+async function copyOut(rel, target) {
+  const src = abs(rel);
+  const dest = path.resolve(String(target));
+  if (inside(dest) || dest === root) throw new Error('Ziel liegt in der Cloud. Zum Verschieben einfach ziehen.');
+  await fsp.cp(src, dest, { recursive: true, force: true });
+  return dest;
+}
+
 let watcher = null, timer = null;
 function watch(onChange) {
   unwatch();
@@ -155,4 +171,4 @@ function watch(onChange) {
 }
 function unwatch() { if (watcher) { try { watcher.close(); } catch {} watcher = null; } }
 
-module.exports = { ORDNER_NAME, STRUKTUR, setRoot, getRoot, detect, abs, status, ensureStructure, list, subdirs, stats, mkdir, importPaths, watch, unwatch };
+module.exports = { ORDNER_NAME, STRUKTUR, setRoot, getRoot, detect, abs, status, ensureStructure, list, subdirs, stats, mkdir, importPaths, isProtected, copyOut, freeName, watch, unwatch };

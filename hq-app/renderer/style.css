@@ -152,7 +152,7 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 
 /* Ordnerinhalt */
 .rows{display:flex;flex-direction:column;gap:2px}
-.rh,.row{display:grid;grid-template-columns:36px minmax(0,1fr) 92px 84px 120px;align-items:center;gap:10px;padding:6px 10px}
+.rh,.row{display:grid;grid-template-columns:36px minmax(0,1fr) 92px 84px 120px 72px;align-items:center;gap:10px;padding:6px 10px}
 .rh{font:700 10px var(--f-display);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line);margin-bottom:4px}
 .row{border:1px solid transparent;border-radius:7px;cursor:default;user-select:none}
 .row:hover{background:var(--panel2)}
@@ -167,6 +167,13 @@ dialog::backdrop{background:rgba(0,0,0,.65)}
 .row.dir .nm span{font-weight:600}
 .row .new{flex:none;font:700 9px var(--f-display);letter-spacing:.1em;background:var(--pink);color:#fff;border-radius:3px;padding:1px 5px}
 .row .ty{font:700 10px var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--c);justify-self:start;border:1px solid color-mix(in srgb,var(--c) 45%,transparent);border-radius:4px;padding:1px 6px}
+.row .act{display:flex;gap:6px;justify-content:flex-end;opacity:0;transition:opacity .1s}
+.row:hover .act,.row.sel .act,.row .act:focus-within{opacity:1}
+.row .act button{width:30px;height:28px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:6px;background:var(--panel);color:var(--fg);cursor:pointer}
+.row .act button svg{width:15px;height:15px}
+.row .act .dl:hover{border-color:var(--tox);color:var(--tox)}
+.row .act .del:hover{border-color:var(--danger);color:var(--danger)}
+.row .act button:disabled{opacity:.3;cursor:not-allowed}
 .row .sz,.row .dt{font:12px var(--f-mono);color:var(--muted);text-align:right}
 .empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:48px 16px;border:2px dashed var(--line2);border-radius:12px;color:var(--muted);text-align:center}
 .empty b{color:var(--fg);font:700 15px var(--f-display);letter-spacing:.06em;text-transform:uppercase}
