@@ -1160,6 +1160,63 @@ int main()
             juce::FileOutputStream os (file);
             juce::PNGImageFormat().writeImageToStream (out, os);
         }
+        // Aufklappbare Bereiche + Modulation: alles offen, Standard, alles zu, mitten in der Animation
+        auto layoutShot = [] (const char* fileName, std::function<void (PrizmAudioProcessorEditor&)> setup)
+        {
+            auto p = makeProcessor (highQuality, 85.0f, 120.0f, 30.0f);
+            setParam (*p, ParamIDs::key, 9.0f);
+            setParam (*p, ParamIDs::scale, 1.0f);
+            setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 7.0f);
+            setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), 8.0f);
+            p->setLfoCurve (0, prizm::LfoCurve::parse ("0,1,0;0.05,1,-0.6;0.5,-0.25,0.4;1,-1,0"));
+            p->assignModulation (prizm::srcLfo1, 1);  // LFO 1 -> Color
+            p->assignModulation (prizm::srcEnv, 0);   // ENV -> Strength
+            p->assignModulation (prizm::srcLfo2, 5);  // LFO 2 -> Range Low
+            setParam (*p, ParamIDs::modAmt (1).toRawUTF8(), -35.0f);
+            std::unique_ptr<juce::AudioProcessorEditor> editor (p->createEditor());
+            auto* ed = dynamic_cast<PrizmAudioProcessorEditor*> (editor.get());
+            auto in = makeHarmonic ({ 110.0f, 220.0f, 261.63f, 329.63f }, 6, 1.0, [] (float, int h) { return 0.05f / (float) h; });
+            int tick = 0;
+            for (int start = 0; start < in.getNumSamples(); start += kBlock)
+            {
+                const int n = std::min (kBlock, in.getNumSamples() - start);
+                juce::AudioBuffer<float> block (in.getArrayOfWritePointers(), 2, start, n);
+                juce::MidiBuffer midi;
+                p->processBlock (block, midi);
+                if (++tick % 3 == 0)
+                    ed->tickForTest (1);
+            }
+            setup (*ed);
+            auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.5f);
+            auto file = juce::File::getCurrentWorkingDirectory().getChildFile (juce::String ("renders/") + fileName);
+            file.deleteFile();
+            juce::FileOutputStream os (file);
+            juce::PNGImageFormat().writeImageToStream (image, os);
+            std::printf ("[INFO] %s: %d x %d\n", fileName, editor->getWidth(), editor->getHeight());
+        };
+        layoutShot ("ui_all_open.png", [] (PrizmAudioProcessorEditor& e)
+        {
+            for (int i = 0; i < 4; ++i)
+                e.setSectionOpenForTest (i, true, false);
+            e.tickForTest (2);
+        });
+        layoutShot ("ui_default.png", [] (PrizmAudioProcessorEditor& e) { e.tickForTest (2); });
+        layoutShot ("ui_collapsed.png", [] (PrizmAudioProcessorEditor& e)
+        {
+            for (int i = 0; i < 4; ++i)
+                e.setSectionOpenForTest (i, false, false);
+            e.tickForTest (2);
+        });
+        layoutShot ("ui_reveal.png", [] (PrizmAudioProcessorEditor& e)
+        {
+            e.setSectionOpenForTest (3, true, true);
+            e.tickForTest (22); // 60 Hz: Wachsen (11 Ticks), dann mitten im Einblenden
+        });
+        layoutShot ("ui_after_anim.png", [] (PrizmAudioProcessorEditor& e)
+        {
+            e.setSectionOpenForTest (1, false, true);
+            e.tickForTest (120);
+        });
         snapshot (highQuality, 100.0f, "ui.png");
         snapshot (zeroLatency, 0.0f, "ui_zl.png");
         std::printf ("[INFO] UI snapshots written\n");

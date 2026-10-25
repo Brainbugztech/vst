@@ -93,6 +93,11 @@ public:
                            float startAngle, float endAngle, juce::Slider& slider) override
     {
         using namespace juce;
+        if ((bool) slider.getProperties().getWithDefault ("small", false))
+        {
+            drawSmallKnob (g, Rectangle<int> (x, y, width, height).toFloat(), pos, startAngle, endAngle, slider);
+            return;
+        }
         const auto bounds = Rectangle<int> (x, y, width, height).toFloat().reduced (3.0f);
         const float radius = jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
         const auto c = bounds.getCentre();
@@ -132,6 +137,8 @@ public:
         {
             glowArc (startAngle, valueAngle, Col::tox);
         }
+
+        drawModRing (g, c, ringR, startAngle, endAngle, slider);
 
         // end ticks
         for (float a : { startAngle, endAngle })
@@ -235,6 +242,87 @@ public:
         g.fillEllipse (Rectangle<float> (3.0f, 3.0f).withCentre (edgeDot));
     }
 
+    // Modulation am Regler: Bereich als Bogen innen am Ring, aktueller Wert als Punkt,
+    // beim Ziehen einer Quelle leuchtet der Regler als Ziel auf.
+    static void drawModRing (juce::Graphics& g, juce::Point<float> c, float ringR, float startAngle, float endAngle, juce::Slider& slider)
+    {
+        using namespace juce;
+        const auto& props = slider.getProperties();
+        const int drop = (int) props.getWithDefault ("dropHover", 0);
+        const bool ready = (bool) props.getWithDefault ("dropReady", false);
+        if (drop > 0 || ready)
+        {
+            const auto col = drop > 0 ? Colour ((uint32) (int64) props.getWithDefault ("dropCol", (int64) 0xff3fb8ff)) : Col::holo;
+            Path p;
+            p.addCentredArc (c.x, c.y, ringR + 1.0f, ringR + 1.0f, 0.0f, 0.0f, MathConstants<float>::twoPi, true);
+            g.setColour (col.withAlpha (drop > 0 ? 0.30f : 0.10f));
+            g.strokePath (p, PathStrokeType (drop > 0 ? 12.0f : 7.0f));
+            g.setColour (col.withAlpha (drop > 0 ? 0.9f : 0.35f));
+            g.strokePath (p, PathStrokeType (1.2f));
+        }
+        if (! (bool) props.getWithDefault ("hasMod", false))
+            return;
+        const auto col = Colour ((uint32) (int64) props.getWithDefault ("modCol", (int64) 0xff2fe6ff));
+        const float lo = (float) props.getWithDefault ("modLo", 0.0), hi = (float) props.getWithDefault ("modHi", 0.0);
+        const float now = (float) props.getWithDefault ("modNow", 0.0);
+        const float span = endAngle - startAngle;
+        const float r = ringR - 5.5f;
+        if (hi > lo + 0.001f)
+        {
+            Path range;
+            range.addCentredArc (c.x, c.y, r, r, 0.0f, startAngle + lo * span, startAngle + hi * span, true);
+            g.setColour (col.withAlpha (0.25f));
+            g.strokePath (range, PathStrokeType (5.0f, PathStrokeType::curved, PathStrokeType::rounded));
+            g.setColour (col);
+            g.strokePath (range, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
+        }
+        const auto dot = c.getPointOnCircumference (ringR, startAngle + now * span);
+        g.setColour (col.withAlpha (0.35f));
+        g.fillEllipse (Rectangle<float> (11.0f, 11.0f).withCentre (dot));
+        g.setColour (juce::Colours::white);
+        g.fillEllipse (Rectangle<float> (5.0f, 5.0f).withCentre (dot));
+    }
+
+    // Kleiner Regler (Modulations-Bereich): Ring + dunkle Kappe, Wert rechts daneben
+    void drawSmallKnob (juce::Graphics& g, juce::Rectangle<float> area, float pos, float startAngle, float endAngle, juce::Slider& slider)
+    {
+        using namespace juce;
+        const float d = jmin (area.getWidth(), area.getHeight()) - 4.0f;
+        const auto b = Rectangle<float> (d, d).withCentre (area.getCentre());
+        const auto c = b.getCentre();
+        const float ringR = d * 0.5f - 2.0f;
+        const float valueAngle = startAngle + pos * (endAngle - startAngle);
+        const bool hot = slider.isMouseOverOrDragging();
+        Path track;
+        track.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, startAngle, endAngle, true);
+        g.setColour (juce::Colours::black.withAlpha (0.6f));
+        g.strokePath (track, PathStrokeType (3.5f, PathStrokeType::curved, PathStrokeType::rounded));
+        Path val;
+        val.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, startAngle, valueAngle, true);
+        g.setColour (Col::tox.withAlpha (hot ? 0.35f : 0.2f));
+        g.strokePath (val, PathStrokeType (5.0f, PathStrokeType::curved, PathStrokeType::rounded));
+        g.setColour (Col::tox);
+        g.strokePath (val, PathStrokeType (1.8f, PathStrokeType::curved, PathStrokeType::rounded));
+        const float capR = ringR - 5.0f;
+        const auto cap = Rectangle<float> (capR * 2.0f, capR * 2.0f).withCentre (c);
+        ColourGradient fill (Colour (0xff4a545e), c.x - capR, c.y - capR, Colour (0xff07090b), c.x + capR * 0.6f, c.y + capR, false);
+        g.setGradientFill (fill);
+        g.fillEllipse (cap);
+        g.setColour (juce::Colours::black.withAlpha (0.8f));
+        g.drawEllipse (cap, 0.8f);
+        g.setColour (Col::holoBright);
+        g.drawLine ({ c.getPointOnCircumference (capR * 0.25f, valueAngle), c.getPointOnCircumference (capR * 0.9f, valueAngle) }, 1.6f);
+    }
+
+    void drawPopupMenuSectionHeader (juce::Graphics& g, const juce::Rectangle<int>& area, const juce::String& name) override
+    {
+        g.setFont (bb::fonts::mono (12.0f));
+        g.setColour (Col::holoBright);
+        g.drawText ("// " + name, area.reduced (10, 0).withTrimmedTop (4), juce::Justification::bottomLeft);
+        g.setColour (Col::holoDim.withAlpha (0.6f));
+        g.fillRect (area.getX() + 10, area.getBottom() - 1, area.getWidth() - 20, 1);
+    }
+
     // Value readouts under the knobs: framed hologram boxes.
     void drawLabel (juce::Graphics& g, juce::Label& label) override
     {
@@ -245,7 +333,7 @@ public:
             if (! label.isBeingEdited())
             {
                 g.setColour (Col::ink);
-                g.setFont (bb::fonts::mono (16.0f));
+                g.setFont (bb::fonts::mono ((bool) slider->getProperties().getWithDefault ("small", false) ? 13.0f : 16.0f));
                 g.drawText (label.getText(), r, juce::Justification::centred);
             }
             return;
@@ -262,6 +350,13 @@ public:
             auto area = slider.getLocalBounds();
             layout.textBoxBounds = { area.getCentreX() - boxW / 2, area.getBottom() - boxH, boxW, boxH };
             layout.sliderBounds = area.withTrimmedBottom (boxH + 6);
+        }
+        else if (slider.getTextBoxPosition() == juce::Slider::TextBoxRight)
+        {
+            auto area = slider.getLocalBounds();
+            layout.sliderBounds = area.removeFromLeft (area.getHeight());
+            area.removeFromLeft (6);
+            layout.textBoxBounds = area.removeFromLeft (slider.getTextBoxWidth()).withSizeKeepingCentre (slider.getTextBoxWidth(), slider.getTextBoxHeight());
         }
         return layout;
     }

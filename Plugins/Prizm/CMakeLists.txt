@@ -29,7 +29,8 @@ set(PRIZM_SOURCES
     Source/SpectralEngine.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
-    Source/PitchMatrix.cpp)
+    Source/PitchMatrix.cpp
+    Source/ModPanel.cpp)
 
 target_sources(BrainbugzPrizm PRIVATE ${PRIZM_SOURCES})
 
