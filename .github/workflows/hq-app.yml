@@ -5,6 +5,9 @@ on:
     paths: [ 'hq-app/**', '.github/workflows/hq-app.yml' ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -40,3 +43,14 @@ jobs:
           name: BugzHQ
           path: hq-app/dist/BugzHQ-*.exe
           if-no-files-found: error
+
+      # Die Exe zusätzlich als Release „hq-latest“ ablegen, damit sie sich ohne Artifact-Download holen lässt (nur main und manueller Start)
+      - name: Exe als Release ablegen
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view hq-latest >/dev/null 2>&1 || gh release create hq-latest --prerelease --title "Bugz HQ (neueste Exe)" --notes "Wird bei jedem Build ersetzt. Die Exe kommt in den Cloud-Ordner _HQ-App."
+          gh release delete-asset hq-latest "$(ls dist/BugzHQ-*.exe | xargs -n1 basename | head -1)" -y 2>/dev/null || true
+          gh release upload hq-latest dist/BugzHQ-*.exe --clobber
