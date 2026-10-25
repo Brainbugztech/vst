@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const file = () => path.join(app.getPath('userData'), 'settings.json');
-const DEFAULTS = { boardUrl: '', guildId: '', channelId: '', tokenEnc: '', tokenPlain: '', overlayOpen: true, cloudPath: '' };
+const DEFAULTS = { boardUrl: '', guildId: '', channelId: '', tokenEnc: '', tokenPlain: '', overlayOpen: true, cloudPath: '', archivedDone: [] };
 
 function load() {
   try { return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(file(), 'utf8')) }; }
@@ -30,6 +30,6 @@ function getToken() {
 }
 // Für das Fenster nie den Token selbst herausgeben, nur ob einer da ist.
 function publicView() { const s = load(); const { tokenEnc, tokenPlain, ...rest } = s; return { ...rest, hasToken: !!(tokenEnc || tokenPlain) }; }
-function patch(p) { const s = load(); const allowed = ['boardUrl', 'guildId', 'channelId', 'overlayOpen', 'cloudPath']; for (const k of allowed) if (k in p) s[k] = p[k]; save(s); }
+function patch(p) { const s = load(); const allowed = ['boardUrl', 'guildId', 'channelId', 'overlayOpen', 'cloudPath', 'archivedDone']; for (const k of allowed) if (k in p) s[k] = p[k]; save(s); }
 
 module.exports = { load, save, setToken, getToken, publicView, patch };
