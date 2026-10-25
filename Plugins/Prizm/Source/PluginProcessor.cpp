@@ -22,7 +22,8 @@ namespace
 PrizmAudioProcessor::PrizmAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                          .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, nullptr, "PrizmState", createParameterLayout())
 {
     keyParam        = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::key));
@@ -42,6 +43,7 @@ PrizmAudioProcessor::PrizmAudioProcessor()
     tuneParam       = apvts.getRawParameterValue (ParamIDs::tune);
     formantParam    = apvts.getRawParameterValue (ParamIDs::formant);
     stereoParam     = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::stereo));
+    scKeyParam      = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::scKey));
     for (int pc = 0; pc < 12; ++pc)
     {
         mapParams[(size_t) pc] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::mapId (pc)));
@@ -101,6 +103,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
     highRange.setSkewForCentre (5000.0f);
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeLow, 1 }, "Range Low", lowRange, 20.0f, hzText (20.0f)));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeHigh, 1 }, "Range High", highRange, 20000.0f, hzText (20000.0f)));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::scKey, 1 }, "Sidechain Key", false));
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::stereo, 1 }, "Stereo",
                                                         StringArray { "Stereo", "Mid", "Side" }, 0));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::formant, 1 }, "Formant",
@@ -130,7 +133,15 @@ bool PrizmAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
     const auto& out = layouts.getMainOutputChannelSet();
     if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
         return false;
-    return layouts.getMainInputChannelSet() == out;
+    if (layouts.getMainInputChannelSet() != out)
+        return false;
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto& sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono() && sc != juce::AudioChannelSet::stereo())
+            return false;
+    }
+    return true;
 }
 
 void PrizmAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -140,6 +151,7 @@ void PrizmAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     filterBank.prepare (sampleRate, block);
     spectral.prepare (sampleRate);
     keyAnalyzer.prepare (sampleRate);
+    chordTracker.prepare (sampleRate);
     learnActive.store (false);
     for (auto* b : { &midBuffer, &dryMidBuffer, &outerBuffer })
         b->setSize (2, block, false, false, true);
@@ -227,6 +239,12 @@ PitchMask PrizmAudioProcessor::computeMask()
     if (useMidi)
         mask = latchedMidiMask;
 
+    // Sidechain, wenn MIDI gerade nichts vorgibt
+    const bool useSc = ! useMidi && scKeyParam->get() && scConnected.load() && chordTracker.getMask() != 0;
+    scActive.store (useSc);
+    if (useSc)
+        mask = chordTracker.getMask();
+
     return mask == 0 ? kAllPitches : mask;
 }
 
@@ -240,7 +258,7 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     for (int ch = totalIn; ch < totalOut; ++ch)
         buffer.clear (ch, 0, numSamples);
 
-    const int numCh = juce::jmin (2, totalIn, buffer.getNumChannels());
+    const int numCh = juce::jmin (2, getMainBusNumInputChannels(), buffer.getNumChannels());
     if (numCh == 0 || numSamples == 0)
         return;
 
@@ -269,6 +287,18 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     }
     learnActive.store (keyAnalyzer.isActive());
     learnProgress.store (keyAnalyzer.getProgress());
+
+    // Tonart per Sidechain: Noten der anderen Spur laufend erkennen
+    {
+        auto* scBus = getBus (true, 1);
+        const bool connected = scBus != nullptr && scBus->isEnabled() && scBus->getNumberOfChannels() > 0;
+        scConnected.store (connected);
+        if (connected && scKeyParam->get())
+        {
+            auto sc = getBusBuffer (buffer, true, 1);
+            chordTracker.process (sc.getArrayOfReadPointers(), sc.getNumChannels(), numSamples);
+        }
+    }
 
     EngineParams p;
     p.mask = computeMask();

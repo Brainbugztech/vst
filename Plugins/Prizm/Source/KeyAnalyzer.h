@@ -40,6 +40,7 @@ public:
             window[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) size);
         input.assign ((size_t) size, 0.0f);
         frame.assign ((size_t) size * 2, 0.0f);
+        grouper.requireFundamental = false;
         cancel();
     }
 

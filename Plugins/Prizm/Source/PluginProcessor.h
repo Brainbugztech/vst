@@ -8,6 +8,7 @@
 #include "FilterBankEngine.h"
 #include "SpectralEngine.h"
 #include "KeyAnalyzer.h"
+#include "ChordTracker.h"
 
 namespace prizm
 {
@@ -30,6 +31,7 @@ namespace ParamIDs
     inline constexpr const char* tune       = "tune";
     inline constexpr const char* formant    = "formant";
     inline constexpr const char* stereo     = "stereo"; // 0 = Stereo, 1 = nur Mitte, 2 = nur Seite
+    inline constexpr const char* scKey      = "scKey";  // Tonart aus dem Sidechain-Eingang
     inline juce::String mapId (int pc) { return "map" + juce::String (pc); } // map0 (C) .. map11 (B)
     inline juce::String weightId (int pc) { return "weight" + juce::String (pc); } // weight0 (C) .. weight11 (B)
 }
@@ -73,6 +75,8 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     prizm::PitchMask getDisplayMask() const noexcept { return (prizm::PitchMask) displayMask.load(); }
     bool isMidiControllingKey() const noexcept { return midiActive.load(); }
+    bool isSidechainControllingKey() const noexcept { return scActive.load(); }
+    bool isSidechainConnected() const noexcept { return scConnected.load(); }
     float getPitchEnergy (int pitchClass) const noexcept { return pitchEnergy[(size_t) pitchClass].load(); }
     uint32_t getBlockCounter() const noexcept { return blockCounter.load(); }
     void togglePitchClass (int pitchClass); // message thread: edits the custom scale
@@ -134,7 +138,9 @@ private:
     juce::SmoothedValue<float> mixSmoothed, outputSmoothed;
 
     std::atomic<int> displayMask { 0 };
-    std::atomic<bool> midiActive { false };
+    std::atomic<bool> midiActive { false }, scActive { false }, scConnected { false };
+    prizm::ChordTracker chordTracker;
+    juce::AudioParameterBool* scKeyParam = nullptr;
     std::array<std::atomic<float>, 12> pitchEnergy {};
     std::atomic<uint32_t> blockCounter { 0 };
 

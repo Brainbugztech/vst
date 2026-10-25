@@ -746,6 +746,52 @@ int main()
                        + ": untouched part stays dry (" + juce::String (snr, 1) + " dB), processed part in key " + juce::String (inKey * 100.0f, 1) + " %");
         }
 
+    // 3k) Tonart per Sidechain: die andere Spur spielt a-Moll (A C E), das Rauschen auf der Hauptspur
+    //     wird in diese Töne gezogen. Danach Akkordwechsel auf F-Dur (F A C).
+    {
+        auto p = std::make_unique<PrizmAudioProcessor>();
+        auto layout = p->getBusesLayout();
+        layout.inputBuses.getReference (1) = juce::AudioChannelSet::stereo();
+        const bool layoutOk = p->setBusesLayout (layout);
+        p->setRateAndBufferSizeDetails (kSampleRate, kBlock);
+        setParam (*p, ParamIDs::mode, (float) highQuality);
+        setParam (*p, ParamIDs::color, 80.0f);
+        setParam (*p, ParamIDs::scKey, 1.0f);
+        p->prepareToPlay (kSampleRate, kBlock);
+
+        auto chordAm = makeHarmonic ({ 220.0f, 261.63f, 329.63f }, 6, 3.0, [] (float, int h) { return 0.06f / (float) h; });
+        auto chordF = makeHarmonic ({ 174.61f, 220.0f, 261.63f }, 6, 3.0, [] (float, int h) { return 0.06f / (float) h; });
+        auto noise = makeNoise (3.0, 0.2f);
+        auto run = [&] (const juce::AudioBuffer<float>& sc)
+        {
+            juce::AudioBuffer<float> io (4, noise.getNumSamples());
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                io.copyFrom (ch, 0, noise, ch, 0, noise.getNumSamples());
+                io.copyFrom (ch + 2, 0, sc, ch, 0, sc.getNumSamples());
+            }
+            for (int start = 0; start < io.getNumSamples(); start += kBlock)
+            {
+                const int n = std::min (kBlock, io.getNumSamples() - start);
+                juce::AudioBuffer<float> block (io.getArrayOfWritePointers(), 4, start, n);
+                juce::MidiBuffer midi;
+                p->processBlock (block, midi);
+            }
+            juce::AudioBuffer<float> main (2, io.getNumSamples());
+            for (int ch = 0; ch < 2; ++ch)
+                main.copyFrom (ch, 0, io, ch, 0, io.getNumSamples());
+            return main;
+        };
+        auto outAm = run (chordAm);
+        const auto maskAm = p->getDisplayMask();
+        const float inKeyAm = inKeyEnergyRatio (outAm, 48000 + p->getLatencySamples(), bits (9, 0, 4));
+        auto outF = run (chordF);
+        const auto maskF = p->getDisplayMask();
+        check (layoutOk && maskAm == bits (9, 0, 4) && maskF == bits (5, 9, 0) && inKeyAm > 0.6f && p->isSidechainControllingKey(),
+               "Sidechain key: A minor detected (" + juce::String (maskAm == bits (9, 0, 4) ? "yes" : "no") + "), main track in A-C-E "
+                   + juce::String (inKeyAm * 100.0f, 1) + " %, chord change to F major followed (" + juce::String (maskF == bits (5, 9, 0) ? "yes" : "no") + ")");
+    }
+
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
     for (int mode : { zeroLatency, highQuality })
     {
