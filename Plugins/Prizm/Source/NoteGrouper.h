@@ -36,6 +36,10 @@ public:
     };
 
     std::vector<Peak> peaks;  // vom Aufrufer gefüllt (hz = echte Frequenz)
+
+    // true: Grundton muss selbst klingen (Verschieben, Sidechain). false: fehlender Grundton erlaubt,
+    // wenn der 2. Oberton oder mind. 3 Obertöne da sind (Learn, wertet über viele Frames aus).
+    bool requireFundamental = true;
     std::vector<Note> notes;  // erkannte Noten
 
     // refScale = 440 / Stimmton
@@ -87,9 +91,12 @@ public:
                     if (f0 < 40.0f)
                         continue;
                     int matches = 0;
-                    bool hasLow = false;
-                    const float sc = score (f0, matches, hasLow);
-                    if (sc > bestScore && (hasLow || matches >= 3))
+                    bool hasFundamental = false, hasLow = false;
+                    const float sc = score (f0, matches, hasFundamental, hasLow);
+                    // Grundton muss selbst klingen: sonst würde z. B. bei A-C-E ein A eine Oktave
+                    // tiefer angenommen und das E als dessen 3. Oberton geschluckt.
+                    const bool valid = requireFundamental ? hasFundamental : (hasLow || matches >= 3);
+                    if (sc > bestScore && valid)
                     {
                         bestScore = sc;
                         bestF0 = f0;
@@ -211,10 +218,11 @@ private:
         return best;
     }
 
-    float score (float f0, int& matches, bool& hasLow) const
+    float score (float f0, int& matches, bool& hasFundamental, bool& hasLow) const
     {
         float s = 0.0f;
         matches = 0;
+        hasFundamental = false;
         hasLow = false;
         for (int h = 1; h <= kMaxHarmonics; ++h)
         {
@@ -226,6 +234,8 @@ private:
                 continue;
             s += peaks[(size_t) i].mag / std::sqrt ((float) h);
             ++matches;
+            if (h == 1)
+                hasFundamental = true;
             if (h <= 2)
                 hasLow = true;
         }

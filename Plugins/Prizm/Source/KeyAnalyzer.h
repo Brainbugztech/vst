@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Scales.h"
+#include "NoteGrouper.h"
 
 namespace prizm
 {
@@ -39,6 +40,7 @@ public:
             window[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) size);
         input.assign ((size_t) size, 0.0f);
         frame.assign ((size_t) size * 2, 0.0f);
+        grouper.requireFundamental = false;
         cancel();
     }
 
@@ -180,22 +182,45 @@ private:
             maxMag = juce::jmax (maxMag, frame[(size_t) k]);
         const float floorMag = maxMag * 0.01f; // -40 dB unter dem stärksten Teilton
         const double binHz = fs / size;
+        grouper.peaks.clear();
 
         for (int k = 2; k < bins - 1; ++k)
         {
             const float m = frame[(size_t) k];
             if (m < floorMag || m <= frame[(size_t) k - 1] || m < frame[(size_t) k + 1])
                 continue;
-            // parabolische Interpolation auf dem log-Betrag für die genaue Frequenz
-            const double a = std::log (frame[(size_t) k - 1] + 1e-12), b = std::log (m + 1e-12), cc = std::log (frame[(size_t) k + 1] + 1e-12);
-            const double denom = a - 2.0 * b + cc;
-            const double delta = std::abs (denom) > 1e-12 ? 0.5 * (a - cc) / denom : 0.0;
+            // genaue Frequenz zwischen den Bins: exakte Formel für das Hann-Fenster (Grandke)
+            const double left = frame[(size_t) k - 1], right = frame[(size_t) k + 1];
+            double delta;
+            if (right > left)
+            {
+                const double a = right / m;
+                delta = (2.0 * a - 1.0) / (a + 1.0);
+            }
+            else
+            {
+                const double a = left / m;
+                delta = -(2.0 * a - 1.0) / (a + 1.0);
+            }
             const double hz = ((double) k + juce::jlimit (-0.5, 0.5, delta)) * binHz;
-            if (hz < 50.0 || hz > 5000.0)
+            if (hz < 40.0 || hz > 8000.0)
                 continue;
-            const double cents = 1200.0 * std::log2 (hz / 440.0) + 900.0; // C = 0
+            NoteGrouper::Peak pk;
+            pk.hz = (float) hz;
+            pk.mag = m;
+            grouper.peaks.push_back (pk);
+        }
+
+        // Nur Grundtöne zählen: Obertöne liegen neben der temperierten Stimmung
+        // (große Terz im 5. Oberton -14 Cent) und würden Stimmton und Tonart verfälschen.
+        grouper.group();
+        for (const auto& note : grouper.notes)
+        {
+            if (note.f0 < 40.0f || note.f0 > 5000.0f)
+                continue;
+            const double cents = 1200.0 * std::log2 ((double) note.f0 / 440.0) + 900.0; // C = 0
             const int idx = ((int) std::floor (cents) % 1200 + 1200) % 1200;
-            histogram[(size_t) idx] += std::sqrt ((double) m); // gedämpfte Gewichtung, laute Töne dominieren nicht alles
+            histogram[(size_t) idx] += std::sqrt ((double) note.score);
         }
     }
 
@@ -204,6 +229,7 @@ private:
     std::unique_ptr<juce::dsp::FFT> fft;
     std::vector<float> window, input, frame;
     std::array<double, 1200> histogram {};
+    NoteGrouper grouper;
     int writePos = 0, hopCounter = 0;
     double heardSamples = 0.0;
     bool active = false;

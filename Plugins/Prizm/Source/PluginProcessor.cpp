@@ -22,7 +22,8 @@ namespace
 PrizmAudioProcessor::PrizmAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                          .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false)),
       apvts (*this, nullptr, "PrizmState", createParameterLayout())
 {
     keyParam        = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::key));
@@ -41,10 +42,16 @@ PrizmAudioProcessor::PrizmAudioProcessor()
     rangeHighParam  = apvts.getRawParameterValue (ParamIDs::rangeHigh);
     tuneParam       = apvts.getRawParameterValue (ParamIDs::tune);
     formantParam    = apvts.getRawParameterValue (ParamIDs::formant);
+    stereoParam     = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::stereo));
+    scKeyParam      = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::scKey));
     for (int pc = 0; pc < 12; ++pc)
+    {
         mapParams[(size_t) pc] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::mapId (pc)));
+        weightParams[(size_t) pc] = apvts.getRawParameterValue (ParamIDs::weightId (pc));
+    }
 
     jassert (keyParam && scaleParam && customMaskParam && midiKeyParam && modeParam);
+    refreshUserPresets();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createParameterLayout()
@@ -97,6 +104,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
     highRange.setSkewForCentre (5000.0f);
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeLow, 1 }, "Range Low", lowRange, 20.0f, hzText (20.0f)));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeHigh, 1 }, "Range High", highRange, 20000.0f, hzText (20000.0f)));
+    layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::scKey, 1 }, "Sidechain Key", false));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::stereo, 1 }, "Stereo",
+                                                        StringArray { "Stereo", "Mid", "Side" }, 0));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::formant, 1 }, "Formant",
                                                        NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, percent));
     {
@@ -107,6 +117,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
         for (int pc = 0; pc < 12; ++pc)
             layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::mapId (pc), 1 },
                                                                 String ("Map ") + kNoteNames[(size_t) pc], targets, 0));
+        for (int pc = 0; pc < 12; ++pc)
+            layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::weightId (pc), 1 },
+                                                               String ("Weight ") + kNoteNames[(size_t) pc],
+                                                               NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, percent));
     }
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::tune, 1 }, "Tune (A4)",
                                                        NormalisableRange<float> (415.0f, 466.0f, 0.1f), 440.0f,
@@ -120,7 +134,15 @@ bool PrizmAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
     const auto& out = layouts.getMainOutputChannelSet();
     if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
         return false;
-    return layouts.getMainInputChannelSet() == out;
+    if (layouts.getMainInputChannelSet() != out)
+        return false;
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto& sc = layouts.getChannelSet (true, 1);
+        if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono() && sc != juce::AudioChannelSet::stereo())
+            return false;
+    }
+    return true;
 }
 
 void PrizmAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -130,6 +152,7 @@ void PrizmAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     filterBank.prepare (sampleRate, block);
     spectral.prepare (sampleRate);
     keyAnalyzer.prepare (sampleRate);
+    chordTracker.prepare (sampleRate);
     learnActive.store (false);
     for (auto* b : { &midBuffer, &dryMidBuffer, &outerBuffer })
         b->setSize (2, block, false, false, true);
@@ -217,6 +240,12 @@ PitchMask PrizmAudioProcessor::computeMask()
     if (useMidi)
         mask = latchedMidiMask;
 
+    // Sidechain, wenn MIDI gerade nichts vorgibt
+    const bool useSc = ! useMidi && scKeyParam->get() && scConnected.load() && chordTracker.getMask() != 0;
+    scActive.store (useSc);
+    if (useSc)
+        mask = chordTracker.getMask();
+
     return mask == 0 ? kAllPitches : mask;
 }
 
@@ -230,7 +259,7 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     for (int ch = totalIn; ch < totalOut; ++ch)
         buffer.clear (ch, 0, numSamples);
 
-    const int numCh = juce::jmin (2, totalIn, buffer.getNumChannels());
+    const int numCh = juce::jmin (2, getMainBusNumInputChannels(), buffer.getNumChannels());
     if (numCh == 0 || numSamples == 0)
         return;
 
@@ -260,6 +289,18 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     learnActive.store (keyAnalyzer.isActive());
     learnProgress.store (keyAnalyzer.getProgress());
 
+    // Tonart per Sidechain: Noten der anderen Spur laufend erkennen
+    {
+        auto* scBus = getBus (true, 1);
+        const bool connected = scBus != nullptr && scBus->isEnabled() && scBus->getNumberOfChannels() > 0;
+        scConnected.store (connected);
+        if (connected && scKeyParam->get())
+        {
+            auto sc = getBusBuffer (buffer, true, 1);
+            chordTracker.process (sc.getArrayOfReadPointers(), sc.getNumChannels(), numSamples);
+        }
+    }
+
     EngineParams p;
     p.mask = computeMask();
 
@@ -277,6 +318,8 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     if (p.mask == 0)
         p.mask = kAllPitches;
     p.formant = formantParam->load() * 0.01f;
+    for (int pc = 0; pc < 12; ++pc)
+        p.weight[(size_t) pc] = juce::jlimit (0.0f, 1.0f, weightParams[(size_t) pc]->load() * 0.01f);
     p.color = colorParam->load() * 0.01f;
     p.clear = clearParam->load() * 0.01f;
     p.gate = gateParam->load() * 0.01f;
@@ -319,10 +362,22 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const int maxChunk = midBuffer.getNumSamples();
     const bool hq = (mode == highQuality);
 
+    // Mitte/Seite: nur ein Anteil wird bearbeitet, der andere bleibt trocken (latenzkorrigiert)
+    const int stereoMode = (numCh == 2) ? stereoParam->getIndex() : 0;
+    const int untouched = stereoMode == 1 ? 1 : (stereoMode == 2 ? 0 : -1); // Kanal im M/S-Format, der trocken bleibt
+
     for (int start = 0; start < numSamples; start += maxChunk)
     {
         const int n = juce::jmin (maxChunk, numSamples - start);
         juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), numCh, start, n);
+
+        if (stereoMode != 0)
+            for (int i = 0; i < n; ++i)
+            {
+                const float l = chunk.getSample (0, i), r = chunk.getSample (1, i);
+                chunk.setSample (0, i, 0.5f * (l + r)); // Mitte
+                chunk.setSample (1, i, 0.5f * (l - r)); // Seite
+            }
 
         // 1) Aufteilen: Mitte geht in die Engine, Bass/Höhen außerhalb des Bereichs bleiben trocken
         for (int ch = 0; ch < numCh; ++ch)
@@ -369,14 +424,20 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
         // 4) Pegelausgleich: gefiltertes Signal etwa so laut wie das Original
         double inSum = 0.0, wetSum = 0.0;
+        int gainChannels = 0;
         for (int ch = 0; ch < numCh; ++ch)
+        {
+            if (ch == untouched)
+                continue;
+            ++gainChannels;
             for (int i = 0; i < n; ++i)
             {
                 const float d = dryMidBuffer.getSample (ch, i), w = midBuffer.getSample (ch, i);
                 inSum += (double) d * d;
                 wetSum += (double) w * w;
             }
-        const float denom = (float) (n * numCh);
+        }
+        const float denom = (float) (n * juce::jmax (1, gainChannels));
         const float msCoef = (float) (1.0 - std::exp (-(double) n / (sampleRateHz * 0.25)));
         inMeanSquare += ((float) inSum / denom - inMeanSquare) * msCoef;
         wetMeanSquare += ((float) wetSum / denom - wetMeanSquare) * msCoef;
@@ -404,17 +465,134 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             const float m = mixSmoothed.getNextValue();
             const float out = outputSmoothed.getNextValue();
 
+            float y[2] {};
             for (int ch = 0; ch < numCh; ++ch)
             {
                 const float dryMid = dryMidBuffer.getSample (ch, i);
                 const float outer = outerBuffer.getSample (ch, i);
-                const float processed = outer + dryMid * (1.0f - s) + midBuffer.getSample (ch, i) * g * s;
                 const float dry = outer + dryMid;
-                chunk.setSample (ch, i, softSafety ((dry * (1.0f - m) + processed * m) * out));
+                const float processed = (ch == untouched) ? dry : outer + dryMid * (1.0f - s) + midBuffer.getSample (ch, i) * g * s;
+                y[ch] = dry * (1.0f - m) + processed * m;
             }
+            if (stereoMode != 0)
+            {
+                const float mid = y[0], side = y[1];
+                y[0] = mid + side;
+                y[1] = mid - side;
+            }
+            for (int ch = 0; ch < numCh; ++ch)
+                chunk.setSample (ch, i, softSafety (y[ch] * out));
         }
         autoGain = newGain;
     }
+}
+
+// --- Presets -------------------------------------------------------------------------------------
+
+bool PrizmAudioProcessor::isKeyContextParam (const juce::String& id)
+{
+    return id == ParamIDs::key || id == ParamIDs::scale || id == ParamIDs::customMask || id == ParamIDs::tune
+           || id == ParamIDs::midiKey || id == ParamIDs::scKey;
+}
+
+juce::File PrizmAudioProcessor::getPresetFolder() const
+{
+    if (presetFolderOverride != juce::File())
+        return presetFolderOverride;
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+        .getChildFile ("Brain Bugz").getChildFile ("Prizm").getChildFile ("Presets");
+}
+
+void PrizmAudioProcessor::refreshUserPresets()
+{
+    userPresets = getPresetFolder().findChildFiles (juce::File::findFiles, false, "*.przm");
+    userPresets.sort();
+}
+
+juce::StringArray PrizmAudioProcessor::getPresetNames() const
+{
+    juce::StringArray names;
+    for (const auto& f : factoryPresets())
+        names.add (f.name);
+    for (const auto& f : userPresets)
+        names.add (f.getFileNameWithoutExtension());
+    return names;
+}
+
+void PrizmAudioProcessor::setParamPlain (const juce::String& id, float value)
+{
+    if (auto* param = apvts.getParameter (id))
+    {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost (param->convertTo0to1 (value));
+        param->endChangeGesture();
+    }
+}
+
+void PrizmAudioProcessor::loadPreset (int index)
+{
+    const auto& factory = factoryPresets();
+    if (index < 0 || index >= (int) factory.size() + userPresets.size())
+        return;
+
+    // erst alles außer der Tonart auf Standard
+    for (auto* p : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! isKeyContextParam (ranged->getParameterID()))
+            {
+                ranged->beginChangeGesture();
+                ranged->setValueNotifyingHost (ranged->getDefaultValue());
+                ranged->endChangeGesture();
+            }
+
+    if (index < (int) factory.size())
+    {
+        const auto& preset = factory[(size_t) index];
+        for (const auto& [id, value] : preset.values)
+            setParamPlain (id, value);
+        if (preset.map == FactoryPreset::Map::majorToMinor)
+            applyMapPreset (MapPreset::majorToMinor);
+        else if (preset.map == FactoryPreset::Map::minorToMajor)
+            applyMapPreset (MapPreset::minorToMajor);
+    }
+    else if (auto xml = juce::XmlDocument::parse (userPresets[index - (int) factory.size()]))
+    {
+        for (auto* e : xml->getChildWithTagNameIterator ("Param"))
+        {
+            const auto id = e->getStringAttribute ("id");
+            if (! isKeyContextParam (id))
+                setParamPlain (id, (float) e->getDoubleAttribute ("value"));
+        }
+    }
+    currentPreset = index;
+}
+
+bool PrizmAudioProcessor::saveUserPreset (const juce::String& name)
+{
+    const auto clean = juce::File::createLegalFileName (name.trim());
+    if (clean.isEmpty())
+        return false;
+    auto folder = getPresetFolder();
+    if (! folder.createDirectory())
+        return false;
+
+    juce::XmlElement xml ("PrizmPreset");
+    xml.setAttribute ("name", clean);
+    xml.setAttribute ("version", 1);
+    for (auto* p : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! isKeyContextParam (ranged->getParameterID()))
+            {
+                auto* e = xml.createNewChildElement ("Param");
+                e->setAttribute ("id", ranged->getParameterID());
+                e->setAttribute ("value", (double) ranged->convertFrom0to1 (ranged->getValue()));
+            }
+    const auto file = folder.getChildFile (clean + ".przm");
+    if (! xml.writeTo (file))
+        return false;
+    refreshUserPresets();
+    currentPreset = getNumFactoryPresets() + userPresets.indexOf (file);
+    return true;
 }
 
 bool PrizmAudioProcessor::applyLearnResult (KeyAnalyzer::Result& out)
@@ -466,6 +644,18 @@ void PrizmAudioProcessor::applyMapPreset (MapPreset preset)
         *param = idx[(size_t) pc];
         param->endChangeGesture();
     }
+}
+
+void PrizmAudioProcessor::setWeight (int pc, float weight01, bool gestureStart, bool gestureEnd)
+{
+    if (pc < 0 || pc > 11)
+        return;
+    auto* param = apvts.getParameter (ParamIDs::weightId (pc));
+    if (gestureStart)
+        param->beginChangeGesture();
+    param->setValueNotifyingHost (param->convertTo0to1 (juce::jlimit (0.0f, 100.0f, weight01 * 100.0f)));
+    if (gestureEnd)
+        param->endChangeGesture();
 }
 
 void PrizmAudioProcessor::togglePitchClass (int pitchClass)

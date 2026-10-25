@@ -23,6 +23,9 @@ struct EngineParams
     std::array<int8_t, 12> map { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
     float formant = 1.0f;         // 0..1   Klangfarbe beim Verschieben erhalten
 
+    // Gewichtung pro Tonklasse (0..1): wie stark eine erlaubte Note durch den Filter kommt
+    std::array<float, 12> weight { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+
     bool mapActive() const noexcept
     {
         for (auto m : map)

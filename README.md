@@ -114,14 +114,17 @@ Harmonic Sweetener: zieht beliebiges Audio in eine Tonart. Schiefe Pads, Noise, 
 Regler:
 
 - **Key / Scale**: Grundton und Skala (Dur, Moll, Kirchentonarten, Pentatonik, Blues, Dur-/Moll-Akkord, chromatisch).
-- **Noten-Leiste**: grün = erlaubter Ton, Klick schaltet einen Ton an/aus (Skala wechselt auf Custom). Das Leuchten zeigt live, welche Töne gerade rauskommen.
+- **Noten-Leiste**: grün = erlaubter Ton, Klick schaltet einen Ton an/aus (Skala wechselt auf Custom). **Hoch/runter ziehen** stellt die Gewichtung der Note ein (0–100 %, Shift = fein, Doppelklick = 100 %), die Füllhöhe der Taste zeigt sie an. Das Leuchten zeigt live, welche Töne gerade rauskommen.
 - **MIDI KEY**: Noten auf den MIDI-Eingang des Plugins bestimmen die Tonart, der letzte Akkord bleibt aktiv (Leiste wird pink).
+- **SIDECHAIN**: die Tonart folgt den Noten einer anderen Spur (z. B. Bass oder Keys), die in der DAW auf den Sidechain-Eingang von Prizm geroutet ist. Erkannt werden nur Grundtöne, bei Stille bleibt der letzte Akkord stehen (Leiste wird cyan). Wenn MIDI KEY auch an ist und Noten kommen, hat MIDI Vorrang.
+- **PRESET** (oben rechts): 12 Werkspresets und eigene Presets (**SAVE**, gespeichert in `Dokumente\Brain Bugz\Prizm\Presets` als `.przm`). Key, Scale, Custom-Noten, Tune, MIDI KEY und Sidechain bleiben beim Wechsel stehen, damit man im Song durchblättern kann.
 - **Strength**: wie viel vom gefilterten Signal das Original ersetzt.
 - **Color**: Filtergüte. 0 % weich, 100 % deutlich tonal, **über 100 %** (pinker Bogen) klingen die Töne lange nach, bei 200 % mehrere Sekunden.
 - **Clear**: Anschläge kommen trocken durch, alte Resonanzen werden bei neuen Hits gedämpft.
 - **Mix** (latenzkorrigiert) und **Output** (−24 bis +12 dB, Soft-Limiter am Ausgang).
 - **Range Low / Range High**: nur dieser Frequenzbereich wird in die Tonart gezogen, darunter und darüber bleibt das Signal unverändert (Linkwitz-Riley-Weichen). So bleiben Kick, Sub und Becken sauber. OFF = ganzer Bereich.
 - **Gate**: drückt leise Noten relativ zur lautesten herunter, räumt Rauschen zwischen den Tönen auf.
+- **PROCESS** (unteres Panel, rechts oben): **Stereo**, **Mid only** oder **Side only**. Bei Mid/Side wird nur dieser Anteil in die Tonart gezogen, der andere bleibt unverändert (z. B. nur die Breite eines Pads stimmen, Mitte mit Kick und Bass bleibt sauber).
 - **Shift** (nur High Quality): rastet schiefe Noten auf die nächste Note der Tonart ein, statt sie nur zu dämpfen. Prizm erkennt dafür polyphon, welche Teiltöne zu welcher Note gehören, und verschiebt jede Note mit all ihren Obertönen gemeinsam (Phase-Locking um die Peaks), dadurch bleiben Klänge harmonisch und kaum Phasing.
 - **Noten-Map** (Zeile unter den Tasten): pro Note ein Ziel, z. B. E → Eb. Nur die gespielte Note wandert, Obertöne anderer Noten bleiben stehen. **OFF** schaltet eine Note stumm (geht in beiden Modi), Verschieben braucht High Quality. **MAJ > MIN** / **MIN > MAJ** setzen Terz, Sexte und Septime relativ zur Tonart, **RESET MAP** stellt alles zurück.
 - **Formant** (nur High Quality): erhält die Klangfarbe beim Verschieben, damit Stimmen bei größeren Sprüngen nicht nach Mickey Mouse klingen.
@@ -130,7 +133,7 @@ Regler:
 
 Gemeinsam für beide Modi im Processor: Bereichsweichen, Pegelausgleich, Strength, Clear, Mix. Unterschiede gibt es nur noch durch das Prinzip selbst: Zero Latency verschmiert Anschläge etwas, High Quality kann sehr eng beieinander liegende Teiltöne (unter ca. 25 Hz Abstand) nicht ganz sauber trennen.
 
-Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Learn, Tune, Noten-Map, Formant, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
+Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Learn, Tune, Noten-Map, Formant, Gewichtung, Mitte/Seite, Sidechain, Presets, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
 
 ## Bauen
 
@@ -151,7 +154,7 @@ cmake --build build --config Release
 - `Plugins/BugzAlign` – Kick/Bass-Phasenausrichtung (DSP in `AlignEngine.h`, Anzeige in `AlignView.cpp`)
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
-- `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Learn in `KeyAnalyzer.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
+- `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Learn in `KeyAnalyzer.h`, Sidechain in `ChordTracker.h`, Werkspresets in `Presets.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)

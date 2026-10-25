@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -47,11 +48,12 @@ public:
     const std::vector<double>& getPrewarped() const noexcept { return prewarped; }
 
     // Baut die Nachschlagetabelle neu, wenn sich Tonart oder Güte merklich geändert haben.
-    void update (PitchMask mask, float q)
+    void update (PitchMask mask, float q, const std::array<float, 12>& weights)
     {
-        if (mask == lastMask && lastQ > 0.0f && std::abs (q - lastQ) < lastQ * 0.004f)
+        if (mask == lastMask && weights == lastWeights && lastQ > 0.0f && std::abs (q - lastQ) < lastQ * 0.004f)
             return;
         lastMask = mask;
+        lastWeights = weights;
         lastQ = q;
 
         const double k = 1.0 / q;
@@ -96,11 +98,14 @@ private:
         {
             if (std::abs ((double) notes[i] - midi) > 30.0 || ! isAllowed (mask, notes[i]))
                 continue;
+            const double gain = lastWeights[(size_t) (notes[i] % 12)];
+            if (gain <= 0.0)
+                continue;
             const double w = t / prewarped[i];
             const double a = 1.0 - w * w, b = k * w;
             const double d = a * a + b * b;
-            re += (b * b) / d;
-            im += (b * a) / d;
+            re += gain * (b * b) / d;
+            im += gain * (b * a) / d;
         }
         return std::sqrt (re * re + im * im);
     }
@@ -110,6 +115,7 @@ private:
     std::vector<double> prewarped;
     std::vector<float> table;
     PitchMask lastMask = 0xFFFF;
+    std::array<float, 12> lastWeights { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
     float lastQ = -1.0f;
 };
 } // namespace prizm

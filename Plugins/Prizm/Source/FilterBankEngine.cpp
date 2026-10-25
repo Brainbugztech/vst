@@ -73,16 +73,17 @@ void FilterBankEngine::process (juce::AudioBuffer<float>& buffer, int numSamples
     if (numCh == 0 || numSamples <= 0)
         return;
 
-    if (p.mask != lastMask)
+    if (p.mask != lastMask || p.weight != lastWeights)
     {
         const bool first = (lastMask == 0xFFFF);
         for (auto& b : bands)
         {
-            b.target = isAllowed (p.mask, b.note) ? 1.0f : 0.0f;
+            b.target = isAllowed (p.mask, b.note) ? juce::jlimit (0.0f, 1.0f, p.weight[(size_t) (b.note % 12)]) : 0.0f;
             if (first)
                 b.fade = b.target;
         }
         lastMask = p.mask;
+        lastWeights = p.weight;
     }
 
     if (std::abs (p.a4 - currentA4) > 0.01f)

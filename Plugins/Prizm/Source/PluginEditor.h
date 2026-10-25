@@ -41,11 +41,16 @@ class KeyStrip : public juce::Component
 {
 public:
     std::function<void (int)> onToggle;
+    std::function<void (int, float, bool, bool)> onWeight; // Note, 0..1, Geste Start, Geste Ende
+    std::function<float (int)> getWeight;
 
-    void setState (prizm::PitchMask newMask, int newRoot, bool newMidi);
+    void setState (prizm::PitchMask newMask, int newRoot, int newSource); // Quelle: 0 = Tasten, 1 = MIDI, 2 = Sidechain
     void setEnergy (const std::array<float, 12>& e) { energy = e; repaint(); }
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDrag (const juce::MouseEvent& e) override;
+    void mouseUp (const juce::MouseEvent& e) override;
+    void mouseDoubleClick (const juce::MouseEvent& e) override;
     void mouseMove (const juce::MouseEvent& e) override;
     void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
 
@@ -56,7 +61,10 @@ private:
     prizm::PitchMask mask = 0;
     int root = -1;
     int hover = -1;
-    bool midi = false;
+    int source = 0;
+    int dragNote = -1;
+    float dragStartWeight = 1.0f;
+    bool dragging = false;
     std::array<float, 12> energy {};
 };
 
@@ -93,6 +101,14 @@ private:
     ModeSwitch modeSwitch;
     juce::TextButton midiButton { "MIDI KEY" };
     juce::TextButton learnButton { "LEARN" };
+    juce::TextButton scButton { "SIDECHAIN" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> scAttachment;
+    juce::ComboBox presetBox, stereoBox;
+    juce::TextButton savePresetButton { "SAVE" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> stereoAttachment;
+    void refreshPresetBox();
+    void askPresetName();
+    int shownPreset = -1;
     std::array<juce::ComboBox, 12> mapBoxes;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>, 12> mapAttachments;
     juce::TextButton majToMinButton { "MAJ > MIN" }, minToMajButton { "MIN > MAJ" }, resetMapButton { "RESET MAP" };
@@ -110,7 +126,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> midiAttachment;
 
     juce::String latencyText;
-    bool midiShown = false;
+    int sourceShown = 0;
     float animPhase = 0.0f;
     std::array<float, 12> shownEnergy {};
     float energyRef = 0.0f;

@@ -562,7 +562,7 @@ int main()
             const float expectedA4 = 440.0f * std::pow (2.0f, c.detune / 1200.0f);
             const int keyParam = p->apvts.getParameter (ParamIDs::key)->convertFrom0to1 (p->apvts.getParameter (ParamIDs::key)->getValue()) + 0.5f;
             const float tune = p->apvts.getRawParameterValue (ParamIDs::tune)->load();
-            check (got && r.key == c.key && r.minor == c.minor && std::abs (r.a4 - expectedA4) < 1.0f && keyParam == c.key && std::abs (tune - r.a4) < 0.1f,
+            check (got && r.key == c.key && r.minor == c.minor && std::abs (r.a4 - expectedA4) < 0.6f && keyParam == c.key && std::abs (tune - r.a4) < 0.1f,
                    juce::String ("Learn ") + c.name + ": " + (got ? juce::String (kNoteNames[(size_t) r.key]) + (r.minor ? " minor" : " major") : juce::String ("no result"))
                        + ", A4 " + juce::String (r.a4, 1) + " Hz (expected " + juce::String (expectedA4, 1) + "), confidence " + juce::String (r.confidence, 2));
         }
@@ -681,6 +681,159 @@ int main()
         }
         check (peaks[0] < 1150.0f && peaks[1] > 1200.0f, "Formant keeps the tone colour when moving +4 semitones (peak at "
                                                               + juce::String (peaks[0], 0) + " Hz with Formant, " + juce::String (peaks[1], 0) + " Hz without, source 1000 Hz)");
+    }
+
+    // 3i) Gewichtung: E auf 25 % -> E deutlich leiser als C, in beiden Modi gleich.
+    {
+        double drops[2] {};
+        for (int mi = 0; mi < 2; ++mi)
+        {
+            const int mode = mi == 0 ? zeroLatency : highQuality;
+            auto noise = makeNoise (4.0, 0.2f);
+            auto pFull = makeProcessor (mode, 100.0f, 100.0f, 0.0f);
+            auto pW = makeProcessor (mode, 100.0f, 100.0f, 0.0f);
+            setParam (*pW, ParamIDs::weightId (4).toRawUTF8(), 25.0f);
+            const int lat = pFull->getLatencySamples();
+            const auto sF = spectrum (render (*pFull, noise), 48000 + lat), sW = spectrum (render (*pW, noise), 48000 + lat);
+            auto rel = [] (const std::vector<float>& sp) { return toneLevel (sp, 329.63f, 3.0f) - toneLevel (sp, 261.63f, 3.0f); };
+            drops[mi] = rel (sF) - rel (sW);
+        }
+        check (drops[0] > 8.0 && drops[1] > 8.0 && std::abs (drops[0] - drops[1]) < 3.0,
+               "Weight E 25 %: E " + juce::String (drops[0], 1) + " dB quieter (Zero Latency), " + juce::String (drops[1], 1) + " dB (High Quality)");
+    }
+
+    // 3j) Mitte/Seite: nur ein Anteil wird bearbeitet, der andere bleibt exakt trocken.
+    for (int mode : { zeroLatency, highQuality })
+        for (int stereo : { 1, 2 })
+        {
+            auto mid = makeNoise (3.0, 0.15f);
+            juce::AudioBuffer<float> side (2, mid.getNumSamples());
+            {
+                std::mt19937 rng (99);
+                std::uniform_real_distribution<float> d (-0.15f, 0.15f);
+                for (int i = 0; i < side.getNumSamples(); ++i)
+                    side.setSample (0, i, d (rng));
+            }
+            juce::AudioBuffer<float> in (2, mid.getNumSamples());
+            for (int i = 0; i < in.getNumSamples(); ++i)
+            {
+                in.setSample (0, i, mid.getSample (0, i) + side.getSample (0, i));
+                in.setSample (1, i, mid.getSample (0, i) - side.getSample (0, i));
+            }
+            auto p = makeProcessor (mode, 100.0f, 80.0f, 0.0f);
+            setParam (*p, ParamIDs::stereo, (float) stereo);
+            auto out = render (*p, in);
+            const int lat = p->getLatencySamples();
+
+            // trockener Anteil: Abweichung vom Original
+            const auto& keep = stereo == 1 ? side : mid; // bei "Mid" bleibt die Seite trocken
+            double err = 0.0, ref = 0.0;
+            juce::AudioBuffer<float> procPart (2, out.getNumSamples());
+            for (int i = lat + 4800; i < out.getNumSamples(); ++i)
+            {
+                const float l = out.getSample (0, i), r = out.getSample (1, i);
+                const float keptOut = stereo == 1 ? 0.5f * (l - r) : 0.5f * (l + r);
+                const float processedOut = stereo == 1 ? 0.5f * (l + r) : 0.5f * (l - r);
+                const float orig = keep.getSample (0, i - lat);
+                err += (double) (keptOut - orig) * (keptOut - orig);
+                ref += (double) orig * orig;
+                procPart.setSample (0, i, processedOut);
+            }
+            const double snr = 10.0 * std::log10 (ref / std::max (err, 1e-20));
+            const float inKey = inKeyEnergyRatio (procPart, 48000 + lat, cMajor);
+            check (snr > 40.0 && inKey > 0.6f,
+                   juce::String (mode == zeroLatency ? "ZeroLatency" : "HighQuality") + (stereo == 1 ? " Mid only" : " Side only")
+                       + ": untouched part stays dry (" + juce::String (snr, 1) + " dB), processed part in key " + juce::String (inKey * 100.0f, 1) + " %");
+        }
+
+    // 3k) Tonart per Sidechain: die andere Spur spielt a-Moll (A C E), das Rauschen auf der Hauptspur
+    //     wird in diese Töne gezogen. Danach Akkordwechsel auf F-Dur (F A C).
+    {
+        auto p = std::make_unique<PrizmAudioProcessor>();
+        auto layout = p->getBusesLayout();
+        layout.inputBuses.getReference (1) = juce::AudioChannelSet::stereo();
+        const bool layoutOk = p->setBusesLayout (layout);
+        p->setRateAndBufferSizeDetails (kSampleRate, kBlock);
+        setParam (*p, ParamIDs::mode, (float) highQuality);
+        setParam (*p, ParamIDs::color, 80.0f);
+        setParam (*p, ParamIDs::scKey, 1.0f);
+        p->prepareToPlay (kSampleRate, kBlock);
+
+        auto chordAm = makeHarmonic ({ 220.0f, 261.63f, 329.63f }, 6, 3.0, [] (float, int h) { return 0.06f / (float) h; });
+        auto chordF = makeHarmonic ({ 174.61f, 220.0f, 261.63f }, 6, 3.0, [] (float, int h) { return 0.06f / (float) h; });
+        auto noise = makeNoise (3.0, 0.2f);
+        auto run = [&] (const juce::AudioBuffer<float>& sc)
+        {
+            juce::AudioBuffer<float> io (4, noise.getNumSamples());
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                io.copyFrom (ch, 0, noise, ch, 0, noise.getNumSamples());
+                io.copyFrom (ch + 2, 0, sc, ch, 0, sc.getNumSamples());
+            }
+            for (int start = 0; start < io.getNumSamples(); start += kBlock)
+            {
+                const int n = std::min (kBlock, io.getNumSamples() - start);
+                juce::AudioBuffer<float> block (io.getArrayOfWritePointers(), 4, start, n);
+                juce::MidiBuffer midi;
+                p->processBlock (block, midi);
+            }
+            juce::AudioBuffer<float> main (2, io.getNumSamples());
+            for (int ch = 0; ch < 2; ++ch)
+                main.copyFrom (ch, 0, io, ch, 0, io.getNumSamples());
+            return main;
+        };
+        auto outAm = run (chordAm);
+        const auto maskAm = p->getDisplayMask();
+        const float inKeyAm = inKeyEnergyRatio (outAm, 48000 + p->getLatencySamples(), bits (9, 0, 4));
+        auto outF = run (chordF);
+        const auto maskF = p->getDisplayMask();
+        check (layoutOk && maskAm == bits (9, 0, 4) && maskF == bits (5, 9, 0) && inKeyAm > 0.6f && p->isSidechainControllingKey(),
+               "Sidechain key: A minor detected (" + juce::String (maskAm == bits (9, 0, 4) ? "yes" : "no") + "), main track in A-C-E "
+                   + juce::String (inKeyAm * 100.0f, 1) + " %, chord change to F major followed (" + juce::String (maskF == bits (5, 9, 0) ? "yes" : "no") + ")");
+    }
+
+    // 3l) Presets: Werkspreset setzt Werte, Tonart bleibt; eigenes Preset speichern und laden.
+    {
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        setParam (*p, ParamIDs::key, 2.0f);   // D
+        setParam (*p, ParamIDs::scale, 1.0f); // Minor
+        setParam (*p, ParamIDs::tune, 443.0f);
+        auto raw = [&p] (const char* id) { return p->apvts.getRawParameterValue (id)->load(); };
+        const auto names = p->getPresetNames();
+        bool allLoad = true;
+        for (int i = 0; i < p->getNumFactoryPresets(); ++i)
+        {
+            p->loadPreset (i);
+            render (*p, makeNoise (0.3, 0.2f)); // jedes Preset einmal durchlaufen lassen
+            allLoad = allLoad && raw (ParamIDs::key) == 2.0f && raw (ParamIDs::scale) == 1.0f && std::abs (raw (ParamIDs::tune) - 443.0f) < 0.05f;
+        }
+        const int choir = names.indexOf ("Vocal Choir");
+        p->loadPreset (choir);
+        const bool choirOk = raw (ParamIDs::shift) == 60.0f && raw (ParamIDs::mode) == 1.0f && raw (ParamIDs::mix) == 70.0f;
+        p->loadPreset (names.indexOf ("Major to Minor"));
+        // D-Dur -> d-Moll: F# (6) -> F (5), B (11) -> A# (10), C# (1) -> C (0); Index = Ziel + 1
+        const bool mapOk = raw (ParamIDs::mapId (6).toRawUTF8()) == 6.0f && raw (ParamIDs::mapId (11).toRawUTF8()) == 11.0f
+                           && raw (ParamIDs::mapId (1).toRawUTF8()) == 1.0f;
+
+        auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("prizm_preset_test");
+        folder.deleteRecursively();
+        p->setPresetFolder (folder);
+        p->loadPreset (0);
+        setParam (*p, ParamIDs::color, 133.0f);
+        setParam (*p, ParamIDs::weightId (4).toRawUTF8(), 40.0f);
+        const bool saved = p->saveUserPreset ("Mein Test");
+        setParam (*p, ParamIDs::color, 10.0f);
+        setParam (*p, ParamIDs::weightId (4).toRawUTF8(), 100.0f);
+        setParam (*p, ParamIDs::key, 7.0f);
+        const int userIdx = p->getPresetNames().indexOf ("Mein Test");
+        p->loadPreset (userIdx);
+        const bool userOk = saved && userIdx >= p->getNumFactoryPresets() && std::abs (raw (ParamIDs::color) - 133.0f) < 0.05f
+                            && std::abs (raw (ParamIDs::weightId (4).toRawUTF8()) - 40.0f) < 0.05f && raw (ParamIDs::key) == 7.0f;
+        folder.deleteRecursively();
+        check (allLoad && choirOk && mapOk && userOk,
+               juce::String ("Presets: ") + juce::String (p->getNumFactoryPresets()) + " factory presets load and keep the key (" + (allLoad ? "yes" : "no")
+                   + "), Vocal Choir " + (choirOk ? "ok" : "wrong") + ", Major to Minor map " + (mapOk ? "ok" : "wrong")
+                   + ", own preset save/load " + (userOk ? "ok" : "wrong"));
     }
 
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
@@ -818,6 +971,7 @@ int main()
         setParam (*p, ParamIDs::mode, (float) highQuality);
         setParam (*p, ParamIDs::mapId (0).toRawUTF8(), 2.0f);  // C -> C#
         setParam (*p, ParamIDs::mapId (7).toRawUTF8(), 13.0f); // G off
+        setParam (*p, ParamIDs::weightId (4).toRawUTF8(), 45.0f); // E auf 45 %
         auto noise = makeNoise (1.0, 0.2f);
         render (*p, noise); // so the key strip shows live energy
         std::unique_ptr<juce::AudioProcessorEditor> editor (p->createEditor());

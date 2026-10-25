@@ -8,6 +8,8 @@
 #include "FilterBankEngine.h"
 #include "SpectralEngine.h"
 #include "KeyAnalyzer.h"
+#include "ChordTracker.h"
+#include "Presets.h"
 
 namespace prizm
 {
@@ -29,7 +31,10 @@ namespace ParamIDs
     inline constexpr const char* rangeHigh  = "rangeHigh";
     inline constexpr const char* tune       = "tune";
     inline constexpr const char* formant    = "formant";
+    inline constexpr const char* stereo     = "stereo"; // 0 = Stereo, 1 = nur Mitte, 2 = nur Seite
+    inline constexpr const char* scKey      = "scKey";  // Tonart aus dem Sidechain-Eingang
     inline juce::String mapId (int pc) { return "map" + juce::String (pc); } // map0 (C) .. map11 (B)
+    inline juce::String weightId (int pc) { return "weight" + juce::String (pc); } // weight0 (C) .. weight11 (B)
 }
 
 enum Mode { zeroLatency = 0, highQuality = 1 };
@@ -71,12 +76,28 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     prizm::PitchMask getDisplayMask() const noexcept { return (prizm::PitchMask) displayMask.load(); }
     bool isMidiControllingKey() const noexcept { return midiActive.load(); }
+    bool isSidechainControllingKey() const noexcept { return scActive.load(); }
+    bool isSidechainConnected() const noexcept { return scConnected.load(); }
     float getPitchEnergy (int pitchClass) const noexcept { return pitchEnergy[(size_t) pitchClass].load(); }
     uint32_t getBlockCounter() const noexcept { return blockCounter.load(); }
     void togglePitchClass (int pitchClass); // message thread: edits the custom scale
     // Noten-Map, Message-Thread: Vorlagen relativ zur Tonart
     enum class MapPreset { reset, majorToMinor, minorToMajor };
     void applyMapPreset (MapPreset preset);
+    // Presets, Message-Thread. Werkspresets zuerst, dann eigene (Dokumente/Brain Bugz/Prizm/Presets/*.przm)
+    juce::StringArray getPresetNames() const;
+    int getNumFactoryPresets() const { return (int) prizm::factoryPresets().size(); }
+    void loadPreset (int index);
+    bool saveUserPreset (const juce::String& name);
+    void refreshUserPresets();
+    juce::File getPresetFolder() const;
+    void setPresetFolder (const juce::File& folder) { presetFolderOverride = folder; refreshUserPresets(); } // für Tests
+    int getCurrentPreset() const noexcept { return currentPreset; }
+    static bool isKeyContextParam (const juce::String& id); // bleibt beim Preset-Wechsel stehen
+
+    // Gewichtung pro Note, Message-Thread (0..1)
+    float getWeight (int pc) const noexcept { return weightParams[(size_t) pc]->load() * 0.01f; }
+    void setWeight (int pc, float weight01, bool gestureStart, bool gestureEnd);
 
     // Learn: Tonart und Stimmton aus dem Eingang erkennen
     void startLearn() noexcept { learnCommand.store (1); }
@@ -129,9 +150,16 @@ private:
     juce::SmoothedValue<float> mixSmoothed, outputSmoothed;
 
     std::atomic<int> displayMask { 0 };
-    std::atomic<bool> midiActive { false };
+    std::atomic<bool> midiActive { false }, scActive { false }, scConnected { false };
+    prizm::ChordTracker chordTracker;
+    juce::AudioParameterBool* scKeyParam = nullptr;
     std::array<std::atomic<float>, 12> pitchEnergy {};
     std::atomic<uint32_t> blockCounter { 0 };
+
+    juce::Array<juce::File> userPresets;
+    juce::File presetFolderOverride;
+    int currentPreset = 0;
+    void setParamPlain (const juce::String& id, float value);
 
     prizm::KeyAnalyzer keyAnalyzer;
     std::atomic<int> learnCommand { 0 }; // 1 = starten, 2 = abbrechen
@@ -157,7 +185,9 @@ private:
     std::atomic<float>* rangeHighParam = nullptr;
     std::atomic<float>* tuneParam = nullptr;
     std::atomic<float>* formantParam = nullptr;
+    juce::AudioParameterChoice* stereoParam = nullptr;
     std::array<juce::AudioParameterChoice*, 12> mapParams {};
+    std::array<std::atomic<float>*, 12> weightParams {};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PrizmAudioProcessor)
 };
