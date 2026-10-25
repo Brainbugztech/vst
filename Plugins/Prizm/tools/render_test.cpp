@@ -702,6 +702,50 @@ int main()
                "Weight E 25 %: E " + juce::String (drops[0], 1) + " dB quieter (Zero Latency), " + juce::String (drops[1], 1) + " dB (High Quality)");
     }
 
+    // 3j) Mitte/Seite: nur ein Anteil wird bearbeitet, der andere bleibt exakt trocken.
+    for (int mode : { zeroLatency, highQuality })
+        for (int stereo : { 1, 2 })
+        {
+            auto mid = makeNoise (3.0, 0.15f);
+            juce::AudioBuffer<float> side (2, mid.getNumSamples());
+            {
+                std::mt19937 rng (99);
+                std::uniform_real_distribution<float> d (-0.15f, 0.15f);
+                for (int i = 0; i < side.getNumSamples(); ++i)
+                    side.setSample (0, i, d (rng));
+            }
+            juce::AudioBuffer<float> in (2, mid.getNumSamples());
+            for (int i = 0; i < in.getNumSamples(); ++i)
+            {
+                in.setSample (0, i, mid.getSample (0, i) + side.getSample (0, i));
+                in.setSample (1, i, mid.getSample (0, i) - side.getSample (0, i));
+            }
+            auto p = makeProcessor (mode, 100.0f, 80.0f, 0.0f);
+            setParam (*p, ParamIDs::stereo, (float) stereo);
+            auto out = render (*p, in);
+            const int lat = p->getLatencySamples();
+
+            // trockener Anteil: Abweichung vom Original
+            const auto& keep = stereo == 1 ? side : mid; // bei "Mid" bleibt die Seite trocken
+            double err = 0.0, ref = 0.0;
+            juce::AudioBuffer<float> procPart (2, out.getNumSamples());
+            for (int i = lat + 4800; i < out.getNumSamples(); ++i)
+            {
+                const float l = out.getSample (0, i), r = out.getSample (1, i);
+                const float keptOut = stereo == 1 ? 0.5f * (l - r) : 0.5f * (l + r);
+                const float processedOut = stereo == 1 ? 0.5f * (l + r) : 0.5f * (l - r);
+                const float orig = keep.getSample (0, i - lat);
+                err += (double) (keptOut - orig) * (keptOut - orig);
+                ref += (double) orig * orig;
+                procPart.setSample (0, i, processedOut);
+            }
+            const double snr = 10.0 * std::log10 (ref / std::max (err, 1e-20));
+            const float inKey = inKeyEnergyRatio (procPart, 48000 + lat, cMajor);
+            check (snr > 40.0 && inKey > 0.6f,
+                   juce::String (mode == zeroLatency ? "ZeroLatency" : "HighQuality") + (stereo == 1 ? " Mid only" : " Side only")
+                       + ": untouched part stays dry (" + juce::String (snr, 1) + " dB), processed part in key " + juce::String (inKey * 100.0f, 1) + " %");
+        }
+
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
     for (int mode : { zeroLatency, highQuality })
     {

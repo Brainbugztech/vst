@@ -29,6 +29,7 @@ namespace ParamIDs
     inline constexpr const char* rangeHigh  = "rangeHigh";
     inline constexpr const char* tune       = "tune";
     inline constexpr const char* formant    = "formant";
+    inline constexpr const char* stereo     = "stereo"; // 0 = Stereo, 1 = nur Mitte, 2 = nur Seite
     inline juce::String mapId (int pc) { return "map" + juce::String (pc); } // map0 (C) .. map11 (B)
     inline juce::String weightId (int pc) { return "weight" + juce::String (pc); } // weight0 (C) .. weight11 (B)
 }
@@ -161,6 +162,7 @@ private:
     std::atomic<float>* rangeHighParam = nullptr;
     std::atomic<float>* tuneParam = nullptr;
     std::atomic<float>* formantParam = nullptr;
+    juce::AudioParameterChoice* stereoParam = nullptr;
     std::array<juce::AudioParameterChoice*, 12> mapParams {};
     std::array<std::atomic<float>*, 12> weightParams {};
 

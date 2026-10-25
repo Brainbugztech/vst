@@ -41,6 +41,7 @@ PrizmAudioProcessor::PrizmAudioProcessor()
     rangeHighParam  = apvts.getRawParameterValue (ParamIDs::rangeHigh);
     tuneParam       = apvts.getRawParameterValue (ParamIDs::tune);
     formantParam    = apvts.getRawParameterValue (ParamIDs::formant);
+    stereoParam     = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::stereo));
     for (int pc = 0; pc < 12; ++pc)
     {
         mapParams[(size_t) pc] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::mapId (pc)));
@@ -100,6 +101,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
     highRange.setSkewForCentre (5000.0f);
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeLow, 1 }, "Range Low", lowRange, 20.0f, hzText (20.0f)));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeHigh, 1 }, "Range High", highRange, 20000.0f, hzText (20000.0f)));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::stereo, 1 }, "Stereo",
+                                                        StringArray { "Stereo", "Mid", "Side" }, 0));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::formant, 1 }, "Formant",
                                                        NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, percent));
     {
@@ -328,10 +331,22 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     const int maxChunk = midBuffer.getNumSamples();
     const bool hq = (mode == highQuality);
 
+    // Mitte/Seite: nur ein Anteil wird bearbeitet, der andere bleibt trocken (latenzkorrigiert)
+    const int stereoMode = (numCh == 2) ? stereoParam->getIndex() : 0;
+    const int untouched = stereoMode == 1 ? 1 : (stereoMode == 2 ? 0 : -1); // Kanal im M/S-Format, der trocken bleibt
+
     for (int start = 0; start < numSamples; start += maxChunk)
     {
         const int n = juce::jmin (maxChunk, numSamples - start);
         juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), numCh, start, n);
+
+        if (stereoMode != 0)
+            for (int i = 0; i < n; ++i)
+            {
+                const float l = chunk.getSample (0, i), r = chunk.getSample (1, i);
+                chunk.setSample (0, i, 0.5f * (l + r)); // Mitte
+                chunk.setSample (1, i, 0.5f * (l - r)); // Seite
+            }
 
         // 1) Aufteilen: Mitte geht in die Engine, Bass/Höhen außerhalb des Bereichs bleiben trocken
         for (int ch = 0; ch < numCh; ++ch)
@@ -378,14 +393,20 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
         // 4) Pegelausgleich: gefiltertes Signal etwa so laut wie das Original
         double inSum = 0.0, wetSum = 0.0;
+        int gainChannels = 0;
         for (int ch = 0; ch < numCh; ++ch)
+        {
+            if (ch == untouched)
+                continue;
+            ++gainChannels;
             for (int i = 0; i < n; ++i)
             {
                 const float d = dryMidBuffer.getSample (ch, i), w = midBuffer.getSample (ch, i);
                 inSum += (double) d * d;
                 wetSum += (double) w * w;
             }
-        const float denom = (float) (n * numCh);
+        }
+        const float denom = (float) (n * juce::jmax (1, gainChannels));
         const float msCoef = (float) (1.0 - std::exp (-(double) n / (sampleRateHz * 0.25)));
         inMeanSquare += ((float) inSum / denom - inMeanSquare) * msCoef;
         wetMeanSquare += ((float) wetSum / denom - wetMeanSquare) * msCoef;
@@ -413,14 +434,23 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
             const float m = mixSmoothed.getNextValue();
             const float out = outputSmoothed.getNextValue();
 
+            float y[2] {};
             for (int ch = 0; ch < numCh; ++ch)
             {
                 const float dryMid = dryMidBuffer.getSample (ch, i);
                 const float outer = outerBuffer.getSample (ch, i);
-                const float processed = outer + dryMid * (1.0f - s) + midBuffer.getSample (ch, i) * g * s;
                 const float dry = outer + dryMid;
-                chunk.setSample (ch, i, softSafety ((dry * (1.0f - m) + processed * m) * out));
+                const float processed = (ch == untouched) ? dry : outer + dryMid * (1.0f - s) + midBuffer.getSample (ch, i) * g * s;
+                y[ch] = dry * (1.0f - m) + processed * m;
             }
+            if (stereoMode != 0)
+            {
+                const float mid = y[0], side = y[1];
+                y[0] = mid + side;
+                y[1] = mid - side;
+            }
+            for (int ch = 0; ch < numCh; ++ch)
+                chunk.setSample (ch, i, softSafety (y[ch] * out));
         }
         autoGain = newGain;
     }
