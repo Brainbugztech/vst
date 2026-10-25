@@ -33,6 +33,11 @@ void SpectralEngine::prepare (double sampleRate)
     gainRelease = 1.0f - std::exp (-(float) hop / ((float) fs * 0.035f));
 
     prevMixMag.assign ((size_t) numBins, 0.0f);
+    mixMag.assign ((size_t) numBins, 0.0f);
+    mixBin.assign ((size_t) numBins, 0.0f);
+    logPrefix.assign ((size_t) numBins + 1, 0.0f);
+    envelope.assign ((size_t) numBins, 0.0f);
+    grouper.peaks.reserve (512);
     peaks.reserve ((size_t) numBins);
     regionPeak.assign ((size_t) numBins, -1);
 
@@ -112,9 +117,19 @@ void SpectralEngine::processFrame (const EngineParams& p)
     qSmoothed += (qTarget - qSmoothed) * (float) (1.0 - std::exp (-(double) hop / (fs * 0.05)));
     model.update (p.mask, qSmoothed);
 
-    const float shift = juce::jlimit (0.0f, 1.0f, p.shift);
-    for (int ch = 0; ch < numActiveChannels; ++ch)
-        shiftStage (channels[(size_t) ch], shift, p.mask);
+    // Tonhöhen verschieben (SHIFT / Noten-Map): Noten gemeinsam für beide Kanäle erkennen
+    const bool moving = p.shift > 0.001f || p.mapActive() || std::any_of (p.map.begin(), p.map.end(), [] (int8_t m) { return m == kMapMute; });
+    if (moving)
+    {
+        buildPitchPlan (p);
+        for (int ch = 0; ch < numActiveChannels; ++ch)
+            applyPitchPlan (channels[(size_t) ch], juce::jlimit (0.0f, 1.0f, p.formant));
+    }
+    else
+    {
+        for (int ch = 0; ch < numActiveChannels; ++ch)
+            passThrough (channels[(size_t) ch]);
+    }
 
     // Verstärkung pro Bin aus der Filterkurve (beim zugehörigen Teilton) + Gate pro Note
     noteSum.fill (0.0f);
@@ -174,23 +189,57 @@ void SpectralEngine::analyse (Channel& c)
     }
 }
 
-void SpectralEngine::shiftStage (Channel& c, float shift, PitchMask mask)
+void SpectralEngine::passThrough (Channel& c)
 {
-    // Ohne SHIFT: Spektrum unverändert weitergeben (Phasen bleiben die des Originals).
-    if (shift < 0.001f)
+    // Spektrum unverändert weitergeben (Phasen bleiben die des Originals)
+    std::copy (c.mag.begin(), c.mag.end(), c.outMag.begin());
+    std::copy (c.trueBin.begin(), c.trueBin.end(), c.outBin.begin());
+    std::copy (c.phase.begin(), c.phase.end(), c.outPhase.begin());
+    std::copy (c.phase.begin(), c.phase.end(), c.synthPhase.begin());
+}
+
+void SpectralEngine::buildPitchPlan (const EngineParams& p)
+{
+    // Summe beider Kanäle: gemeinsame Peaks, gemeinsame Noten, gleiche Verschiebung links/rechts
+    for (int k = 0; k < numBins; ++k)
     {
-        std::copy (c.mag.begin(), c.mag.end(), c.outMag.begin());
-        std::copy (c.trueBin.begin(), c.trueBin.end(), c.outBin.begin());
-        std::copy (c.phase.begin(), c.phase.end(), c.outPhase.begin());
-        std::copy (c.phase.begin(), c.phase.end(), c.synthPhase.begin());
-        return;
+        float m = 0.0f, weighted = 0.0f;
+        for (int ch = 0; ch < numActiveChannels; ++ch)
+        {
+            const auto& c = channels[(size_t) ch];
+            m += c.mag[(size_t) k];
+            weighted += c.mag[(size_t) k] * c.trueBin[(size_t) k];
+        }
+        mixMag[(size_t) k] = m;
+        mixBin[(size_t) k] = m > 1.0e-12f ? weighted / m : (float) k;
     }
 
-    const float hopPhase = kTwoPi * (float) hop / (float) fftSize;
-    const float binHz = (float) (fs / fftSize);
-    const float maxHz = (float) (0.45 * fs);
+    findRegions (mixMag);
 
-    // 1) + 2) Peaks finden, jedes Bin dem Peak seines Tals zuordnen
+    const float binHz = (float) (fs / fftSize);
+    grouper.peaks.clear();
+    for (int pk : peaks)
+    {
+        NoteGrouper::Peak gp;
+        gp.hz = mixBin[(size_t) pk] * binHz;
+        gp.mag = mixMag[(size_t) pk];
+        grouper.peaks.push_back (gp);
+    }
+    grouper.run (p, refScale);
+
+    regionRatio.resize (peaks.size());
+    regionGain.resize (peaks.size());
+    for (size_t i = 0; i < peaks.size(); ++i)
+    {
+        regionRatio[i] = grouper.peaks[i].ratio;
+        regionGain[i] = grouper.peaks[i].gain;
+    }
+}
+
+void SpectralEngine::applyPitchPlan (Channel& c, float formant)
+{
+    const float hopPhase = kTwoPi * (float) hop / (float) fftSize;
+
     std::fill (c.outMag.begin(), c.outMag.end(), 0.0f);
     std::fill (c.best.begin(), c.best.end(), 0.0f);
     for (int j = 0; j < numBins; ++j)
@@ -199,46 +248,71 @@ void SpectralEngine::shiftStage (Channel& c, float shift, PitchMask mask)
         c.outPhase[(size_t) j] = wrapPhase (c.synthPhase[(size_t) j] + hopPhase * (float) j);
     }
 
-    findRegions (c.mag);
     if (peaks.empty())
     {
-        std::copy (c.mag.begin(), c.mag.end(), c.outMag.begin());
-        std::copy (c.trueBin.begin(), c.trueBin.end(), c.outBin.begin());
-        std::copy (c.phase.begin(), c.phase.end(), c.outPhase.begin());
-        std::copy (c.phase.begin(), c.phase.end(), c.synthPhase.begin());
+        passThrough (c);
         return;
     }
 
-    // 3) Regionen als Ganzes verschieben, Phasen an den Peak gekoppelt (Identity Phase Locking)
-    std::vector<float>& synthPrev = c.synthPhase;
+    // Spektrale Hüllkurve (Klangfarbe): log-Betrag der Peaks, dazwischen linear verbunden,
+    // dann über ca. eine Achtel-Oktave geglättet. Folgt den Obertonspitzen, nicht den Lücken.
+    if (formant > 0.001f)
+    {
+        const auto logAt = [&c] (int k) { return std::log (c.mag[(size_t) k] + 1.0e-9f); };
+        int prevK = 0;
+        float prevV = logAt (peaks.front());
+        for (size_t i = 0; i <= peaks.size(); ++i)
+        {
+            const int k = i < peaks.size() ? peaks[i] : numBins - 1;
+            const float v = i < peaks.size() ? logAt (k) : prevV;
+            for (int j = prevK; j <= k; ++j)
+            {
+                const float t = k > prevK ? (float) (j - prevK) / (float) (k - prevK) : 0.0f;
+                envelope[(size_t) j] = prevV + (v - prevV) * t;
+            }
+            prevK = k;
+            prevV = v;
+        }
+        logPrefix[0] = 0.0f;
+        for (int k = 0; k < numBins; ++k)
+            logPrefix[(size_t) k + 1] = logPrefix[(size_t) k] + envelope[(size_t) k];
+        for (int k = 0; k < numBins; ++k)
+        {
+            const int w = std::max (3, (int) ((float) k * 0.06f));
+            const int lo = std::max (0, k - w), hi = std::min (numBins - 1, k + w);
+            c.best[(size_t) k] = (logPrefix[(size_t) hi + 1] - logPrefix[(size_t) lo]) / (float) (hi - lo + 1);
+        }
+        std::copy (c.best.begin(), c.best.end(), envelope.begin());
+        std::fill (c.best.begin(), c.best.end(), 0.0f);
+    }
+
+    // Regionen (Teilton + Tal) als Ganzes verschieben, Phasen an den Peak gekoppelt
     int k = 0;
     while (k < numBins)
     {
         const auto region = (size_t) regionPeak[(size_t) k];
         const int p = peaks[region];
+        const float ratio = regionRatio[region];
+        const float gain = regionGain[region];
         const float peakBin = c.trueBin[(size_t) p];
-        const float hz = peakBin * binHz * refScale;
-
-        float ratio = 1.0f;
-        if (hz > 25.0f && hz < maxHz)
-        {
-            const float midi = hzToMidi (hz);
-            const float target = midi + shift * ((float) nearestAllowedNote (mask, midi) - midi);
-            ratio = std::pow (2.0f, (target - midi) / 12.0f);
-        }
 
         const int jp = juce::jlimit (0, numBins - 1, (int) std::lround ((float) p * ratio));
         const int offset = jp - p;
-        const float peakPhase = wrapPhase (synthPrev[(size_t) jp] + hopPhase * peakBin * ratio);
+        const float peakPhase = wrapPhase (c.synthPhase[(size_t) jp] + hopPhase * peakBin * ratio);
 
-        // alle Bins dieser Region
         int k2 = k;
         while (k2 < numBins && regionPeak[(size_t) k2] == (int) region)
         {
             const int j = k2 + offset;
-            if (j >= 1 && j < numBins)
+            if (j >= 1 && j < numBins && gain > 0.0f)
             {
-                const float m = c.mag[(size_t) k2];
+                float m = c.mag[(size_t) k2] * gain;
+                if (formant > 0.001f && offset != 0)
+                {
+                    // Klangfarbe stehen lassen: Betrag an die Hüllkurve am Zielort anpassen
+                    const float corr = std::exp ((envelope[(size_t) j] - envelope[(size_t) k2]) * formant);
+                    m *= juce::jlimit (0.1f, 10.0f, corr);
+                }
                 c.outMag[(size_t) j] += m;
                 if (m > c.best[(size_t) j])
                 {

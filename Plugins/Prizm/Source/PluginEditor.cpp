@@ -8,7 +8,7 @@ using namespace prizm;
 namespace
 {
     constexpr int kWidth = 800;
-    constexpr int kHeight = 740;
+    constexpr int kHeight = 814;
     constexpr float kTitleSize = 48.0f;
 
     juce::Font display (float size, bool bold = false) { return bb::fonts::display (size, bold); }
@@ -292,11 +292,32 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
     };
     addAndMakeVisible (learnButton);
 
+    // Noten-Map: pro Note ein Ziel (High Quality), OFF = stumm (beide Modi)
+    for (int pc = 0; pc < 12; ++pc)
+    {
+        auto& box = mapBoxes[(size_t) pc];
+        box.addItem ("--", 1);
+        for (int t = 0; t < 12; ++t)
+            box.addItem (kNoteNames[(size_t) t], t + 2);
+        box.addItem ("OFF", 14);
+        box.setTooltip (juce::String ("Map ") + kNoteNames[(size_t) pc] + ": move this note to another one (High Quality), or switch it OFF. -- = normal.");
+        addAndMakeVisible (box);
+        mapAttachments[(size_t) pc] = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (apvts, ParamIDs::mapId (pc), box);
+    }
+    majToMinButton.onClick = [this] { processor.applyMapPreset (PrizmAudioProcessor::MapPreset::majorToMinor); };
+    minToMajButton.onClick = [this] { processor.applyMapPreset (PrizmAudioProcessor::MapPreset::minorToMajor); };
+    resetMapButton.onClick = [this] { processor.applyMapPreset (PrizmAudioProcessor::MapPreset::reset); };
+    majToMinButton.setTooltip ("Turns major into minor, relative to KEY: 3rd, 6th and 7th go down a semitone (High Quality).");
+    minToMajButton.setTooltip ("Turns minor into major, relative to KEY (High Quality).");
+    resetMapButton.setTooltip ("All notes back to normal.");
+    for (auto* b : { &majToMinButton, &minToMajButton, &resetMapButton })
+        addAndMakeVisible (*b);
+
     keyStrip.onToggle = [this] (int pc) { processor.togglePitchClass (pc); };
     addAndMakeVisible (keyStrip);
 
     struct Def { const char* id; const char* title; const char* hint; };
-    const std::array<Def, 10> defs {{
+    const std::array<Def, 11> defs {{
         { ParamIDs::strength, "STRENGTH", "How hard the sound is pulled into the key." },
         { ParamIDs::color,    "COLOR",    "More tonal. Above 100 % (pink) a coloured decay tail is added." },
         { ParamIDs::clear,    "CLEAR",    "Keeps transients dry and damps old ringing on new hits." },
@@ -306,6 +327,7 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
         { ParamIDs::rangeHigh,"RANGE HIGH", "Above this frequency the signal stays untouched (keeps cymbals and air). OFF = full range." },
         { ParamIDs::gate,     "GATE",     "Pushes quiet notes down relative to the loudest one. Cleans up noise between the tones." },
         { ParamIDs::shift,    "SHIFT",    "High Quality only: moves out-of-key partials onto the nearest note instead of just filtering them." },
+        { ParamIDs::formant,  "FORMANT",  "High Quality only: keeps the tone colour (formants) when notes are moved, so voices don't sound like chipmunks." },
         { ParamIDs::tune,     "TUNE A4",  "Tuning reference. Old samples and vinyl are often not at 440 Hz. LEARN sets this automatically." },
     }};
 
@@ -417,12 +439,24 @@ void PrizmAudioProcessorEditor::timerCallback()
         repaint();
     }
 
-    auto& shiftSlider = knobs[kShiftKnob].slider;
-    if (shiftSlider.isEnabled() != (mode == highQuality))
+    for (size_t ki : { kShiftKnob, kFormantKnob })
     {
-        shiftSlider.setEnabled (mode == highQuality);
-        shiftSlider.setAlpha (mode == highQuality ? 1.0f : 0.35f);
+        auto& sl = knobs[ki].slider;
+        if (sl.isEnabled() != (mode == highQuality))
+        {
+            sl.setEnabled (mode == highQuality);
+            sl.setAlpha (mode == highQuality ? 1.0f : 0.35f);
+        }
     }
+    for (auto& box : mapBoxes)
+    {
+        const int id = box.getSelectedId();
+        const auto col = id == 14 ? Col::pink : (id > 1 ? (mode == highQuality ? Col::tox : Col::dim) : Col::dim);
+        if (box.findColour (juce::ComboBox::textColourId) != col)
+            box.setColour (juce::ComboBox::textColourId, col);
+    }
+    for (auto* b : { &majToMinButton, &minToMajButton })
+        b->setAlpha (mode == highQuality ? 1.0f : 0.45f);
 
     animPhase += 1.0f / 30.0f;
     prism.setPhase (animPhase);
@@ -450,7 +484,7 @@ void PrizmAudioProcessorEditor::timerCallback()
         const double sr = processor.getSampleRate();
         text = "LATENCY " + juce::String (latency) + " SMP";
         if (sr > 0.0)
-            text << " / " << juce::String (1000.0 * latency / sr, 0) << " MS";
+            text << " / " << juce::String (juce::roundToInt (1000.0 * latency / sr)) << " MS";
     }
 
     if (text != latencyText || midi != midiShown)
@@ -663,6 +697,16 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
     }
 
     g.setFont (display (12.5f, true).withExtraKerningFactor (0.1f));
+    g.setFont (mono (11.0f));
+    g.setColour (Col::dim);
+    {
+        const bool hqMode = (int) processor.apvts.getRawParameterValue (ParamIDs::mode)->load() == highQuality;
+        g.setColour (hqMode ? Col::muted : Col::dim);
+        g.drawText (hqMode ? "MAP  -  MOVE A NOTE TO ANOTHER ONE OR SWITCH IT OFF"
+                           : "MAP  -  MOVING NOTES NEEDS HIGH QUALITY, OFF WORKS IN BOTH MODES",
+                    mapLabelArea, Justification::centredLeft);
+    }
+    g.setFont (display (12.5f, true).withExtraKerningFactor (0.1f));
     if (learnMessage.isNotEmpty())
     {
         g.setColour (Col::tox);
@@ -687,7 +731,7 @@ void PrizmAudioProcessorEditor::resized()
 
     modeSwitch.setBounds (getWidth() - 24 - 300, 18, 300, 48);
 
-    keyPanel = { 20, 104, getWidth() - 40, 196 };
+    keyPanel = { 20, 104, getWidth() - 40, 268 };
     const int rowY = keyPanel.getY() + 34;
     keyLabelArea = { keyPanel.getX() + 20, rowY, 110, 16 };
     keyBox.setBounds (keyPanel.getX() + 20, rowY + 18, 110, 34);
@@ -700,7 +744,25 @@ void PrizmAudioProcessorEditor::resized()
     stripLabelArea = { keyPanel.getX() + 20, keyPanel.getY() + 96, keyPanel.getWidth() - 40, 16 };
     keyStrip.setBounds (keyPanel.getX() + 10, keyPanel.getY() + 112, keyPanel.getWidth() - 20, 78);
 
-    knobPanel = { 20, 312, getWidth() - 40, 212 };
+    // Map-Zeile direkt unter den Tasten, gleiche Spalten wie die Noten-Leiste
+    {
+        const float areaX = (float) keyStrip.getX() + 10.0f;
+        const float areaW = (float) keyStrip.getWidth() - 20.0f;
+        const float gap = 7.0f, w = (areaW - gap * 11.0f) / 12.0f;
+        const int y = keyStrip.getBottom() + 4;
+        for (int pc = 0; pc < 12; ++pc)
+            mapBoxes[(size_t) pc].setBounds (juce::roundToInt (areaX + (float) pc * (w + gap)), y, juce::roundToInt (w), 26);
+        const int mapRowY = y + 34;
+        mapLabelArea = { keyPanel.getX() + 20, mapRowY, 430, 22 };
+        auto btnRow = juce::Rectangle<int> (keyPanel.getRight() - 20 - 3 * 100 - 2 * 8, mapRowY, 3 * 100 + 2 * 8, 22);
+        majToMinButton.setBounds (btnRow.removeFromLeft (100));
+        btnRow.removeFromLeft (8);
+        minToMajButton.setBounds (btnRow.removeFromLeft (100));
+        btnRow.removeFromLeft (8);
+        resetMapButton.setBounds (btnRow);
+    }
+
+    knobPanel = { 20, keyPanel.getBottom() + 12, getWidth() - 40, 212 };
     auto knobArea = knobPanel.reduced (14, 0);
     knobArea.removeFromTop (54);
     knobArea.removeFromBottom (14);
@@ -712,9 +774,9 @@ void PrizmAudioProcessorEditor::resized()
     auto extraArea = extraPanel.reduced (14, 0);
     extraArea.removeFromTop (52);
     extraArea.removeFromBottom (10);
-    const int w2 = extraArea.getWidth() / 5;
-    for (size_t i = 5; i < 10; ++i)
-        knobs[i].slider.setBounds (extraArea.removeFromLeft (w2).reduced (14, 0));
+    const int w2 = extraArea.getWidth() / 6;
+    for (size_t i = 5; i < 11; ++i)
+        knobs[i].slider.setBounds (extraArea.removeFromLeft (w2).reduced (8, 0));
 
     footerArea = { 24, getHeight() - 30, getWidth() - 48, 20 };
 }

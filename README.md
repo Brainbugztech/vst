@@ -122,13 +122,15 @@ Regler:
 - **Mix** (latenzkorrigiert) und **Output** (−24 bis +12 dB, Soft-Limiter am Ausgang).
 - **Range Low / Range High**: nur dieser Frequenzbereich wird in die Tonart gezogen, darunter und darüber bleibt das Signal unverändert (Linkwitz-Riley-Weichen). So bleiben Kick, Sub und Becken sauber. OFF = ganzer Bereich.
 - **Gate**: drückt leise Noten relativ zur lautesten herunter, räumt Rauschen zwischen den Tönen auf.
-- **Shift** (nur High Quality): verschiebt schiefe Teiltöne auf die nächste Note statt sie nur zu dämpfen. Teiltöne werden als Ganzes um ihren Peak verschoben (Phase-Locking), dadurch kaum Phasing.
+- **Shift** (nur High Quality): rastet schiefe Noten auf die nächste Note der Tonart ein, statt sie nur zu dämpfen. Prizm erkennt dafür polyphon, welche Teiltöne zu welcher Note gehören, und verschiebt jede Note mit all ihren Obertönen gemeinsam (Phase-Locking um die Peaks), dadurch bleiben Klänge harmonisch und kaum Phasing.
+- **Noten-Map** (Zeile unter den Tasten): pro Note ein Ziel, z. B. E → Eb. Nur die gespielte Note wandert, Obertöne anderer Noten bleiben stehen. **OFF** schaltet eine Note stumm (geht in beiden Modi), Verschieben braucht High Quality. **MAJ > MIN** / **MIN > MAJ** setzen Terz, Sexte und Septime relativ zur Tonart, **RESET MAP** stellt alles zurück.
+- **Formant** (nur High Quality): erhält die Klangfarbe beim Verschieben, damit Stimmen bei größeren Sprüngen nicht nach Mickey Mouse klingen.
 - **Learn**: hört 8 Sekunden hörbares Material am Eingang und stellt Key, Scale (Dur/Moll) und Tune selbst ein. Danach steht das Ergebnis über der Noten-Leiste, bei unsicherem Ergebnis mit Hinweis. Nochmal klicken bricht ab.
 - **Tune A4**: Stimmton 415–466 Hz (Standard 440). Wichtig für alte Samples und Vinyl, die oft nicht auf 440 Hz liegen, sonst zieht Prizm alles in die falschen Töne. Learn setzt ihn automatisch.
 
 Gemeinsam für beide Modi im Processor: Bereichsweichen, Pegelausgleich, Strength, Clear, Mix. Unterschiede gibt es nur noch durch das Prinzip selbst: Zero Latency verschmiert Anschläge etwas, High Quality kann sehr eng beieinander liegende Teiltöne (unter ca. 25 Hz Abstand) nicht ganz sauber trennen.
 
-Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Learn, Tune, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
+Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Learn, Tune, Noten-Map, Formant, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
 
 ## Bauen
 
@@ -149,7 +151,7 @@ cmake --build build --config Release
 - `Plugins/BugzAlign` – Kick/Bass-Phasenausrichtung (DSP in `AlignEngine.h`, Anzeige in `AlignView.cpp`)
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
-- `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
+- `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Learn in `KeyAnalyzer.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
