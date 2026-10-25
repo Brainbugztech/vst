@@ -39,6 +39,7 @@ PrizmAudioProcessor::PrizmAudioProcessor()
     gateParam       = apvts.getRawParameterValue (ParamIDs::gate);
     rangeLowParam   = apvts.getRawParameterValue (ParamIDs::rangeLow);
     rangeHighParam  = apvts.getRawParameterValue (ParamIDs::rangeHigh);
+    tuneParam       = apvts.getRawParameterValue (ParamIDs::tune);
 
     jassert (keyParam && scaleParam && customMaskParam && midiKeyParam && modeParam);
 }
@@ -93,6 +94,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
     highRange.setSkewForCentre (5000.0f);
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeLow, 1 }, "Range Low", lowRange, 20.0f, hzText (20.0f)));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeHigh, 1 }, "Range High", highRange, 20000.0f, hzText (20000.0f)));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::tune, 1 }, "Tune (A4)",
+                                                       NormalisableRange<float> (415.0f, 466.0f, 0.1f), 440.0f,
+                                                       AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction (
+                                                           [] (float v, int) { return String (v, 1) + " Hz"; })));
     return layout;
 }
 
@@ -110,7 +115,8 @@ void PrizmAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     sampleRateHz = sampleRate;
     filterBank.prepare (sampleRate, block);
     spectral.prepare (sampleRate);
-
+    keyAnalyzer.prepare (sampleRate);
+    learnActive.store (false);
     for (auto* b : { &midBuffer, &dryMidBuffer, &outerBuffer })
         b->setSize (2, block, false, false, true);
     dryMidDelay.prepare (spectral.getLatencySamples());
@@ -217,12 +223,36 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     handleMidi (midi);
     blockCounter.fetch_add (1, std::memory_order_relaxed);
 
+    // Learn: auf den unbearbeiteten Eingang hören
+    if (const int cmd = learnCommand.exchange (0))
+    {
+        if (cmd == 1)
+            keyAnalyzer.start();
+        else
+            keyAnalyzer.cancel();
+    }
+    if (keyAnalyzer.isActive())
+    {
+        if (keyAnalyzer.process (buffer.getArrayOfReadPointers(), numCh, numSamples))
+        {
+            const auto r = keyAnalyzer.getResult();
+            learnedKey.store (r.key);
+            learnedMinor.store (r.minor);
+            learnedA4.store (r.a4);
+            learnedConfidence.store (r.confidence);
+            learnDone.store (true);
+        }
+    }
+    learnActive.store (keyAnalyzer.isActive());
+    learnProgress.store (keyAnalyzer.getProgress());
+
     EngineParams p;
     p.mask = computeMask();
     p.color = colorParam->load() * 0.01f;
     p.clear = clearParam->load() * 0.01f;
     p.gate = gateParam->load() * 0.01f;
     p.shift = shiftParam->load() * 0.01f;
+    p.a4 = tuneParam->load();
     displayMask.store ((int) p.mask);
 
     const float strength = juce::jlimit (0.0f, 1.0f, strengthParam->load() * 0.01f);
@@ -356,6 +386,31 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         }
         autoGain = newGain;
     }
+}
+
+bool PrizmAudioProcessor::applyLearnResult (KeyAnalyzer::Result& out)
+{
+    if (! learnDone.exchange (false))
+        return false;
+
+    out.key = learnedKey.load();
+    out.minor = learnedMinor.load();
+    out.a4 = learnedA4.load();
+    out.confidence = learnedConfidence.load();
+
+    auto set = [this] (const char* id, float value)
+    {
+        if (auto* param = apvts.getParameter (id))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost (param->convertTo0to1 (value));
+            param->endChangeGesture();
+        }
+    };
+    set (ParamIDs::key, (float) out.key);
+    set (ParamIDs::scale, out.minor ? 1.0f : 0.0f); // 0 = Major, 1 = Minor
+    set (ParamIDs::tune, juce::jlimit (415.0f, 466.0f, out.a4));
+    return true;
 }
 
 void PrizmAudioProcessor::togglePitchClass (int pitchClass)

@@ -107,6 +107,7 @@ void SpectralEngine::processFrame (const EngineParams& p)
     const float transientAmount = total > 1.0e-6f ? juce::jlimit (0.0f, 1.0f, (flux / total - 0.25f) * 2.5f) : 0.0f;
 
     // Gemeinsame Filterkurve mit derselben Glättung wie Zero Latency
+    refScale = 440.0f / juce::jlimit (400.0f, 480.0f, p.a4);
     const float qTarget = ResponseModel::qFromColor (p.color);
     qSmoothed += (qTarget - qSmoothed) * (float) (1.0 - std::exp (-(double) hop / (fs * 0.05)));
     model.update (p.mask, qSmoothed);
@@ -216,7 +217,7 @@ void SpectralEngine::shiftStage (Channel& c, float shift, PitchMask mask)
         const auto region = (size_t) regionPeak[(size_t) k];
         const int p = peaks[region];
         const float peakBin = c.trueBin[(size_t) p];
-        const float hz = peakBin * binHz;
+        const float hz = peakBin * binHz * refScale;
 
         float ratio = 1.0f;
         if (hz > 25.0f && hz < maxHz)
@@ -313,7 +314,7 @@ void SpectralEngine::computeGains (Channel& c)
     {
         for (int j = 0; j < numBins; ++j)
         {
-            const float hz = std::max (1.0f, (float) j * binHz);
+            const float hz = std::max (1.0f, (float) j * binHz * refScale);
             c.gain[(size_t) j] = model.magnitudeAt (hz);
             c.gainNote[(size_t) j] = noteOfHz (hz);
         }
@@ -324,7 +325,7 @@ void SpectralEngine::computeGains (Channel& c)
     for (int j = 0; j < numBins; ++j)
     {
         const float own = c.outBin[(size_t) j];
-        const float ownHz = std::max (1.0f, own * binHz);
+        const float ownHz = std::max (1.0f, own * binHz * refScale);
         if (std::abs (own - (float) j) <= 2.5f)
         {
             // Bin liegt in der Hauptkeule seines Teiltons: dessen gemessene Frequenz zählt
@@ -335,7 +336,7 @@ void SpectralEngine::computeGains (Channel& c)
         {
             // Nebenkeule / Überlagerung: nie lauter als der Teilton, zu dem das Bin gehört
             const int pk = peaks[(size_t) regionPeak[(size_t) j]];
-            const float peakHz = std::max (1.0f, c.outBin[(size_t) pk] * binHz);
+            const float peakHz = std::max (1.0f, c.outBin[(size_t) pk] * binHz * refScale);
             c.gain[(size_t) j] = std::min (model.magnitudeAt (ownHz), model.magnitudeAt (peakHz));
             c.gainNote[(size_t) j] = noteOfHz (peakHz);
         }

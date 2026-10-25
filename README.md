@@ -123,10 +123,12 @@ Regler:
 - **Range Low / Range High**: nur dieser Frequenzbereich wird in die Tonart gezogen, darunter und darüber bleibt das Signal unverändert (Linkwitz-Riley-Weichen). So bleiben Kick, Sub und Becken sauber. OFF = ganzer Bereich.
 - **Gate**: drückt leise Noten relativ zur lautesten herunter, räumt Rauschen zwischen den Tönen auf.
 - **Shift** (nur High Quality): verschiebt schiefe Teiltöne auf die nächste Note statt sie nur zu dämpfen. Teiltöne werden als Ganzes um ihren Peak verschoben (Phase-Locking), dadurch kaum Phasing.
+- **Learn**: hört 8 Sekunden hörbares Material am Eingang und stellt Key, Scale (Dur/Moll) und Tune selbst ein. Danach steht das Ergebnis über der Noten-Leiste, bei unsicherem Ergebnis mit Hinweis. Nochmal klicken bricht ab.
+- **Tune A4**: Stimmton 415–466 Hz (Standard 440). Wichtig für alte Samples und Vinyl, die oft nicht auf 440 Hz liegen, sonst zieht Prizm alles in die falschen Töne. Learn setzt ihn automatisch.
 
 Gemeinsam für beide Modi im Processor: Bereichsweichen, Pegelausgleich, Strength, Clear, Mix. Unterschiede gibt es nur noch durch das Prinzip selbst: Zero Latency verschmiert Anschläge etwas, High Quality kann sehr eng beieinander liegende Teiltöne (unter ca. 25 Hz Abstand) nicht ganz sauber trennen.
 
-Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
+Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Learn, Tune, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
 
 ## Bauen
 
