@@ -10,6 +10,7 @@
 #include "KeyAnalyzer.h"
 #include "ChordTracker.h"
 #include "Presets.h"
+#include "Modulation.h"
 
 namespace prizm
 {
@@ -35,6 +36,18 @@ namespace ParamIDs
     inline constexpr const char* scKey      = "scKey";  // Tonart aus dem Sidechain-Eingang
     inline juce::String mapId (int pc) { return "map" + juce::String (pc); } // map0 (C) .. map11 (B)
     inline juce::String weightId (int pc) { return "weight" + juce::String (pc); } // weight0 (C) .. weight11 (B)
+
+    // Modulation: LFO n = 1, 2; Slots i = 0..7
+    inline juce::String lfoShape (int n) { return "lfo" + juce::String (n) + "Shape"; }
+    inline juce::String lfoSync (int n)  { return "lfo" + juce::String (n) + "Sync"; }
+    inline juce::String lfoRate (int n)  { return "lfo" + juce::String (n) + "Rate"; }
+    inline juce::String lfoDiv (int n)   { return "lfo" + juce::String (n) + "Div"; }
+    inline constexpr const char* envAttack  = "envAttack";
+    inline constexpr const char* envRelease = "envRelease";
+    inline constexpr const char* envSens    = "envSens";
+    inline juce::String modSrc (int i) { return "modSrc" + juce::String (i); }
+    inline juce::String modDst (int i) { return "modDst" + juce::String (i); }
+    inline juce::String modAmt (int i) { return "modAmt" + juce::String (i); }
 }
 
 enum Mode { zeroLatency = 0, highQuality = 1 };
@@ -100,7 +113,24 @@ public:
     juce::File getPresetFolder() const;
     void setPresetFolder (const juce::File& folder) { presetFolderOverride = folder; refreshUserPresets(); } // für Tests
     int getCurrentPreset() const noexcept { return currentPreset; }
+    juce::String getPresetHint (int index) const
+    {
+        const auto& f = prizm::factoryPresets();
+        return index >= 0 && index < (int) f.size() ? juce::String::fromUTF8 (f[(size_t) index].hint) : juce::String();
+    }
     static bool isKeyContextParam (const juce::String& id); // bleibt beim Preset-Wechsel stehen
+
+    // Modulation, für den Editor
+    float getModNow (int target) const noexcept { return modNow[(size_t) target].load(); } // modulierter Wert 0..1
+    float getLfoValue (int lfo) const noexcept { return lfoValue[(size_t) lfo].load(); }    // -1..1
+    float getLfoPhase (int lfo) const noexcept { return lfoPhase[(size_t) lfo].load(); }    // 0..1
+    float getEnvValue() const noexcept { return envValue.load(); }                         // 0..1
+    // Message-Thread: Quelle auf ein Ziel legen (freier Slot, Tiefe 50 %). Gibt den Slot zurück oder -1, wenn alle belegt sind.
+    int assignModulation (int source, int target);
+    void clearModSlot (int slot);
+    // Gezeichnete LFO-Kurven (lfo 0 = LFO 1). Message-Thread: setLfoCurve; Audio liest eine fertige Tabelle.
+    const prizm::LfoCurve& getLfoCurve (int lfo) const noexcept { return lfoCurves[(size_t) lfo]; }
+    void setLfoCurve (int lfo, std::vector<prizm::LfoCurve::Point> points);
 
     // Gewichtung pro Note, Message-Thread (0..1)
     float getWeight (int pc) const noexcept { return weightParams[(size_t) pc]->load() * 0.01f; }
@@ -170,6 +200,28 @@ private:
     juce::File presetFolderOverride;
     int currentPreset = 0;
     void setParamPlain (const juce::String& id, float value);
+
+    // Modulation
+    prizm::Lfo lfo1 { 1117 }, lfo2 { 2293 };
+    std::array<prizm::LfoCurve, 2> lfoCurves;
+    prizm::EnvFollower envFollower;
+    std::array<juce::RangedAudioParameter*, prizm::kNumModTargets> targetParams {};
+    std::array<float, prizm::kNumModTargets> modSmooth {};
+    std::array<juce::AudioParameterChoice*, prizm::kNumModSlots> modSrcParams {}, modDstParams {};
+    std::array<std::atomic<float>*, prizm::kNumModSlots> modAmtParams {};
+    std::array<juce::AudioParameterChoice*, 2> lfoShapeParams {}, lfoDivParams {};
+    std::array<juce::AudioParameterBool*, 2> lfoSyncParams {};
+    std::array<std::atomic<float>*, 2> lfoRateParams {};
+    std::atomic<float>* envAttackParam = nullptr;
+    std::atomic<float>* envReleaseParam = nullptr;
+    std::atomic<float>* envSensParam = nullptr;
+    std::array<std::atomic<float>, prizm::kNumModTargets> modNow {};
+    std::array<std::atomic<float>, 2> lfoValue {}, lfoPhase {};
+    std::atomic<float> envValue { 0.0f };
+    bool modulationActive() const;
+    // Werte aller Ziele für einen Abschnitt (in Parametereinheiten), mit Modulation
+    std::array<float, prizm::kNumModTargets> targetValues (bool modulate, int numSamples, const prizm::Transport& t,
+                                                           const float* const* input, int numInputChannels);
 
     prizm::KeyAnalyzer keyAnalyzer;
     std::atomic<int> learnCommand { 0 }; // 1 = starten, 2 = abbrechen

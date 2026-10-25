@@ -324,6 +324,21 @@ juce::AudioBuffer<float> makeHarmonic (std::initializer_list<float> f0s, int har
     return b;
 }
 
+// Simulierte DAW-Position für LFOs im Tempo
+struct TestPlayHead : juce::AudioPlayHead
+{
+    double ppq = 0.0, bpm = 120.0;
+    bool playing = true;
+    juce::Optional<PositionInfo> getPosition() const override
+    {
+        PositionInfo info;
+        info.setIsPlaying (playing);
+        info.setBpm (bpm);
+        info.setPpqPosition (ppq);
+        return info;
+    }
+};
+
 std::unique_ptr<PrizmAudioProcessor> makeProcessor (int mode, float strength, float color, float clear)
 {
     auto p = std::make_unique<PrizmAudioProcessor>();
@@ -837,6 +852,118 @@ int main()
                    + ", own preset save/load " + (userOk ? "ok" : "wrong"));
     }
 
+    // 3m) MODULATION
+    {
+        // Presets: alle Parameter-IDs gültig und Werte im Bereich
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        int bad = 0;
+        for (const auto& preset : prizm::factoryPresets())
+            for (const auto& [id, value] : preset.values)
+            {
+                auto* param = dynamic_cast<juce::RangedAudioParameter*> (p->apvts.getParameter (id));
+                if (param == nullptr || value < param->getNormalisableRange().start - 0.001f || value > param->getNormalisableRange().end + 0.001f)
+                {
+                    std::printf ("       bad preset value: %s / %s = %.3f\n", preset.name, id, value);
+                    ++bad;
+                }
+            }
+        check (bad == 0, juce::String ("All ") + juce::String ((int) prizm::factoryPresets().size()) + " factory presets use valid parameters");
+    }
+    {
+        // LFO 1 frei, 1/4 bei 120 BPM (0,5 s), Sinus auf Mix -100 %: Mix pendelt voll zwischen 0 und 1
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 3.0f);
+        setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), -100.0f);
+        auto in = makeNoise (2.0, 0.1f);
+        float lo = 1.0f, hi = 0.0f;
+        int rising = 0;
+        float prev = 1.0f;
+        for (int start = 0; start < in.getNumSamples(); start += kBlock)
+        {
+            juce::AudioBuffer<float> block (in.getArrayOfWritePointers(), 2, start, std::min (kBlock, in.getNumSamples() - start));
+            juce::MidiBuffer m;
+            p->processBlock (block, m);
+            const float v = p->getModNow (3);
+            lo = std::min (lo, v);
+            hi = std::max (hi, v);
+            if (prev < 0.5f && v >= 0.5f)
+                ++rising;
+            prev = v;
+        }
+        check (lo < 0.05f && hi > 0.95f && rising >= 3 && rising <= 5,
+               "LFO 1/4 (free, 120 BPM) sweeps Mix " + juce::String (lo, 2) + " .. " + juce::String (hi, 2) + ", " + juce::String (rising) + " cycles in 2 s (expect 4)");
+    }
+    {
+        // Im Songtakt: LFO 1 = 1 Bar, gezeichnete Kurve (0,-1) (0.25,1) (1,-1). Bei Viertel 1 (Phase 0.25) = +1.
+        auto p = makeProcessor (zeroLatency, 50.0f, 60.0f, 30.0f);
+        TestPlayHead ph;
+        p->setPlayHead (&ph);
+        setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 7.0f);
+        setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), 2.0f); // 1 Bar
+        p->setLfoCurve (0, { { 0.0f, -1.0f, 0.0f }, { 0.25f, 1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f } });
+        setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 0.0f); // Strength
+        setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 50.0f);
+        juce::AudioBuffer<float> block (2, kBlock);
+        auto runAt = [&] (double ppq)
+        {
+            ph.ppq = ppq;
+            block.clear();
+            juce::MidiBuffer m;
+            p->processBlock (block, m);
+            return p->getLfoValue (0);
+        };
+        // Wert vom letzten 64er-Abschnitt im Block (ca. 0,02 Viertel später) -> kleine Toleranz
+        const float v0 = runAt (0.0), v1 = runAt (1.0);
+        const float strengthAtBeat1 = p->getModNow (0);
+        const float v2 = runAt (2.5), v4 = runAt (4.0);
+        check (std::abs (v0 + 1.0f) < 0.06f && std::abs (v1 - 1.0f) < 0.06f && std::abs (v2 - 0.0f) < 0.06f && std::abs (v4 + 1.0f) < 0.06f,
+               "LFO follows the song position with a drawn curve (" + juce::String (v0, 2) + ", " + juce::String (v1, 2) + ", "
+                   + juce::String (v2, 2) + ", " + juce::String (v4, 2) + " expected -1, 1, 0, -1)");
+        // Strength am Viertel 1: 50 % + 50 % * 1 = 100 %
+        check (strengthAtBeat1 > 0.85f, "Modulated Strength follows the LFO (" + juce::String (strengthAtBeat1, 2) + " at beat 1, expect ~1.0)");
+        p->setPlayHead (nullptr);
+    }
+    {
+        // ENV auf Color: laut -> hoch, still -> zurück
+        auto p = makeProcessor (zeroLatency, 100.0f, 0.0f, 30.0f);
+        setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 3.0f);
+        setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 100.0f);
+        render (*p, makeNoise (0.5, 0.5f));
+        const float loud = p->getModNow (1);
+        juce::AudioBuffer<float> silence (2, 48000);
+        silence.clear();
+        render (*p, silence);
+        const float quiet = p->getModNow (1);
+        check (loud > 0.6f && quiet < 0.1f, "ENV follows the input (Color " + juce::String (loud, 2) + " loud, " + juce::String (quiet, 2) + " silent)");
+    }
+    {
+        // Hörbar: Rechteck-LFO (1 Bar) auf Strength 50 % +- 50 % -> abwechselnd gestimmt und trocken
+        auto p = makeProcessor (zeroLatency, 50.0f, 80.0f, 0.0f);
+        setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 4.0f);
+        setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), 2.0f);
+        setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 0.0f);
+        setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 50.0f);
+        auto out = render (*p, makeNoise (6.0, 0.2f));
+        const float wet = inKeyEnergyRatio (out, (int) (2.05 * kSampleRate), cMajor);  // Phase 0.03 .. 0.37: +1
+        const float dry = inKeyEnergyRatio (out, (int) (3.05 * kSampleRate), cMajor);  // Phase 0.53 .. 0.87: -1
+        check (wet > dry + 0.25f, "Square LFO on Strength: tuned half " + juce::String (wet * 100.0f, 1) + " % in key, dry half " + juce::String (dry * 100.0f, 1) + " %");
+    }
+    {
+        // Zuweisen per Drag & Drop (Processor-Seite): freier Slot, doppelt = gleicher Slot, voll = -1
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        const int a = p->assignModulation (1, 1), b = p->assignModulation (1, 1);
+        int last = -2;
+        for (int i = 0; i < 10; ++i)
+            last = p->assignModulation (2 + (i % 2), i % 11);
+        p->clearModSlot (a);
+        const int c = p->assignModulation (3, 10);
+        check (a == 0 && b == 0 && last == -1 && c == 0, "Mod slots: assign, no duplicates, full = -1, cleared slot is reused");
+    }
+
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
     for (int mode : { zeroLatency, highQuality })
     {
@@ -917,6 +1044,14 @@ int main()
             setParam (*p, ParamIDs::gate, u (rng) * 100.0f);
             setParam (*p, ParamIDs::rangeLow, 20.0f + u (rng) * 600.0f);
             setParam (*p, ParamIDs::rangeHigh, 2000.0f + u (rng) * 18000.0f);
+            for (int slot = 0; slot < 3; ++slot)
+            {
+                setParam (*p, ParamIDs::modSrc (slot).toRawUTF8(), (float) (1 + (run + slot) % 3));
+                setParam (*p, ParamIDs::modDst (slot).toRawUTF8(), (float) ((run * 3 + slot) % 11));
+                setParam (*p, ParamIDs::modAmt (slot).toRawUTF8(), u (rng) * 200.0f - 100.0f);
+            }
+            setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), (float) (run % 8));
+            setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), (float) (run % 13));
             juce::AudioBuffer<float> in = makeNoise (1.0, 1.0f);
             in.applyGain (0, 12000, 3.0f); // clipping-level burst
             for (int ch = 0; ch < 2; ++ch)
