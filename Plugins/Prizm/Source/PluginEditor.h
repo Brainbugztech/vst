@@ -127,7 +127,11 @@ private:
     std::array<Knob, 11> knobs; // 0-4 SIGNAL, 5-10 RANGE + SPECTRAL
     static constexpr size_t kFormantKnob = 9;
     static constexpr size_t kShiftKnob = 8;
-    juce::TooltipWindow tooltips { this, 700 };
+    // Erklärungen beim Hovern, mit INFO-Knopf an/aus (Einstellung gilt für alle Prizm-Instanzen)
+    std::unique_ptr<juce::TooltipWindow> tooltips;
+    juce::TextButton infoButton { "INFO: ON" };
+    std::unique_ptr<juce::PropertiesFile> settings;
+    void setInfoEnabled (bool shouldShow, bool remember);
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> keyAttachment, scaleAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> midiAttachment;

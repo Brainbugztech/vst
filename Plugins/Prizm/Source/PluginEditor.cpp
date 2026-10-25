@@ -453,6 +453,21 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
             k.slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
     }
 
+    // INFO-Knopf: Erklärungen beim Hovern an/aus, gespeichert für alle Instanzen
+    {
+        juce::PropertiesFile::Options o;
+        o.applicationName = "Prizm";
+        o.folderName = "Brain Bugz";
+        o.filenameSuffix = ".settings";
+        o.osxLibrarySubFolder = "Application Support";
+        settings = std::make_unique<juce::PropertiesFile> (o);
+    }
+    infoButton.setClickingTogglesState (true);
+    infoButton.onClick = [this] { setInfoEnabled (infoButton.getToggleState(), true); };
+    infoButton.setTooltip (de ("INFO\nErklärungen beim Hovern an/aus. Die Einstellung gilt für alle Prizm-Instanzen."));
+    addAndMakeVisible (infoButton);
+    setInfoEnabled (settings->getBoolValue ("showInfo", true), false);
+
     processor.setEditorOpen (true);
     setSize (kWidth, kHeight);
     timerCallback();
@@ -464,6 +479,23 @@ PrizmAudioProcessorEditor::~PrizmAudioProcessorEditor()
     processor.setEditorOpen (false);
     stopTimer();
     setLookAndFeel (nullptr);
+}
+
+void PrizmAudioProcessorEditor::setInfoEnabled (bool shouldShow, bool remember)
+{
+    // Erklärungen erscheinen erst nach 1,2 s Stillstand der Maus, damit sie beim Arbeiten nicht stören
+    if (shouldShow && tooltips == nullptr)
+        tooltips = std::make_unique<juce::TooltipWindow> (this, 1200);
+    else if (! shouldShow)
+        tooltips.reset();
+
+    infoButton.setToggleState (shouldShow, juce::dontSendNotification);
+    infoButton.setButtonText (shouldShow ? "INFO: ON" : "INFO: OFF");
+    if (remember && settings != nullptr)
+    {
+        settings->setValue ("showInfo", shouldShow);
+        settings->saveIfNeeded();
+    }
 }
 
 void PrizmAudioProcessorEditor::refreshPresetBox()
@@ -887,7 +919,7 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
     // footer
     g.setFont (mono (11.5f));
     g.setColour (Col::dim);
-    g.drawText ("DRAG TO ADJUST  //  DOUBLE-CLICK = DEFAULT", footerArea, Justification::centredLeft);
+    g.drawText ("DRAG TO ADJUST  //  DOUBLE-CLICK = DEFAULT", footerArea.withTrimmedLeft (infoButton.getWidth() + 12), Justification::centredLeft);
     g.drawText ("BRAIN BUGZ  //  PRIZM  v0.1", footerArea, Justification::centredRight);
 }
 
@@ -1063,4 +1095,5 @@ void PrizmAudioProcessorEditor::resized()
         knobs[i].slider.setBounds (extraArea.removeFromLeft (w2).reduced (8, 0));
 
     footerArea = { 24, getHeight() - 30, getWidth() - 48, 20 };
+    infoButton.setBounds (footerArea.getX(), footerArea.getY(), 84, footerArea.getHeight());
 }
