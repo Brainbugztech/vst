@@ -268,19 +268,20 @@ void PitchMatrix::paint (juce::Graphics& g)
                 g.fillRoundedRectangle (r.expanded (grow), 3.0f + grow);
             }
 
+        const float shimmer = std::fmod (phase * 0.07f + (float) pc * 0.083f + 0.5f, 1.0f);
         if (kind >= 0)
         {
             const auto col = kindColour ((Route::Kind) kind);
-            const float a = 0.30f + 0.45f * arriveWeight[(size_t) pc] + 0.25f * e;
-            ColourGradient fill (col.withAlpha (a), 0.0f, r.getY(), col.darker (0.6f).withAlpha (a), 0.0f, r.getBottom(), false);
-            g.setGradientFill (fill);
-            g.fillRoundedRectangle (r, 3.0f);
-            g.setColour (col.withAlpha (0.9f));
-            g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+            holo::glassTile (g, r, col, 0.25f + 0.45f * arriveWeight[(size_t) pc] + 0.3f * e, 0.15f + 0.6f * e, shimmer, 1.0f, 3.5f);
         }
         else
         {
-            holo::box (g, r, isAllowed (allowed, pc) ? 0.8f : 0.45f, false);
+            holo::glassTile (g, r, Col::holo, 0.0f, 0.0f, shimmer, 1.0f, 3.5f);
+            if (! isAllowed (allowed, pc))
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.3f));
+                g.fillRoundedRectangle (r, 3.5f);
+            }
         }
 
         if (target)
@@ -290,7 +291,7 @@ void PitchMatrix::paint (juce::Graphics& g)
         }
 
         g.setFont (bb::fonts::display (14.0f, true));
-        g.setColour (kind >= 0 ? (kind == Route::pass ? Col::litInk : juce::Colours::white) : Col::dim);
+        g.setColour (kind >= 0 ? juce::Colours::white : Col::dim);
         g.drawText (noteName (pc), r, Justification::centred);
     }
 }

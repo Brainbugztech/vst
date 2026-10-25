@@ -205,44 +205,39 @@ int KeyStrip::cellAt (int x) const
 
 void KeyStrip::paint (juce::Graphics& g)
 {
+    // Glastasten: in der Tonart leuchtet Licht im Glas (Füllhöhe = Gewichtung), ein Regenbogenband
+    // wandert langsam durchs Glas und wird stärker, wenn die Note gerade reinkommt.
     using namespace juce;
-    const auto onColour = source == 1 ? Col::violet : (source == 2 ? Col::cyan : Col::lit);
-    const auto onInk = source == 1 ? juce::Colours::white : Col::litInk;
+    const auto onColour = source == 1 ? Col::violet : (source == 2 ? Col::cyan : Col::holo.interpolatedWith (Col::crystal, 0.45f));
 
     for (int pc = 0; pc < 12; ++pc)
     {
         const auto cell = cellBounds (pc);
         const bool on = (mask >> pc) & 1u;
         const float e = jlimit (0.0f, 1.0f, energy[(size_t) pc]);
-        const float corner = 3.0f;
+        const float corner = 4.0f;
+        const float shimmer = std::fmod (phase * 0.07f + (float) pc * 0.083f, 1.0f);
 
         if (e > 0.02f)
-            softGlow (g, cell, corner, on ? onColour : Col::fringeWarm, e, 4);
+            softGlow (g, cell, corner, on ? Col::noteHue (pc).interpolatedWith (onColour, 0.5f) : Col::fringeWarm, e, 4);
 
+        const float wgt = (on && getWeight) ? jlimit (0.0f, 1.0f, getWeight (pc)) : 1.0f;
         if (on)
-        {
-            // Gewichtung: Füllhöhe der Taste (darüber dunkles Glas)
-            const float wgt = getWeight ? jlimit (0.0f, 1.0f, getWeight (pc)) : 1.0f;
-            if (wgt < 0.999f)
-                holo::box (g, cell, 1.0f, false);
-            const auto filled = cell.withTop (cell.getBottom() - cell.getHeight() * jmax (0.08f, wgt));
-            ColourGradient fill (onColour.brighter (0.15f + 0.3f * e), 0.0f, cell.getY(), onColour.darker (0.45f), 0.0f, cell.getBottom(), false);
-            g.setGradientFill (fill);
-            g.fillRoundedRectangle (filled, corner);
-            if (wgt < 0.999f)
-            {
-                g.setFont (mono (10.0f));
-                g.setColour (Col::ink);
-                g.drawText (String (roundToInt (wgt * 100.0f)) + "%", cell.withHeight (14.0f).translated (0.0f, 3.0f), Justification::centred);
-            }
-            g.setColour (juce::Colours::white.withAlpha (0.45f)); // wet highlight
-            g.fillRoundedRectangle (cell.reduced (3.0f, 0.0f).withHeight (1.5f).translated (0.0f, 2.0f), 0.75f);
-            g.setColour (onColour.darker (0.2f));
-            g.drawRoundedRectangle (cell.reduced (0.5f), corner, 1.0f);
-        }
+            holo::glassTile (g, cell, onColour, 0.55f + 0.45f * e, 0.22f + 0.65f * e, shimmer, jmax (0.08f, wgt), corner);
         else
         {
-            holo::box (g, cell, isSharp (pc) ? 0.7f : 1.0f, pc == hover);
+            holo::glassTile (g, cell, Col::holo, pc == hover ? 0.12f : 0.0f, 0.35f * e, shimmer, 1.0f, corner);
+            if (isSharp (pc))
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.18f));
+                g.fillRoundedRectangle (cell, corner);
+            }
+        }
+        if (on && wgt < 0.999f)
+        {
+            g.setFont (mono (10.0f));
+            g.setColour (Col::ink);
+            g.drawText (String (roundToInt (wgt * 100.0f)) + "%", cell.withHeight (14.0f).translated (0.0f, 3.0f), Justification::centred);
         }
 
         if (pc == root)
@@ -253,16 +248,21 @@ void KeyStrip::paint (juce::Graphics& g)
             g.drawRoundedRectangle (cell.reduced (0.5f), corner, 1.6f);
         }
 
-        // Notenname: auf teilweise gefüllten Tasten hell, damit er auf dem dunklen Teil lesbar bleibt
-        const float nameWeight = (on && getWeight) ? getWeight (pc) : 1.0f;
-        g.setColour (on ? (nameWeight > 0.6f ? onInk : Col::ink) : (isSharp (pc) ? Col::dim : Col::muted));
+        // Notenname mit leichtem Schatten, damit er auf hellem Glas lesbar bleibt
+        const auto nameArea = cell.withTrimmedBottom (8.0f);
         g.setFont (display (18.0f, true));
-        g.drawText (kNoteNames[(size_t) pc], cell.withTrimmedBottom (8.0f), Justification::centred);
+        if (on)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.drawText (kNoteNames[(size_t) pc], nameArea.translated (0.0f, 1.0f), Justification::centred);
+        }
+        g.setColour (on ? juce::Colours::white : (isSharp (pc) ? Col::dim : Col::muted));
+        g.drawText (kNoteNames[(size_t) pc], nameArea, Justification::centred);
 
         if (pc == root)
         {
             g.setFont (mono (10.0f));
-            g.setColour (on ? onInk.withAlpha (0.75f) : Col::amber);
+            g.setColour (Col::amber);
             g.drawText ("ROOT", cell.withTrimmedTop (cell.getHeight() * 0.60f).withTrimmedBottom (8.0f), Justification::centred);
         }
 
@@ -1541,6 +1541,7 @@ void PrizmAudioProcessorEditor::timerCallback()
         b->setAlpha (mode == highQuality ? 1.0f : 0.45f);
 
     animPhase += dt;
+    keyStrip.setPhase (animPhase);
     updateEnergy();
     prism.setEnergies (shownEnergy);
     prism.setPhase (animPhase);
