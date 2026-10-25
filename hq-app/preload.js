@@ -8,7 +8,11 @@ contextBridge.exposeInMainWorld('hq', {
   messages: id => ipcRenderer.invoke('discord:messages', id),
   send: (id, text) => ipcRenderer.invoke('discord:send', id, text),
   openExternal: u => ipcRenderer.invoke('open:external', u),
-  onState: fn => ipcRenderer.on('discord:state', (_e, s) => fn(s))
+  onState: fn => ipcRenderer.on('discord:state', (_e, s) => fn(s)),
+  // Selbst-Update über die Cloud
+  updateState: () => ipcRenderer.invoke('update:get'),
+  applyUpdate: () => ipcRenderer.invoke('update:apply'),
+  onUpdate: fn => ipcRenderer.on('update:state', (_e, s) => fn(s))
 });
 // Cloud-Ordner (Brain Bugz Cloud)
 contextBridge.exposeInMainWorld('cloud', {

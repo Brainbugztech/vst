@@ -149,3 +149,21 @@ $('#setForm').addEventListener('submit', async e => {
   const s = await bridge.state(); if (s.ready) applyState(s);
   else if (cfg.hasToken) { notice('Verbinde mit Discord …'); setTimeout(async () => { const t = await bridge.state(); if (t.ready) { notice(''); applyState(t); } else { const r = await bridge.connect(); r.ok ? (notice(''), applyState(r.state)) : notice(r.error); } }, 2500); }
 })();
+
+// ---------- Selbst-Update ----------
+(() => {
+  if (!window.hq || !window.hq.updateState) return;
+  function show(s) {
+    $('#sVersion').textContent = 'Version ' + s.current + (s.available ? ' · Update ' + s.available.version + ' liegt bereit' : ' · aktuell');
+    $('#upd').hidden = !s.available;
+    if (s.available) $('#updTxt').textContent = 'Update ' + s.available.version + ' bereit';
+    $('#updBtn').hidden = !s.canApply;
+  }
+  bridge.onUpdate(show);
+  bridge.updateState().then(show);
+  $('#updBtn').addEventListener('click', async e => {
+    e.currentTarget.disabled = true; $('#updTxt').textContent = 'Update wird installiert …';
+    const r = await bridge.applyUpdate();
+    if (!r.ok) { e.currentTarget.disabled = false; $('#updTxt').textContent = r.error; }
+  });
+})();

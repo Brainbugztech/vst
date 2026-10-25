@@ -13,6 +13,7 @@
     <button class="vs on" id="vBoard" role="tab" aria-selected="true" type="button">Board</button>
     <button class="vs" id="vCloud" role="tab" aria-selected="false" type="button">Cloud <i class="vs-dot" id="cloudDot"></i></button>
   </div>
+  <div class="upd" id="upd" hidden><i></i><span id="updTxt"></span><button class="btn primary" id="updBtn" type="button">Jetzt neu starten</button></div>
   <nav class="top-actions">
     <button id="bReload" class="btn" type="button">Board neu laden</button>
     <button id="bOverlay" class="btn" type="button" aria-pressed="true">Discord</button>
@@ -115,6 +116,7 @@
     <p class="muted" id="tokenState"></p>
     <label class="lbl dc-field" for="sGuild">Discord-Server</label>
     <select class="dc-field" id="sGuild"></select>
+    <p class="muted" id="sVersion"></p>
     <div class="row-end"><button class="btn" type="button" id="sCancel">Schließen</button><button class="btn primary" type="submit" id="sSave" value="save">Speichern</button></div>
   </form>
 </dialog>
