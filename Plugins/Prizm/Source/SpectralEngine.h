@@ -8,6 +8,7 @@
 
 #include "EngineParams.h"
 #include "ResponseModel.h"
+#include "NoteGrouper.h"
 
 namespace prizm
 {
@@ -51,7 +52,9 @@ private:
 
     void processFrame (const EngineParams& p);
     void analyse (Channel& c);
-    void shiftStage (Channel& c, float shift, PitchMask mask);
+    void passThrough (Channel& c);
+    void buildPitchPlan (const EngineParams& p);
+    void applyPitchPlan (Channel& c, float formant);
     void computeGains (Channel& c);
     void smoothGains (Channel& c);
     void findRegions (const std::vector<float>& mags);
@@ -62,7 +65,9 @@ private:
     std::unique_ptr<juce::dsp::FFT> fft;
     std::vector<float> window;
     std::array<Channel, kMaxChannels> channels;
-    std::vector<float> prevMixMag;
+    std::vector<float> prevMixMag, mixMag, mixBin, logPrefix, envelope;
+    std::vector<float> regionRatio, regionGain; // pro Peak (gemeinsam für beide Kanäle)
+    NoteGrouper grouper;
     std::vector<int> peaks, regionPeak;
     ResponseModel model;
     float qSmoothed = 40.0f;

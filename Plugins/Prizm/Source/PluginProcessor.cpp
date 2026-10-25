@@ -40,6 +40,9 @@ PrizmAudioProcessor::PrizmAudioProcessor()
     rangeLowParam   = apvts.getRawParameterValue (ParamIDs::rangeLow);
     rangeHighParam  = apvts.getRawParameterValue (ParamIDs::rangeHigh);
     tuneParam       = apvts.getRawParameterValue (ParamIDs::tune);
+    formantParam    = apvts.getRawParameterValue (ParamIDs::formant);
+    for (int pc = 0; pc < 12; ++pc)
+        mapParams[(size_t) pc] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::mapId (pc)));
 
     jassert (keyParam && scaleParam && customMaskParam && midiKeyParam && modeParam);
 }
@@ -94,6 +97,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
     highRange.setSkewForCentre (5000.0f);
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeLow, 1 }, "Range Low", lowRange, 20.0f, hzText (20.0f)));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeHigh, 1 }, "Range High", highRange, 20000.0f, hzText (20000.0f)));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::formant, 1 }, "Formant",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, percent));
+    {
+        StringArray targets { "Keep" };
+        for (auto* n : kNoteNames)
+            targets.add (String ("-> ") + n);
+        targets.add ("Mute");
+        for (int pc = 0; pc < 12; ++pc)
+            layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::mapId (pc), 1 },
+                                                                String ("Map ") + kNoteNames[(size_t) pc], targets, 0));
+    }
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::tune, 1 }, "Tune (A4)",
                                                        NormalisableRange<float> (415.0f, 466.0f, 0.1f), 440.0f,
                                                        AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction (
@@ -248,6 +262,21 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     EngineParams p;
     p.mask = computeMask();
+
+    // Noten-Map: 0 = Keep, 1..12 = Ziel C..B, 13 = Mute
+    const int modeNow = modeParam->getIndex();
+    for (int pc = 0; pc < 12; ++pc)
+    {
+        const int idx = mapParams[(size_t) pc]->getIndex();
+        p.map[(size_t) pc] = idx == 0 ? kMapKeep : (idx == 13 ? kMapMute : (int8_t) (idx - 1));
+        if (p.map[(size_t) pc] == kMapMute)
+            p.mask &= (PitchMask) ~(1u << pc);                 // stumm: in beiden Modi raus
+        else if (p.map[(size_t) pc] >= 0 && modeNow == highQuality)
+            p.mask |= (PitchMask) (1u << p.map[(size_t) pc]);  // Ziel darf durch den Filter
+    }
+    if (p.mask == 0)
+        p.mask = kAllPitches;
+    p.formant = formantParam->load() * 0.01f;
     p.color = colorParam->load() * 0.01f;
     p.clear = clearParam->load() * 0.01f;
     p.gate = gateParam->load() * 0.01f;
@@ -411,6 +440,32 @@ bool PrizmAudioProcessor::applyLearnResult (KeyAnalyzer::Result& out)
     set (ParamIDs::scale, out.minor ? 1.0f : 0.0f); // 0 = Major, 1 = Minor
     set (ParamIDs::tune, juce::jlimit (415.0f, 466.0f, out.a4));
     return true;
+}
+
+void PrizmAudioProcessor::applyMapPreset (MapPreset preset)
+{
+    const int key = keyParam->getIndex();
+    std::array<int, 12> idx {}; // 0 = Keep
+    auto mapRel = [&] (int from, int to) { idx[(size_t) ((key + from) % 12)] = (key + to) % 12 + 1; };
+    if (preset == MapPreset::majorToMinor)
+    {
+        mapRel (4, 3);   // große Terz -> kleine Terz
+        mapRel (9, 8);   // große Sexte -> kleine Sexte
+        mapRel (11, 10); // große Septime -> kleine Septime
+    }
+    else if (preset == MapPreset::minorToMajor)
+    {
+        mapRel (3, 4);
+        mapRel (8, 9);
+        mapRel (10, 11);
+    }
+    for (int pc = 0; pc < 12; ++pc)
+    {
+        auto* param = mapParams[(size_t) pc];
+        param->beginChangeGesture();
+        *param = idx[(size_t) pc];
+        param->endChangeGesture();
+    }
 }
 
 void PrizmAudioProcessor::togglePitchClass (int pitchClass)

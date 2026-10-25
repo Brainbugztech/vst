@@ -304,6 +304,25 @@ juce::AudioBuffer<float> makeProgression (const std::vector<std::vector<int>>& c
     return b;
 }
 
+// Harmonischer Ton (additiv), Amplitude pro Oberton aus einer Funktion.
+template <typename AmpFn>
+juce::AudioBuffer<float> makeHarmonic (std::initializer_list<float> f0s, int harmonics, double seconds, AmpFn amp)
+{
+    juce::AudioBuffer<float> b (2, (int) (seconds * kSampleRate));
+    b.clear();
+    for (int i = 0; i < b.getNumSamples(); ++i)
+    {
+        const float t = (float) i / (float) kSampleRate;
+        float s = 0.0f;
+        for (float f0 : f0s)
+            for (int h = 1; h <= harmonics; ++h)
+                s += amp (f0, h) * std::sin (juce::MathConstants<float>::twoPi * f0 * (float) h * t + 0.7f * (float) h);
+        b.setSample (0, i, s);
+        b.setSample (1, i, s);
+    }
+    return b;
+}
+
 std::unique_ptr<PrizmAudioProcessor> makeProcessor (int mode, float strength, float color, float clear)
 {
     auto p = std::make_unique<PrizmAudioProcessor>();
@@ -571,6 +590,99 @@ int main()
         }
     }
 
+    // 3h) PITCHMAP: Noten werden mit allen Obertönen gemeinsam verschoben.
+    {
+        // 450-Hz-Ton mit 8 Obertönen, chromatisch einrasten: der 5. Oberton muss bei 5 x 440 = 2200 Hz landen
+        // (gemeinsam verschoben), nicht bei 2217,5 Hz (C#7, wenn jeder Teilton einzeln einrastet).
+        auto p = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+        setParam (*p, ParamIDs::scale, 13.0f); // Chromatic
+        setParam (*p, ParamIDs::shift, 100.0f);
+        auto out = render (*p, makeHarmonic ({ 450.0f }, 8, 3.0, [] (float, int h) { return 0.12f / (float) h; }));
+        const auto sp = spectrum (out, 48000 + p->getLatencySamples());
+        const double grouped = toneLevel (sp, 2200.0f, 5.0f), single = toneLevel (sp, 2217.5f, 5.0f);
+        const double g7 = toneLevel (sp, 3080.0f, 5.0f), s7 = toneLevel (sp, 3136.0f, 5.0f);
+        check (grouped > single + 10.0 && g7 > s7 + 10.0, "SHIFT moves a note with all its harmonics (5th at 2200 Hz: +"
+                                                             + juce::String (grouped - single, 1) + " dB, 7th at 3080 Hz: +" + juce::String (g7 - s7, 1) + " dB)");
+    }
+    {
+        // C-Dur-Akkord, Map E -> Eb: das gespielte E (329,6 Hz) wird Eb (311,1 Hz),
+        // der 5. Oberton des C (1308 Hz) bleibt stehen.
+        auto chord = makeHarmonic ({ 261.63f, 329.63f, 392.0f }, 6, 3.0, [] (float, int h) { return 0.06f / (float) h; });
+        auto p = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+        setParam (*p, ParamIDs::mapId (4).toRawUTF8(), 4.0f); // E -> Eb (Index = Ziel + 1)
+        auto out = render (*p, chord);
+        const int lat = p->getLatencySamples();
+        const auto sIn = spectrum (chord, 48000), sOut = spectrum (out, 48000 + lat);
+        const double eDrop = toneLevel (sIn, 329.63f, 4.0f) - toneLevel (sOut, 329.63f, 4.0f);
+        const double ebGain = toneLevel (sOut, 311.13f, 4.0f) - toneLevel (sIn, 311.13f, 4.0f);
+        const double c5 = toneLevel (sOut, 1308.1f, 4.0f) - toneLevel (sIn, 1308.1f, 4.0f);
+        const double cRoot = toneLevel (sOut, 261.63f, 4.0f) - toneLevel (sIn, 261.63f, 4.0f);
+        check (eDrop > 20.0 && ebGain > 20.0 && std::abs (c5) < 4.0 && std::abs (cRoot) < 3.0,
+               "Map E->Eb: E down " + juce::String (eDrop, 1) + " dB, Eb up " + juce::String (ebGain, 1) + " dB, C stays ("
+                   + juce::String (cRoot, 1) + " dB), C's 5th harmonic stays (" + juce::String (c5, 1) + " dB)");
+        writeWav (chord, "map_input_cmajor");
+        writeWav (out, "map_E_to_Eb");
+    }
+    {
+        // Robustheit: Map E->Eb funktioniert auch mit Rauschen darunter
+        auto chord = makeHarmonic ({ 261.63f, 329.63f, 392.0f }, 6, 3.0, [] (float, int h) { return 0.06f / (float) h; });
+        auto noise = makeNoise (3.0, 0.01f);
+        for (int ch = 0; ch < 2; ++ch)
+            chord.addFrom (ch, 0, noise, ch, 0, chord.getNumSamples());
+        auto p = makeProcessor (highQuality, 100.0f, 60.0f, 0.0f);
+        setParam (*p, ParamIDs::mapId (4).toRawUTF8(), 4.0f);
+        auto out = render (*p, chord);
+        const auto sIn = spectrum (chord, 48000), sOut = spectrum (out, 48000 + p->getLatencySamples());
+        const double eDrop = toneLevel (sIn, 329.63f, 4.0f) - toneLevel (sOut, 329.63f, 4.0f);
+        const double ebGain = toneLevel (sOut, 311.13f, 4.0f) - toneLevel (sIn, 311.13f, 4.0f);
+        check (eDrop > 12.0 && ebGain > 12.0, "Map E->Eb with noise underneath: E down " + juce::String (eDrop, 1) + " dB, Eb up " + juce::String (ebGain, 1) + " dB");
+    }
+    for (int mode : { highQuality, zeroLatency })
+    {
+        // Map G -> Mute
+        auto chord = makeHarmonic ({ 261.63f, 329.63f, 392.0f }, 6, 3.0, [] (float, int h) { return 0.06f / (float) h; });
+        auto p = makeProcessor (mode, 100.0f, 60.0f, 0.0f);
+        setParam (*p, ParamIDs::mapId (7).toRawUTF8(), 13.0f);
+        auto out = render (*p, chord);
+        const int lat = p->getLatencySamples();
+        const auto sIn = spectrum (chord, 48000), sOut = spectrum (out, 48000 + lat);
+        const double gDrop = toneLevel (sIn, 392.0f, 4.0f) - toneLevel (sOut, 392.0f, 4.0f);
+        const double cKeep = toneLevel (sOut, 261.63f, 4.0f) - toneLevel (sIn, 261.63f, 4.0f);
+        check (gDrop > (mode == highQuality ? 20.0 : 10.0) && std::abs (cKeep) < 4.0,
+               juce::String (mode == zeroLatency ? "ZeroLatency" : "HighQuality") + ": Map G->Mute takes G down by " + juce::String (gDrop, 1)
+                   + " dB, C stays (" + juce::String (cKeep, 1) + " dB)");
+    }
+    {
+        // Formant: Ton 220 Hz mit Klangfarben-Spitze bei 1000 Hz, Map A -> C# (+4 Halbtöne).
+        auto vowel = makeHarmonic ({ 220.0f }, 20, 3.0, [] (float f0, int h) {
+            const float f = f0 * (float) h;
+            return 0.15f * (0.03f + 1.0f / (1.0f + std::pow ((f - 1000.0f) / 160.0f, 2.0f)));
+        });
+        auto peakHarmonic = [] (const std::vector<float>& sp)
+        {
+            float bestHz = 0.0f, best = 0.0f;
+            for (size_t k = 1; k < sp.size(); ++k)
+            {
+                const float hz = (float) k * binHz();
+                if (hz > 400.0f && hz < 3000.0f && sp[k] > best) { best = sp[k]; bestHz = hz; }
+            }
+            return bestHz;
+        };
+        float peaks[2] {};
+        for (int i = 0; i < 2; ++i)
+        {
+            auto p = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+            setParam (*p, ParamIDs::scale, 13.0f);
+            setParam (*p, ParamIDs::mapId (9).toRawUTF8(), 2.0f); // A -> C#
+            setParam (*p, ParamIDs::formant, i == 0 ? 100.0f : 0.0f);
+            auto out = render (*p, vowel);
+            peaks[i] = peakHarmonic (spectrum (out, 48000 + p->getLatencySamples()));
+            writeWav (out, i == 0 ? "formant_on" : "formant_off");
+        }
+        check (peaks[0] < 1150.0f && peaks[1] > 1200.0f, "Formant keeps the tone colour when moving +4 semitones (peak at "
+                                                              + juce::String (peaks[0], 0) + " Hz with Formant, " + juce::String (peaks[1], 0) + " Hz without, source 1000 Hz)");
+    }
+
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
     for (int mode : { zeroLatency, highQuality })
     {
@@ -669,6 +781,21 @@ int main()
         check (maxPeak <= 1.0f, "Stress test: output stays within 0 dBFS (peak " + juce::String (maxPeak, 3) + ")");
     }
 
+    // 8b) CPU mit SHIFT + Noten-Map + Formant (High Quality, schlimmster Fall)
+    {
+        auto p = makeProcessor (highQuality, 100.0f, 100.0f, 30.0f);
+        setParam (*p, ParamIDs::shift, 100.0f);
+        setParam (*p, ParamIDs::mapId (4).toRawUTF8(), 4.0f);
+        auto in = makeProgression ({ { 60, 64, 67 }, { 65, 69, 72 }, { 67, 71, 74 } }, 36, 10.0);
+        auto noise = makeNoise (10.0, 0.02f);
+        for (int ch = 0; ch < 2; ++ch)
+            in.addFrom (ch, 0, noise, ch, 0, in.getNumSamples());
+        const auto t0 = juce::Time::getMillisecondCounterHiRes();
+        render (*p, in);
+        const auto ms = juce::Time::getMillisecondCounterHiRes() - t0;
+        std::printf ("[INFO] High Quality + Shift + Map + Formant: 10 s stereo in %.0f ms (%.1f %% of one core)\n", ms, ms / 100.0);
+    }
+
     // 8) CPU: time to process 10 s of stereo audio in each mode.
     for (int mode : { zeroLatency, highQuality })
     {
@@ -688,6 +815,9 @@ int main()
         auto p = makeProcessor (zeroLatency, 85.0f, 140.0f, 30.0f);
         setParam (*p, ParamIDs::key, 9.0f);   // A
         setParam (*p, ParamIDs::scale, 1.0f); // Minor
+        setParam (*p, ParamIDs::mode, (float) highQuality);
+        setParam (*p, ParamIDs::mapId (0).toRawUTF8(), 2.0f);  // C -> C#
+        setParam (*p, ParamIDs::mapId (7).toRawUTF8(), 13.0f); // G off
         auto noise = makeNoise (1.0, 0.2f);
         render (*p, noise); // so the key strip shows live energy
         std::unique_ptr<juce::AudioProcessorEditor> editor (p->createEditor());

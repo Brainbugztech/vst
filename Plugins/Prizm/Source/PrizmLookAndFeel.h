@@ -271,6 +271,8 @@ public:
         using namespace juce;
         const auto r = Rectangle<int> (0, 0, width, height).toFloat();
         holo::box (g, r, 1.0f, box.isMouseOver (true) || box.isPopupActive());
+        if (width < 80)
+            return; // kleine Auswahl (Noten-Map): kein Pfeil
 
         Path arrow;
         const float ax = (float) width - 18.0f, ay = (float) height * 0.5f;
@@ -283,6 +285,13 @@ public:
 
     void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
     {
+        if (box.getWidth() < 80)
+        {
+            label.setBounds (1, 1, box.getWidth() - 2, box.getHeight() - 2);
+            label.setFont (bb::fonts::display (14.0f, true));
+            label.setJustificationType (juce::Justification::centred);
+            return;
+        }
         label.setBounds (10, 1, box.getWidth() - 34, box.getHeight() - 2);
         label.setFont (getComboBoxFont (box));
     }
@@ -327,9 +336,9 @@ public:
         g.drawText (b.getButtonText(), b.getLocalBounds(), juce::Justification::centred);
     }
 
-    juce::Font getTextButtonFont (juce::TextButton&, int) override
+    juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
     {
-        return bb::fonts::display (14.0f, true).withExtraKerningFactor (0.08f);
+        return bb::fonts::display (juce::jmin (14.0f, (float) buttonHeight * 0.55f), true).withExtraKerningFactor (0.08f);
     }
 };
 } // namespace prizm

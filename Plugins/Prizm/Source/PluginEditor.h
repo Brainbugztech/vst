@@ -93,11 +93,16 @@ private:
     ModeSwitch modeSwitch;
     juce::TextButton midiButton { "MIDI KEY" };
     juce::TextButton learnButton { "LEARN" };
+    std::array<juce::ComboBox, 12> mapBoxes;
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>, 12> mapAttachments;
+    juce::TextButton majToMinButton { "MAJ > MIN" }, minToMajButton { "MIN > MAJ" }, resetMapButton { "RESET MAP" };
+    juce::Rectangle<int> mapLabelArea;
     juce::String learnMessage;
     int learnMessageTicks = 0;
     juce::ComboBox keyBox, scaleBox;
     KeyStrip keyStrip;
-    std::array<Knob, 10> knobs; // 0-4 SIGNAL, 5-9 RANGE + SPECTRAL
+    std::array<Knob, 11> knobs; // 0-4 SIGNAL, 5-10 RANGE + SPECTRAL
+    static constexpr size_t kFormantKnob = 9;
     static constexpr size_t kShiftKnob = 8;
     juce::TooltipWindow tooltips { this, 600 };
 
