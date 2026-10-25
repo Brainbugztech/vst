@@ -191,12 +191,32 @@ public:
         // Leuchten außen um den Regler, wird mit der Stellung stärker
         {
             const float R = ringR + 14.0f;
-            const float amt = 0.10f + 0.55f * pos + 0.35f * over;
+            const float amt = 0.10f + 0.70f * pos;
             const auto col = Col::holo.interpolatedWith (Col::violet, 0.35f * pos);
             ColourGradient halo (col.withAlpha (0.0f), c.x, c.y, col.withAlpha (0.0f), c.x + R, c.y, true);
             halo.addColour ((ringR - 3.0f) / R, col.withAlpha (0.0f));
             halo.addColour ((ringR + 1.0f) / R, col.withAlpha (0.22f * amt));
             g.setGradientFill (halo);
+            g.fillEllipse (Rectangle<float> (R * 2.0f, R * 2.0f).withCentre (c));
+        }
+        // Über 100 %: ein feiner Holo-Nebel außenrum (kühle Neonfarben, langsam wabernd)
+        if (over > 0.01f)
+        {
+            const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001);
+            const float R = ringR + 16.0f;
+            const Colour mist[] { Colour (0xff00e5ff), Colour (0xff8a5cff), Colour (0xff3affc8), Colour (0xffff4fd8) };
+            for (int i = 0; i < 4; ++i)
+            {
+                const float a = tm * (0.28f + 0.07f * (float) i) + (float) i * 1.7f;
+                const auto p = c.getPointOnCircumference (ringR + 1.0f + 3.0f * std::sin (a * 1.4f), a);
+                ColourGradient fog (mist[i].withAlpha (0.28f * over), p.x, p.y, mist[i].withAlpha (0.0f), p.x + R * 0.8f, p.y, true);
+                g.setGradientFill (fog);
+                g.fillEllipse (Rectangle<float> (R * 1.6f, R * 1.6f).withCentre (p));
+            }
+            ColourGradient ring (Col::holoBright.withAlpha (0.0f), c.x, c.y, Col::holoBright.withAlpha (0.0f), c.x + R, c.y, true);
+            ring.addColour ((ringR - 1.0f) / R, Col::holoBright.withAlpha (0.0f));
+            ring.addColour ((ringR + 4.0f) / R, Col::holoBright.withAlpha (0.16f * over));
+            g.setGradientFill (ring);
             g.fillEllipse (Rectangle<float> (R * 2.0f, R * 2.0f).withCentre (c));
         }
         drawCrystalArc (g, c, ringR, startAngle, endAngle, valueAngle, hot, over, 2.0f, pos);
@@ -255,7 +275,8 @@ public:
             lensPath.addEllipse (cap);
             g.reduceClipRegion (lensPath);
 
-            const float amt = jlimit (0.0f, 1.0f, 0.15f + 0.85f * pos + 0.35f * over);
+            const float amt = jlimit (0.0f, 1.0f, 0.20f + 0.80f * pos);
+            const float neon = jlimit (0.0f, 1.0f, (pos - 0.55f) / 0.45f); // voll aufgedreht: greller, neonartiger
             const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001);
             // Lichter driften langsam im Glas (wabern), Phase pro Regler leicht verschoben
             auto light = [&] (float angleOffset, float dist, Colour col, float alpha, float size)
@@ -268,12 +289,14 @@ public:
                 g.setGradientFill (glow);
                 g.fillEllipse (Rectangle<float> (capR * size * 2.0f, capR * size * 2.0f).withCentre (p));
             };
-            light (0.0f, 0.45f, Col::holo, 0.60f * amt, 1.2f);                         // in Zeigerrichtung
-            light (2.3f, 0.40f, Col::violet, 0.55f * amt, 1.1f);
-            light (-2.3f, 0.40f, Col::cyan, 0.45f * amt, 1.05f);
-            light (1.2f, 0.35f, Col::pink.interpolatedWith (Col::violet, 0.5f), 0.40f * amt * amt, 1.0f);
-            light (-1.2f, 0.35f, Col::amber.interpolatedWith (Col::holo, 0.4f), 0.30f * amt * amt, 0.9f);
-            light (MathConstants<float>::pi, 0.25f, Col::amber, 0.30f * jmax (0.0f, pos - 0.6f) * 2.5f + 0.25f * over, 0.9f); // Wärme ganz oben
+            const float k = 1.0f + 0.6f * neon;
+            light (0.0f, 0.45f, Colour (0xff10e8ff), 0.70f * amt * k, 1.0f);                       // in Zeigerrichtung
+            light (2.3f, 0.40f, Colour (0xffa060ff), 0.65f * amt * k, 0.95f);
+            light (-2.3f, 0.40f, Colour (0xff30ffc0), 0.50f * amt * k, 0.90f);
+            light (1.2f, 0.35f, Colour (0xffff50d0), 0.50f * amt * amt * k, 0.85f);
+            light (-1.2f, 0.35f, Colour (0xffffc040), 0.40f * amt * amt * k, 0.80f);
+            if (neon > 0.0f) // heller Neonkern
+                light (0.0f, 0.15f, Colour (0xffd0f8ff), 0.35f * neon, 0.7f);
 
             // Spiegelung oben links und feine Lichtkante
             ColourGradient gloss (juce::Colours::white.withAlpha (0.20f), c.x - capR * 0.35f, c.y - capR * 0.6f,
