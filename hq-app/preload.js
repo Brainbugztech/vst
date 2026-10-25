@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('cloud', {
   // Beim Ablegen kommen File-Objekte an; den echten Pfad gibt es nur hier im Preload
   importFiles: (files, rel) => ipcRenderer.invoke('cloud:import', [...files].map(f => webUtils.getPathForFile(f)).filter(Boolean), rel),
   move: (rels, rel) => ipcRenderer.invoke('cloud:move', rels, rel),
+  download: rel => ipcRenderer.invoke('cloud:download', rel),
+  showFile: p => ipcRenderer.invoke('cloud:showfile', p),
+  remove: rel => ipcRenderer.invoke('cloud:delete', rel),
   open: rel => ipcRenderer.invoke('cloud:open', rel),
   reveal: rel => ipcRenderer.invoke('cloud:reveal', rel),
   fileUrl: rel => ipcRenderer.invoke('cloud:fileurl', rel),

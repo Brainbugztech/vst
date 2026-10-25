@@ -89,6 +89,40 @@ app.whenReady().then(() => {
   ipcMain.handle('cloud:open', safe(async rel => { const e = await shell.openPath(cloud.abs(rel)); if (e) throw new Error(e); }));
   ipcMain.handle('cloud:reveal', safe(rel => { const p = cloud.abs(rel); if (require('fs').statSync(p).isDirectory()) return shell.openPath(p); shell.showItemInFolder(p); }));
   ipcMain.handle('cloud:fileurl', safe(rel => pathToFileURL(cloud.abs(rel)).href));
+  // Herunterladen: Kopie aus der Cloud auf den PC (Standard: Downloads)
+  ipcMain.handle('cloud:download', safe(async rel => {
+    const fs = require('fs');
+    const src = cloud.abs(rel);
+    const name = path.basename(src);
+    if (fs.statSync(src).isDirectory()) {
+      const r = await dialog.showOpenDialog(win, { title: `Ordner „${name}“ herunterladen nach …`, defaultPath: app.getPath('downloads'), properties: ['openDirectory', 'createDirectory'] });
+      if (r.canceled || !r.filePaths[0]) return null;
+      const ziel = path.join(r.filePaths[0], await cloud.freeName(r.filePaths[0], name));
+      return cloud.copyOut(rel, ziel);
+    }
+    const r = await dialog.showSaveDialog(win, { title: `„${name}“ herunterladen`, defaultPath: path.join(app.getPath('downloads'), name) });
+    if (r.canceled || !r.filePath) return null;
+    return cloud.copyOut(rel, r.filePath);
+  }));
+  ipcMain.handle('cloud:showfile', safe(p => { shell.showItemInFolder(String(p)); }));
+  // Löschen: erst nachfragen, dann in den Papierkorb. Google Drive synct das Löschen für alle.
+  ipcMain.handle('cloud:delete', safe(async rel => {
+    if (cloud.isProtected(rel)) throw new Error('Standard-Ordner der Cloud können nicht gelöscht werden.');
+    const fs = require('fs');
+    const p = cloud.abs(rel);
+    const isDir = fs.statSync(p).isDirectory();
+    const name = path.basename(p);
+    const a = await dialog.showMessageBox(win, {
+      type: 'warning', buttons: ['Löschen', 'Abbrechen'], defaultId: 1, cancelId: 1, noLink: true,
+      title: 'Aus der Cloud löschen',
+      message: `${isDir ? 'Ordner' : 'Datei'} „${name}“ löschen?`,
+      detail: (isDir ? 'Der Ordner wird mit allem Inhalt gelöscht. ' : '') + 'Das gilt für alle, weil Google Drive das Löschen synct. Zurückholen kann man es 30 Tage lang aus dem Google-Drive-Papierkorb.'
+    });
+    if (a.response !== 0) return false;
+    try { await shell.trashItem(p); }
+    catch { await require('fs').promises.rm(p, { recursive: true, force: true }); } // Drive-Laufwerk ohne Windows-Papierkorb: dann landet es im Drive-Papierkorb
+    return true;
+  }));
   // Datei aus der App herausziehen, z.B. ein Sample direkt in Ableton
   ipcMain.on('cloud:drag', (e, rel) => {
     try {
