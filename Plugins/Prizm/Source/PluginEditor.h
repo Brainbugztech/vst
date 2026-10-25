@@ -186,8 +186,6 @@ private:
     juce::Image logo, texture;
     juce::Image staticLayer; // Textur + Logo + Titel, einmal pro Größe
     void renderStaticLayer (float scale);
-    juce::Image fanLayer; // Lichtfächer über dem Panel-Glas
-    void renderFanLayer (float scale);
     void drawHoloPanel (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& tag, const juce::String& code);
     juce::Rectangle<int> scanBand (juce::Rectangle<int> panel, float phase) const;
 

@@ -268,15 +268,14 @@ void PitchMatrix::paint (juce::Graphics& g)
                 g.fillRoundedRectangle (r.expanded (grow), 3.0f + grow);
             }
 
-        const float shimmer = std::fmod (phase * 0.07f + (float) pc * 0.083f + 0.5f, 1.0f);
         if (kind >= 0)
         {
             const auto col = kindColour ((Route::Kind) kind);
-            holo::glassTile (g, r, col, 0.25f + 0.45f * arriveWeight[(size_t) pc] + 0.3f * e, 0.15f + 0.6f * e, shimmer, 1.0f, 3.5f);
+            holo::glassTile (g, r, col, 0.25f + 0.45f * arriveWeight[(size_t) pc] + 0.3f * e, 0.15f + 0.6f * e, col, 1.0f, 3.5f);
         }
         else
         {
-            holo::glassTile (g, r, Col::holo, 0.0f, 0.0f, shimmer, 1.0f, 3.5f);
+            holo::glassTile (g, r, Col::holo, 0.0f, 0.0f, Col::holo, 1.0f, 3.5f);
             if (! isAllowed (allowed, pc))
             {
                 g.setColour (juce::Colours::black.withAlpha (0.3f));

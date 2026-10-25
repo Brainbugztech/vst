@@ -205,8 +205,8 @@ int KeyStrip::cellAt (int x) const
 
 void KeyStrip::paint (juce::Graphics& g)
 {
-    // Glastasten: in der Tonart leuchtet Licht im Glas (Füllhöhe = Gewichtung), ein Regenbogenband
-    // wandert langsam durchs Glas und wird stärker, wenn die Note gerade reinkommt.
+    // Glastasten: in der Tonart leuchtet Licht im Glas (Füllhöhe = Gewichtung), die Note leuchtet
+    // diffus auf, wenn sie gerade gespielt wird.
     using namespace juce;
     const auto onColour = source == 1 ? Col::violet : (source == 2 ? Col::cyan : Col::holo.interpolatedWith (Col::crystal, 0.45f));
 
@@ -216,17 +216,16 @@ void KeyStrip::paint (juce::Graphics& g)
         const bool on = (mask >> pc) & 1u;
         const float e = jlimit (0.0f, 1.0f, energy[(size_t) pc]);
         const float corner = 4.0f;
-        const float shimmer = std::fmod (phase * 0.07f + (float) pc * 0.083f, 1.0f);
 
         if (e > 0.02f)
             softGlow (g, cell, corner, on ? Col::noteHue (pc).interpolatedWith (onColour, 0.5f) : Col::fringeWarm, e, 4);
 
         const float wgt = (on && getWeight) ? jlimit (0.0f, 1.0f, getWeight (pc)) : 1.0f;
         if (on)
-            holo::glassTile (g, cell, onColour, 0.55f + 0.45f * e, 0.22f + 0.65f * e, shimmer, jmax (0.08f, wgt), corner);
+            holo::glassTile (g, cell, onColour, 0.55f + 0.45f * e, 0.22f + 0.65f * e, onColour, jmax (0.08f, wgt), corner);
         else
         {
-            holo::glassTile (g, cell, Col::holo, pc == hover ? 0.12f : 0.0f, 0.35f * e, shimmer, 1.0f, corner);
+            holo::glassTile (g, cell, Col::holo, pc == hover ? 0.12f : 0.0f, 0.35f * e, Col::holo, 1.0f, corner);
             if (isSharp (pc))
             {
                 g.setColour (juce::Colours::black.withAlpha (0.18f));
@@ -1473,10 +1472,26 @@ juce::String PrizmAudioProcessorEditor::sectionSummary (int index) const
 }
 
 //==============================================================================
+// Glitch der Scan-Linie: nur in manchen Durchläufen (ca. 40 %) und nur kurz, Wert 0..1
+static float scanGlitchAmount (float phase)
+{
+    const float period = 22.0f;
+    const float cyc = std::floor (phase / period);
+    const float t = std::fmod (phase, period);
+    const float h = std::fabs (std::fmod (std::sin (cyc * 12.9898f) * 43758.5453f, 1.0f));
+    if (h > 0.4f)
+        return 0.0f;
+    const float start = 6.0f + 8.0f * std::fmod (h * 7.0f, 1.0f);
+    const float len = 0.45f;
+    if (t < start || t > start + len)
+        return 0.0f;
+    return std::sin (juce::MathConstants<float>::pi * (t - start) / len);
+}
+
 juce::Rectangle<int> PrizmAudioProcessorEditor::scanBand (juce::Rectangle<int> panel, float phase) const
 {
-    // a soft scan line that sweeps slowly down a hologram panel
-    const float period = 6.0f;
+    // eine weiche Scan-Linie wandert selten (alle 22 s) durch ein Hologramm-Panel
+    const float period = 22.0f;
     const float t = std::fmod (phase, period) / period;
     const int bandH = 46;
     const int y = panel.getY() - bandH + juce::roundToInt (t * (float) (panel.getHeight() + bandH));
@@ -1762,38 +1777,6 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
     }
 }
 
-void PrizmAudioProcessorEditor::renderFanLayer (float scale)
-{
-    // Lichtfächer: der Strahl aus dem Prisma neben dem Titel fächert dezent über das ganze Fenster auf.
-    // Liegt über dem Panel-Glas, aber unter allen Bedienelementen (wie Licht, das durch Glas fällt).
-    using namespace juce;
-    fanLayer = Image (Image::ARGB, roundToInt ((float) getWidth() * scale), roundToInt ((float) getHeight() * scale), true);
-    Graphics g (fanLayer);
-    g.addTransform (AffineTransform::scale (scale));
-    {
-        const auto pb = prism.getBounds().toFloat();
-        const auto exit = PrismGlyph::exitPoint (pb);
-        const float reach = (float) (getWidth() + getHeight()) * 1.1f;
-        for (int k = 0; k < 12; ++k)
-        {
-            const float a0 = 0.10f + (float) k * 0.075f, a1 = a0 + 0.13f; // überlappend, damit die Farben weich ineinander laufen
-            Path wedge;
-            wedge.startNewSubPath (exit);
-            wedge.lineTo (exit.x + reach * std::cos (a0), exit.y + reach * std::sin (a0));
-            wedge.lineTo (exit.x + reach * std::cos (a1), exit.y + reach * std::sin (a1));
-            wedge.closeSubPath();
-            const float mid = (a0 + a1) * 0.5f;
-            ColourGradient fan (Col::noteHue (k, 0.10f), exit.x, exit.y,
-                                Col::noteHue (k, 0.0f), exit.x + reach * 0.8f * std::cos (mid), exit.y + reach * 0.8f * std::sin (mid), false);
-            fan.addColour (0.2, Col::noteHue (k, 0.06f));
-            fan.addColour (0.5, Col::noteHue (k, 0.025f));
-            g.setGradientFill (fan);
-            g.fillPath (wedge);
-        }
-    }
-
-}
-
 void PrizmAudioProcessorEditor::paintKnobTitles (juce::Graphics& g, size_t first, size_t last, int panelTop)
 {
     using namespace juce;
@@ -1993,12 +1976,8 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
     g.drawText ("PRESET", presetBox.getX() - 62, presetBox.getY(), 56, presetBox.getHeight(), Justification::centredRight);
     g.drawText ("PROCESS", stereoBox.getX() - 70, stereoBox.getY(), 64, stereoBox.getHeight(), Justification::centredRight);
 
-    if (fanLayer.isNull() || fanLayer.getWidth() != staticLayer.getWidth() || fanLayer.getHeight() != staticLayer.getHeight())
-        renderFanLayer (scale);
-    g.drawImage (fanLayer, getLocalBounds().toFloat());
-
     // scan sweeps over the hologram panels
-    auto drawScan = [&g] (Rectangle<int> panel, Rectangle<int> band)
+    auto drawScan = [&g] (Rectangle<int> panel, Rectangle<int> band, float glitch)
     {
         if (band.isEmpty())
             return;
@@ -2010,11 +1989,27 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
         sweep.addColour (0.97, Col::holoBright.withAlpha (0.16f));
         g.setGradientFill (sweep);
         g.fillRect (b);
+
+        if (glitch > 0.01f)
+        {
+            // Glitch: horizontale Scheiben werden seitlich versetzt, dazu ein Farbsplit
+            const int slices = 6;
+            const float sh = b.getHeight() / (float) slices;
+            for (int k = 0; k < slices; ++k)
+            {
+                const float off = std::sin ((float) (k * 37 + 11) * 1.7f) * 16.0f * glitch;
+                const Rectangle<float> slice (b.getX() + off, b.getY() + (float) k * sh, b.getWidth(), sh);
+                g.setColour (((k & 1) ? Col::cyan : Col::violet).withAlpha (0.10f * glitch));
+                g.fillRect (slice.translated (-3.0f * glitch, 0.0f));
+                g.setColour (Col::holoBright.withAlpha (0.12f * glitch));
+                g.fillRect (slice);
+            }
+        }
     };
     if (sections[secKey].open && sections[secKey].phase == Section::idle)
-        drawScan (sections[secKey].bounds, scanBand (sections[secKey].bounds, animPhase));
+        drawScan (sections[secKey].bounds, scanBand (sections[secKey].bounds, animPhase), scanGlitchAmount (animPhase));
     if (sections[secSignal].open && sections[secSignal].phase == Section::idle)
-        drawScan (sections[secSignal].bounds, scanBand (sections[secSignal].bounds, animPhase + 3.0f));
+        drawScan (sections[secSignal].bounds, scanBand (sections[secSignal].bounds, animPhase + 3.0f), scanGlitchAmount (animPhase + 3.0f));
 
     // latency under the mode switch
     g.setFont (mono (12.0f));
