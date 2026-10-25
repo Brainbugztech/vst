@@ -13,7 +13,7 @@ namespace
     {
         switch (k)
         {
-            case PitchMatrix::Route::pass:     return Col::tox;
+            case PitchMatrix::Route::pass:     return Col::lit;
             case PitchMatrix::Route::shift:    return Col::cyan;
             case PitchMatrix::Route::map:      return Col::pink;
             case PitchMatrix::Route::mute:     return Col::pink.withMultipliedSaturation (0.6f);
@@ -290,7 +290,7 @@ void PitchMatrix::paint (juce::Graphics& g)
         }
 
         g.setFont (bb::fonts::display (14.0f, true));
-        g.setColour (kind >= 0 ? (kind == Route::pass ? Col::toxInk : juce::Colours::white) : Col::dim);
+        g.setColour (kind >= 0 ? (kind == Route::pass ? Col::litInk : juce::Colours::white) : Col::dim);
         g.drawText (noteName (pc), r, Justification::centred);
     }
 }

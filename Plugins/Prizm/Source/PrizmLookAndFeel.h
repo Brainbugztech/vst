@@ -17,19 +17,31 @@ namespace Col
     inline const juce::Colour ink        { 0xffe2f5ff };
     inline const juce::Colour muted      { 0xff7ea6c6 };
     inline const juce::Colour dim        { 0xff4a6984 };
-    inline const juce::Colour tox        { 0xffb6ff1f };
-    inline const juce::Colour toxInk     { 0xff0b1200 };
-    inline const juce::Colour pink       { 0xffff2f8e };
+    inline const juce::Colour lit        { 0xffbfe8ff }; // beleuchtetes Glas: Note in der Tonart, Wert bleibt
+    inline const juce::Colour litInk     { 0xff061420 }; // Schrift auf beleuchtetem Glas
+    inline const juce::Colour pink       { 0xffe65ccf }; // Magenta (MAP, Hinweise)
     inline const juce::Colour amber      { 0xffffaa28 };
     inline const juce::Colour cyan       { 0xff2fe6ff };
     inline const juce::Colour violet     { 0xff9b5cff };
 
+    inline const juce::Colour crystal    { 0xffeaf7ff }; // eisweißes Licht
+    inline const juce::Colour fringeWarm { 0xffff6a5c }; // Farbsaum (Prisma) warm
+    inline const juce::Colour fringeCool { 0xff5c8dff }; // Farbsaum (Prisma) kalt
+
+    // Spektralfarbe 0..1 (rot -> violett), leuchtend aber nicht grell
+    inline juce::Colour prismHue (float t, float alpha = 1.0f)
+    {
+        const float hue = juce::jlimit (0.0f, 1.0f, t) * 0.78f; // rot bis violett
+        return juce::Colour::fromHSV (hue, 0.62f, 1.0f, alpha);
+    }
+    // jede der 12 Noten hat ihre Spektralfarbe (C = rot ... B = violett)
+    inline juce::Colour noteHue (int pc, float alpha = 1.0f) { return prismHue ((float) pc / 11.0f, alpha); }
+
     inline juce::ColourGradient spectrum (float x1, float y, float x2, float alpha = 1.0f)
     {
-        juce::ColourGradient g (pink.withAlpha (alpha), x1, y, violet.withAlpha (alpha), x2, y, false);
-        g.addColour (0.25, amber.withAlpha (alpha));
-        g.addColour (0.5, tox.withAlpha (alpha));
-        g.addColour (0.75, cyan.withAlpha (alpha));
+        juce::ColourGradient g (prismHue (0.0f, alpha), x1, y, prismHue (1.0f, alpha), x2, y, false);
+        for (int i = 1; i < 6; ++i)
+            g.addColour ((double) i / 6.0, prismHue ((float) i / 6.0f, alpha));
         return g;
     }
 }
@@ -103,7 +115,6 @@ public:
         const auto c = bounds.getCentre();
         const float valueAngle = startAngle + pos * (endAngle - startAngle);
         const bool hasOverdrive = (bool) slider.getProperties().getWithDefault ("overdrive", false);
-        const float splitAngle = startAngle + 0.5f * (endAngle - startAngle);
         const bool hot = slider.isMouseOverOrDragging();
 
         // --- holo highlight: thin value ring around the knob ---------------------
@@ -115,28 +126,9 @@ public:
         g.setColour (Col::holoDim.withAlpha (0.55f));
         g.strokePath (track, PathStrokeType (1.2f, PathStrokeType::curved, PathStrokeType::rounded));
 
-        auto glowArc = [&] (float from, float to, Colour col)
-        {
-            if (to <= from + 0.0005f)
-                return;
-            Path p;
-            p.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, from, to, true);
-            g.setColour (col.withAlpha (hot ? 0.20f : 0.12f));
-            g.strokePath (p, PathStrokeType (9.0f, PathStrokeType::curved, PathStrokeType::rounded));
-            g.setColour (col.withAlpha (hot ? 0.40f : 0.28f));
-            g.strokePath (p, PathStrokeType (4.5f, PathStrokeType::curved, PathStrokeType::rounded));
-            g.setColour (col.brighter (0.2f));
-            g.strokePath (p, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        };
-        if (hasOverdrive)
-        {
-            glowArc (startAngle, jmin (valueAngle, splitAngle), Col::tox);
-            glowArc (splitAngle, valueAngle, Col::pink);
-        }
-        else
-        {
-            glowArc (startAngle, valueAngle, Col::tox);
-        }
+        // Über 100 % (Color): kein Farbwechsel, sondern mehr Leuchten und ein weiß-heißer Kern
+        const float over = hasOverdrive ? jlimit (0.0f, 1.0f, (pos - 0.5f) * 2.0f) : 0.0f;
+        drawCrystalArc (g, c, ringR, startAngle, endAngle, valueAngle, hot, over);
 
         drawModRing (g, c, ringR, startAngle, endAngle, slider);
 
@@ -228,7 +220,7 @@ public:
         // --- holo highlight: glowing indicator in a machined groove --------------
         const auto tip = c.getPointOnCircumference (capR * 0.86f, valueAngle);
         const auto inner = c.getPointOnCircumference (capR * 0.30f, valueAngle);
-        const auto pc = (hasOverdrive && valueAngle > splitAngle) ? Col::pink : Col::holoBright;
+        const auto pc = Col::holoBright.interpolatedWith (Col::crystal, over);
         g.setColour (juce::Colours::black.withAlpha (0.75f));
         g.drawLine ({ inner, tip }, 4.0f);
         g.setColour (pc.withAlpha (hot ? 0.40f : 0.25f));
@@ -240,6 +232,57 @@ public:
         g.fillEllipse (Rectangle<float> (7.0f, 7.0f).withCentre (edgeDot));
         g.setColour (pc);
         g.fillEllipse (Rectangle<float> (3.0f, 3.0f).withCentre (edgeDot));
+    }
+
+    // Wertebogen aus Licht: wird zur Spitze hin heller, an der Spitze bricht das Licht wie im Prisma
+    // in einen feinen Farbsaum auf. over (0..1) verstärkt Leuchten und Kern (Color über 100 %).
+    static void drawCrystalArc (juce::Graphics& g, juce::Point<float> c, float r, float start, float end, float value, bool hot, float over,
+                                float width = 2.0f)
+    {
+        using namespace juce;
+        if (value <= start + 0.0005f)
+            return;
+        const float span = end - start;
+        // Halo
+        {
+            Path p;
+            p.addCentredArc (c.x, c.y, r, r, 0.0f, start, value, true);
+            g.setColour (Col::holo.withAlpha ((hot ? 0.16f : 0.10f) + 0.10f * over));
+            g.strokePath (p, PathStrokeType (width * 4.5f + 6.0f * over, PathStrokeType::curved, PathStrokeType::rounded));
+            g.setColour (Col::holo.withAlpha ((hot ? 0.30f : 0.22f) + 0.15f * over));
+            g.strokePath (p, PathStrokeType (width * 2.2f + 2.0f * over, PathStrokeType::curved, PathStrokeType::rounded));
+        }
+        // Kern: Verlauf von gedämpftem Blau zu eisweiß
+        const int n = jmax (2, (int) ((value - start) / 0.04f));
+        for (int i = 0; i < n; ++i)
+        {
+            const float a0 = start + (value - start) * (float) i / (float) n;
+            const float a1 = start + (value - start) * (float) (i + 1) / (float) n + 0.004f;
+            const float t = ((a0 + a1) * 0.5f - start) / span;
+            Path seg;
+            seg.addCentredArc (c.x, c.y, r, r, 0.0f, a0, jmin (a1, value), true);
+            g.setColour (Col::holo.interpolatedWith (Col::crystal, jlimit (0.0f, 1.0f, 0.25f + t * 0.9f)));
+            g.strokePath (seg, PathStrokeType (width, PathStrokeType::curved, PathStrokeType::butt));
+        }
+        // Prisma-Saum an der Spitze (warm innen, kalt außen)
+        const float fringe = jmin (value - start, 0.32f + 0.25f * over);
+        auto fringeArc = [&] (float rr, Colour col)
+        {
+            Path p;
+            p.addCentredArc (c.x, c.y, rr, rr, 0.0f, value - fringe, value, true);
+            g.setColour (col);
+            g.strokePath (p, PathStrokeType (1.1f + 0.6f * over, PathStrokeType::curved, PathStrokeType::rounded));
+        };
+        fringeArc (r - width * 0.9f - 0.6f, Col::fringeWarm.withAlpha (0.55f + 0.3f * over));
+        fringeArc (r + width * 0.9f + 0.6f, Col::fringeCool.withAlpha (0.55f + 0.3f * over));
+        // Lichtpunkt an der Spitze, über 100 % mit Blüte
+        const auto tip = c.getPointOnCircumference (r, value);
+        const float bloom = 6.0f + 10.0f * over + (hot ? 2.0f : 0.0f);
+        ColourGradient glow (Col::crystal.withAlpha (0.55f + 0.35f * over), tip.x, tip.y, Col::holo.withAlpha (0.0f), tip.x + bloom, tip.y, true);
+        g.setGradientFill (glow);
+        g.fillEllipse (Rectangle<float> (bloom * 2.0f, bloom * 2.0f).withCentre (tip));
+        g.setColour (juce::Colours::white);
+        g.fillEllipse (Rectangle<float> (2.6f + 1.4f * over, 2.6f + 1.4f * over).withCentre (tip));
     }
 
     // Beim Ziehen einer Modulationsquelle leuchtet der Regler als Ziel auf.
@@ -276,12 +319,7 @@ public:
         track.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, startAngle, endAngle, true);
         g.setColour (juce::Colours::black.withAlpha (0.6f));
         g.strokePath (track, PathStrokeType (3.5f, PathStrokeType::curved, PathStrokeType::rounded));
-        Path val;
-        val.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, startAngle, valueAngle, true);
-        g.setColour (Col::tox.withAlpha (hot ? 0.35f : 0.2f));
-        g.strokePath (val, PathStrokeType (5.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        g.setColour (Col::tox);
-        g.strokePath (val, PathStrokeType (1.8f, PathStrokeType::curved, PathStrokeType::rounded));
+        drawCrystalArc (g, c, ringR, startAngle, endAngle, valueAngle, hot, 0.0f, 1.6f);
         const float capR = ringR - 5.0f;
         const auto cap = Rectangle<float> (capR * 2.0f, capR * 2.0f).withCentre (c);
         ColourGradient fill (Colour (0xff4a545e), c.x - capR, c.y - capR, Colour (0xff07090b), c.x + capR * 0.6f, c.y + capR, false);
@@ -386,16 +424,23 @@ public:
         const auto r = b.getLocalBounds().toFloat().reduced (0.5f);
         if (b.getToggleState())
         {
+            // an: beleuchtetes Glas mit Spektrum-Linie unten (statt Farbfläche)
             for (int i = 3; i >= 1; --i)
             {
-                g.setColour (Col::pink.withAlpha (0.10f / (float) i));
-                g.fillRoundedRectangle (r.expanded ((float) i * 2.5f), 3.0f + (float) i * 2.5f);
+                g.setColour (Col::holo.withAlpha (0.07f / (float) i));
+                g.fillRoundedRectangle (r.expanded ((float) i * 2.0f), 3.0f + (float) i * 2.0f);
             }
-            ColourGradient fill (Col::pink.brighter (0.15f), 0.0f, r.getY(), Col::pink.darker (0.35f), 0.0f, r.getBottom(), false);
+            ColourGradient fill (Col::holo.withAlpha (0.42f), 0.0f, r.getY(), Col::glassDeep.withAlpha (0.92f), 0.0f, r.getBottom(), false);
             g.setGradientFill (fill);
             g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (Col::crystal.withAlpha (over || down ? 1.0f : 0.85f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.2f);
             g.setColour (juce::Colours::white.withAlpha (0.35f));
             g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 3.0f, r.getRight() - 3.0f);
+            const float lineY = r.getBottom() - 3.0f;
+            g.setGradientFill (Col::spectrum (r.getX() + 6.0f, lineY, r.getRight() - 6.0f, 0.95f));
+            g.fillRoundedRectangle (r.getX() + 6.0f, lineY - 0.75f, r.getWidth() - 12.0f, 1.5f, 0.75f);
+            holo::cornerBrackets (g, r.reduced (0.5f), 5.0f, juce::Colours::white, 1.4f);
         }
         else
         {
@@ -418,7 +463,7 @@ public:
         a.setLineSpacing (2.0f);
         const auto title = text.upToFirstOccurrenceOf ("\n", false, false);
         const auto body = text.fromFirstOccurrenceOf ("\n", false, false);
-        a.append (title, bb::fonts::display (14.5f, true).withExtraKerningFactor (0.04f), Col::tox);
+        a.append (title, bb::fonts::display (14.5f, true).withExtraKerningFactor (0.04f), Col::holoBright);
         if (body.isNotEmpty())
             a.append ("\n" + body, bb::fonts::display (14.0f), Col::ink);
         juce::TextLayout layout;

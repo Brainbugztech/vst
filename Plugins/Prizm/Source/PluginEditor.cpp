@@ -39,54 +39,73 @@ namespace
 } // namespace
 
 //==============================================================================
+namespace
+{
+    struct PrismGeo { juce::Point<float> apex, left, right, entry, exit; };
+    PrismGeo prismGeo (juce::Rectangle<float> b)
+    {
+        const float h = b.getHeight() * 0.84f;
+        const float side = h / 0.866f;
+        const float cx = b.getX() + b.getWidth() * 0.30f;
+        const float top = b.getCentreY() - h * 0.5f;
+        PrismGeo p;
+        p.apex = { cx, top };
+        p.left = { cx - side * 0.5f, top + h };
+        p.right = { cx + side * 0.5f, top + h };
+        p.entry = p.apex + (p.left - p.apex) * 0.58f;
+        p.exit = p.apex + (p.right - p.apex) * 0.46f;
+        return p;
+    }
+}
+
+juce::Point<float> PrismGlyph::exitPoint (juce::Rectangle<float> b) { return prismGeo (b).exit; }
+juce::Point<float> PrismGlyph::entryPoint (juce::Rectangle<float> b) { return prismGeo (b).entry; }
+
 void PrismGlyph::paint (juce::Graphics& g)
 {
+    // Ein weißer Strahl fällt ins Prisma und fächert in 12 Strahlen auf, einen pro Note (C rot ... B violett).
+    // Jeder Strahl leuchtet so stark, wie die Note gerade rauskommt; in Ruhe atmet der Fächer leise.
     using namespace juce;
     const auto b = getLocalBounds().toFloat();
-    const float h = b.getHeight() * 0.84f;
-    const float side = h / 0.866f;
-    const float cx = b.getX() + b.getWidth() * 0.36f;
-    const float top = b.getCentreY() - h * 0.5f;
-
-    const Point<float> apex (cx, top), left (cx - side * 0.5f, top + h), right (cx + side * 0.5f, top + h);
+    const auto geo = prismGeo (b);
     Path tri;
-    tri.addTriangle (apex, left, right);
+    tri.addTriangle (geo.apex, geo.left, geo.right);
 
-    const Point<float> beamStart (b.getX(), top + h * 0.70f);
-    const Point<float> entry = apex + (left - apex) * 0.58f;
-    const Point<float> exit = apex + (right - apex) * 0.46f;
-
-    // white beam in
-    g.setColour (Col::holoBright.withAlpha (0.15f));
-    g.drawLine ({ beamStart, entry }, 5.0f);
+    const Point<float> beamStart (b.getX(), geo.entry.y + 2.0f);
+    g.setColour (Col::crystal.withAlpha (0.12f));
+    g.drawLine ({ beamStart, geo.entry }, 5.0f);
     g.setColour (juce::Colours::white.withAlpha (0.9f));
-    g.drawLine ({ beamStart, entry }, 1.4f);
+    g.drawLine ({ beamStart, geo.entry }, 1.3f);
 
-    // spectrum out, gently breathing
-    const std::array<Colour, 5> rays { Col::pink, Col::amber, Col::tox, Col::cyan, Col::violet };
-    for (size_t i = 0; i < rays.size(); ++i)
+    float total = 0.0f;
+    for (auto e : energy)
+        total += e;
+    const bool idle = total < 0.02f;
+    for (int i = 0; i < 12; ++i)
     {
         const float fi = (float) i;
-        const float angle = 0.08f + (fi - 2.0f) * 0.11f;
-        const float len = (b.getRight() - exit.x) * (0.84f + 0.14f * std::sin (phase * 1.3f + fi * 1.1f));
-        const float alpha = 0.5f + 0.4f * (0.5f + 0.5f * std::sin (phase * 2.1f + fi * 0.9f));
-        const Point<float> end (exit.x + len * std::cos (angle), exit.y + len * std::sin (angle));
-        g.setColour (rays[i].withAlpha (alpha * 0.22f));
-        g.drawLine ({ exit, end }, 4.5f);
-        g.setColour (rays[i].withAlpha (alpha));
-        g.drawLine ({ exit, end }, 1.5f);
+        const float angle = -0.30f + fi * (0.62f / 11.0f) + 0.10f;
+        const float breathe = 0.5f + 0.5f * std::sin (phase * 1.4f + fi * 0.7f);
+        const float e = idle ? 0.18f + 0.12f * breathe : jlimit (0.0f, 1.0f, energy[(size_t) i]);
+        const float len = (b.getRight() - geo.exit.x) * (0.55f + 0.45f * (idle ? 0.75f + 0.25f * breathe : 0.35f + 0.65f * e));
+        const Point<float> end (geo.exit.x + len * std::cos (angle), geo.exit.y + len * std::sin (angle));
+        const auto col = Col::noteHue (i);
+        g.setColour (col.withAlpha (0.08f + 0.22f * e));
+        g.drawLine ({ geo.exit, end }, 2.5f + 3.5f * e);
+        g.setColour (col.withAlpha (0.25f + 0.75f * e));
+        g.drawLine ({ geo.exit, end }, 0.8f + 0.8f * e);
     }
 
-    // hologram glass prism
-    ColourGradient glass (Col::holo.withAlpha (0.28f), apex.x, apex.y, Col::holo.withAlpha (0.04f), cx, top + h, false);
+    // Glasprisma: Füllung, Kanten, Lichtkante
+    ColourGradient glass (Col::crystal.withAlpha (0.30f), geo.apex.x, geo.apex.y, Col::holo.withAlpha (0.05f), geo.apex.x, geo.left.y, false);
     g.setGradientFill (glass);
     g.fillPath (tri);
-    g.setColour (juce::Colours::white.withAlpha (0.4f));
-    g.drawLine ({ entry, exit }, 1.0f);
+    g.setColour (juce::Colours::white.withAlpha (0.45f));
+    g.drawLine ({ geo.entry, geo.exit }, 1.0f);
     g.setColour (Col::holo.withAlpha (0.25f));
     g.strokePath (tri, PathStrokeType (4.0f, PathStrokeType::curved, PathStrokeType::rounded));
-    g.setColour (Col::holoBright);
-    g.strokePath (tri, PathStrokeType (1.4f, PathStrokeType::curved, PathStrokeType::rounded));
+    g.setColour (Col::crystal);
+    g.strokePath (tri, PathStrokeType (1.3f, PathStrokeType::curved, PathStrokeType::rounded));
 }
 
 //==============================================================================
@@ -187,8 +206,8 @@ int KeyStrip::cellAt (int x) const
 void KeyStrip::paint (juce::Graphics& g)
 {
     using namespace juce;
-    const auto onColour = source == 1 ? Col::pink : (source == 2 ? Col::cyan : Col::tox);
-    const auto onInk = source == 1 ? juce::Colours::white : Col::toxInk;
+    const auto onColour = source == 1 ? Col::violet : (source == 2 ? Col::cyan : Col::lit);
+    const auto onInk = source == 1 ? juce::Colours::white : Col::litInk;
 
     for (int pc = 0; pc < 12; ++pc)
     {
@@ -198,7 +217,7 @@ void KeyStrip::paint (juce::Graphics& g)
         const float corner = 3.0f;
 
         if (e > 0.02f)
-            softGlow (g, cell, corner, on ? onColour : Col::pink, e, 4);
+            softGlow (g, cell, corner, on ? onColour : Col::fringeWarm, e, 4);
 
         if (on)
         {
@@ -228,9 +247,9 @@ void KeyStrip::paint (juce::Graphics& g)
 
         if (pc == root)
         {
-            g.setColour (Col::pink.withAlpha (0.3f));
+            g.setColour (Col::amber.withAlpha (0.3f));
             g.drawRoundedRectangle (cell.expanded (1.5f), corner + 1.5f, 3.0f);
-            g.setColour (Col::pink);
+            g.setColour (Col::amber);
             g.drawRoundedRectangle (cell.reduced (0.5f), corner, 1.6f);
         }
 
@@ -243,7 +262,7 @@ void KeyStrip::paint (juce::Graphics& g)
         if (pc == root)
         {
             g.setFont (mono (10.0f));
-            g.setColour (on ? onInk.withAlpha (0.75f) : Col::pink);
+            g.setColour (on ? onInk.withAlpha (0.75f) : Col::amber);
             g.drawText ("ROOT", cell.withTrimmedTop (cell.getHeight() * 0.60f).withTrimmedBottom (8.0f), Justification::centred);
         }
 
@@ -251,7 +270,7 @@ void KeyStrip::paint (juce::Graphics& g)
         if (barW > 0.5f)
         {
             const auto bar = Rectangle<float> (cell.getCentreX() - barW * 0.5f, cell.getBottom() - 7.0f, barW, 3.0f);
-            g.setColour (on ? onInk.withAlpha (0.55f) : Col::pink);
+            g.setColour (Col::noteHue (pc, on ? 0.95f : 0.8f)); // Spektralfarbe der Note
             g.fillRoundedRectangle (bar, 1.5f);
         }
     }
@@ -1522,6 +1541,8 @@ void PrizmAudioProcessorEditor::timerCallback()
         b->setAlpha (mode == highQuality ? 1.0f : 0.45f);
 
     animPhase += dt;
+    updateEnergy();
+    prism.setEnergies (shownEnergy);
     prism.setPhase (animPhase);
 
     // Scan-Linien über den offenen Panels: nur alte und neue Streifen neu zeichnen
@@ -1547,7 +1568,6 @@ void PrizmAudioProcessorEditor::timerCallback()
         const bool chromatic = scaleIndex >= 0 && scaleIndex < (int) kScales.size() && kScales[(size_t) scaleIndex].mask == kAllPitches;
         const int root = (source != 0 || scaleIndex == kCustomScaleIndex || chromatic) ? -1 : key;
         keyStrip.setState (processor.getScaleMask(), root, source); // Tasten = gewählte Tonleiter, Umleitungen zeigt die Matrix
-        updateEnergy();
         updateMatrix (mode);
         pitchMatrix.setLevels (shownInput, shownEnergy, animPhase);
     }
@@ -1641,6 +1661,25 @@ void PrizmAudioProcessorEditor::drawHoloPanel (juce::Graphics& g, juce::Rectangl
     edge.addColour (0.5, Col::holoBright);
     g.setGradientFill (edge);
     g.fillRect (r.getX(), r.getY(), r.getWidth(), 1.5f);
+    // feine Spektrumlinie unter der Oberkante, zur Mitte hin am stärksten
+    {
+        Graphics::ScopedSaveState s (g);
+        g.reduceClipRegion (r.toNearestInt());
+        g.setGradientFill (Col::spectrum (r.getX() + r.getWidth() * 0.25f, r.getY(), r.getRight() - r.getWidth() * 0.25f, 0.45f));
+        g.fillRect (r.getX() + r.getWidth() * 0.25f, r.getY() + 2.0f, r.getWidth() * 0.5f, 1.0f);
+        // Kristallfacetten in den Ecken
+        g.setColour (Col::crystal.withAlpha (0.10f));
+        for (float d : { 26.0f, 40.0f })
+        {
+            g.drawLine (r.getX(), r.getY() + d, r.getX() + d, r.getY(), 1.0f);
+            g.drawLine (r.getRight() - d, r.getBottom(), r.getRight(), r.getBottom() - d, 1.0f);
+        }
+        ColourGradient facet (Col::crystal.withAlpha (0.05f), r.getX(), r.getY(), Col::crystal.withAlpha (0.0f), r.getX() + 30.0f, r.getY() + 30.0f, false);
+        g.setGradientFill (facet);
+        Path f;
+        f.addTriangle (r.getX(), r.getY(), r.getX() + 40.0f, r.getY(), r.getX(), r.getY() + 40.0f);
+        g.fillPath (f);
+    }
     holo::cornerBrackets (g, r, juce::jmin (16.0f, r.getHeight() * 0.4f), Col::holoBright, 2.0f);
 
     // bright projector line along the bottom edge
@@ -1722,6 +1761,38 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
     }
 }
 
+void PrizmAudioProcessorEditor::renderFanLayer (float scale)
+{
+    // Lichtfächer: der Strahl aus dem Prisma neben dem Titel fächert dezent über das ganze Fenster auf.
+    // Liegt über dem Panel-Glas, aber unter allen Bedienelementen (wie Licht, das durch Glas fällt).
+    using namespace juce;
+    fanLayer = Image (Image::ARGB, roundToInt ((float) getWidth() * scale), roundToInt ((float) getHeight() * scale), true);
+    Graphics g (fanLayer);
+    g.addTransform (AffineTransform::scale (scale));
+    {
+        const auto pb = prism.getBounds().toFloat();
+        const auto exit = PrismGlyph::exitPoint (pb);
+        const float reach = (float) (getWidth() + getHeight()) * 1.1f;
+        for (int k = 0; k < 12; ++k)
+        {
+            const float a0 = 0.10f + (float) k * 0.075f, a1 = a0 + 0.13f; // überlappend, damit die Farben weich ineinander laufen
+            Path wedge;
+            wedge.startNewSubPath (exit);
+            wedge.lineTo (exit.x + reach * std::cos (a0), exit.y + reach * std::sin (a0));
+            wedge.lineTo (exit.x + reach * std::cos (a1), exit.y + reach * std::sin (a1));
+            wedge.closeSubPath();
+            const float mid = (a0 + a1) * 0.5f;
+            ColourGradient fan (Col::noteHue (k, 0.10f), exit.x, exit.y,
+                                Col::noteHue (k, 0.0f), exit.x + reach * 0.8f * std::cos (mid), exit.y + reach * 0.8f * std::sin (mid), false);
+            fan.addColour (0.2, Col::noteHue (k, 0.06f));
+            fan.addColour (0.5, Col::noteHue (k, 0.025f));
+            g.setGradientFill (fan);
+            g.fillPath (wedge);
+        }
+    }
+
+}
+
 void PrizmAudioProcessorEditor::paintKnobTitles (juce::Graphics& g, size_t first, size_t last, int panelTop)
 {
     using namespace juce;
@@ -1764,7 +1835,7 @@ void PrizmAudioProcessorEditor::paintKeyBody (juce::Graphics& g)
         const auto box = r.withTrimmedTop (2).removeFromRight (62).withHeight (34).toFloat();
         holo::box (g, box);
         g.setFont (mono (18.0f));
-        g.setColour (sourceShown == 1 ? Col::pink : (sourceShown == 2 ? Col::cyan : Col::ink));
+        g.setColour (sourceShown == 1 ? Col::violet : (sourceShown == 2 ? Col::cyan : Col::ink));
         g.drawText (String (count) + "/12", box, Justification::centred);
     }
 
@@ -1800,7 +1871,7 @@ void PrizmAudioProcessorEditor::paintKeyBody (juce::Graphics& g)
             g.drawText (text, r.withLeft (r.getX() + 24.0f).withWidth (w + 4.0f), Justification::centredLeft);
             r.removeFromLeft (24.0f + w + 16.0f);
         };
-        item (Col::tox, "STAYS", 0);
+        item (Col::lit, "STAYS", 0);
         item (Col::cyan, "SHIFT", 1);
         item (Col::pink, hqMode ? "MAP" : "MAP (HQ)", 1);
         item (Col::muted, "FILTERED / OFF", 2);
@@ -1824,12 +1895,12 @@ void PrizmAudioProcessorEditor::paintKeyBody (juce::Graphics& g)
     g.setFont (display (12.5f, true).withExtraKerningFactor (0.1f));
     if (learnMessage.isNotEmpty())
     {
-        g.setColour (Col::tox);
+        g.setColour (Col::lit);
         g.drawText (learnMessage, stripLabelArea, Justification::centredLeft);
     }
     else
     {
-        g.setColour (sourceShown == 1 ? Col::pink : (sourceShown == 2 ? Col::cyan : Col::muted));
+        g.setColour (sourceShown == 1 ? Col::violet : (sourceShown == 2 ? Col::cyan : Col::muted));
         g.drawText (sourceShown == 1 ? "KEY SET BY MIDI  -  LAST CHORD"
                     : sourceShown == 2 ? "KEY SET BY SIDECHAIN  -  NOTES OF THE OTHER TRACK"
                                        : "NOTES IN  -  CLICK = ON/OFF, DRAG UP/DOWN = WEIGHT  //  PITCH MATRIX: DRAG A BEAM TO RE-ROUTE",
@@ -1920,6 +1991,10 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (Col::dim);
     g.drawText ("PRESET", presetBox.getX() - 62, presetBox.getY(), 56, presetBox.getHeight(), Justification::centredRight);
     g.drawText ("PROCESS", stereoBox.getX() - 70, stereoBox.getY(), 64, stereoBox.getHeight(), Justification::centredRight);
+
+    if (fanLayer.isNull() || fanLayer.getWidth() != staticLayer.getWidth() || fanLayer.getHeight() != staticLayer.getHeight())
+        renderFanLayer (scale);
+    g.drawImage (fanLayer, getLocalBounds().toFloat());
 
     // scan sweeps over the hologram panels
     auto drawScan = [&g] (Rectangle<int> panel, Rectangle<int> band)

@@ -14,10 +14,15 @@ class PrismGlyph : public juce::Component
 {
 public:
     void setPhase (float newPhase) { phase = newPhase; repaint(); }
+    void setEnergies (const std::array<float, 12>& e) { energy = e; }
     void paint (juce::Graphics& g) override;
+    // Geometrie des Prismas in einer Fläche (für den Lichtfächer im Hintergrund)
+    static juce::Point<float> exitPoint (juce::Rectangle<float> b);
+    static juce::Point<float> entryPoint (juce::Rectangle<float> b);
 
 private:
     float phase = 0.0f;
+    std::array<float, 12> energy {};
 };
 
 // Pill-shaped two-way switch with a sliding thumb.
@@ -179,6 +184,8 @@ private:
     juce::Image logo, texture;
     juce::Image staticLayer; // Textur + Logo + Titel, einmal pro Größe
     void renderStaticLayer (float scale);
+    juce::Image fanLayer; // Lichtfächer über dem Panel-Glas
+    void renderFanLayer (float scale);
     void drawHoloPanel (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& tag, const juce::String& code);
     juce::Rectangle<int> scanBand (juce::Rectangle<int> panel, float phase) const;
 
