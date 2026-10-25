@@ -17,12 +17,15 @@ namespace prizm
 class ChordTracker
 {
 public:
+    // hopDivider: 8 = alle ca. 21 ms (Sidechain-Tonart), 4 = alle ca. 43 ms (Anzeige)
+    explicit ChordTracker (int hopDividerToUse = 8) : hopDivider (hopDividerToUse) {}
+
     void prepare (double sampleRate)
     {
         fs = sampleRate;
         order = sampleRate > 50000.0 ? 14 : 13;
         size = 1 << order;
-        hop = size / 8; // ca. 21 ms bei 48 kHz: reagiert schnell auf Akkordwechsel
+        hop = size / hopDivider;
         fft = std::make_unique<juce::dsp::FFT> (order);
         window.resize ((size_t) size);
         for (int i = 0; i < size; ++i)
@@ -59,6 +62,8 @@ public:
     }
 
     PitchMask getMask() const noexcept { return mask; }
+    // Stärke pro Tonklasse (nur Grundtöne, mit Haltezeit), unnormiert
+    const std::array<float, 12>& getChroma() const noexcept { return chroma; }
 
 private:
     void analyseFrame()
@@ -142,6 +147,7 @@ private:
     }
 
     double fs = 48000.0;
+    int hopDivider = 8;
     int order = 13, size = 8192, hop = 1024;
     std::unique_ptr<juce::dsp::FFT> fft;
     std::vector<float> window, input, frame;

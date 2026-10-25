@@ -74,16 +74,23 @@ public:
 
     // For the editor.
     juce::AudioProcessorValueTreeState apvts;
-    prizm::PitchMask getDisplayMask() const noexcept { return (prizm::PitchMask) displayMask.load(); }
+    prizm::PitchMask getDisplayMask() const noexcept { return (prizm::PitchMask) displayMask.load(); } // wirksam (inkl. Map)
+    prizm::PitchMask getScaleMask() const noexcept { return (prizm::PitchMask) scaleMask.load(); }     // gewählte Tonleiter / MIDI / Sidechain
     bool isMidiControllingKey() const noexcept { return midiActive.load(); }
     bool isSidechainControllingKey() const noexcept { return scActive.load(); }
     bool isSidechainConnected() const noexcept { return scConnected.load(); }
     float getPitchEnergy (int pitchClass) const noexcept { return pitchEnergy[(size_t) pitchClass].load(); }
+    // Eingehende Noten (nur Grundtöne) für die Pitch Matrix; wird nur gemessen, solange das Fenster offen ist
+    float getInputEnergy (int pitchClass) const noexcept { return inputEnergy[(size_t) pitchClass].load(); }
+    void setEditorOpen (bool isOpen) noexcept { editorOpen.store (isOpen); }
     uint32_t getBlockCounter() const noexcept { return blockCounter.load(); }
     void togglePitchClass (int pitchClass); // message thread: edits the custom scale
     // Noten-Map, Message-Thread: Vorlagen relativ zur Tonart
     enum class MapPreset { reset, majorToMinor, minorToMajor };
     void applyMapPreset (MapPreset preset);
+    // Noten-Map einzeln, Message-Thread: 0 = normal, 1..12 = Ziel C..B, 13 = stumm
+    void setMap (int pc, int index);
+    int getMapIndex (int pc) const { return mapParams[(size_t) pc]->getIndex(); }
     // Presets, Message-Thread. Werkspresets zuerst, dann eigene (Dokumente/Brain Bugz/Prizm/Presets/*.przm)
     juce::StringArray getPresetNames() const;
     int getNumFactoryPresets() const { return (int) prizm::factoryPresets().size(); }
@@ -149,9 +156,12 @@ private:
     int currentMode = -1;
     juce::SmoothedValue<float> mixSmoothed, outputSmoothed;
 
-    std::atomic<int> displayMask { 0 };
+    std::atomic<int> displayMask { 0 }, scaleMask { 0 };
     std::atomic<bool> midiActive { false }, scActive { false }, scConnected { false };
     prizm::ChordTracker chordTracker;
+    prizm::ChordTracker inputMeter { 4 };
+    std::array<std::atomic<float>, 12> inputEnergy {};
+    std::atomic<bool> editorOpen { false };
     juce::AudioParameterBool* scKeyParam = nullptr;
     std::array<std::atomic<float>, 12> pitchEnergy {};
     std::atomic<uint32_t> blockCounter { 0 };
