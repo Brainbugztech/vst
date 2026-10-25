@@ -255,19 +255,24 @@ public:
             lensPath.addEllipse (cap);
             g.reduceClipRegion (lensPath);
 
-            const float amt = jlimit (0.0f, 1.0f, 0.08f + 0.80f * pos + 0.35f * over);
+            const float amt = jlimit (0.0f, 1.0f, 0.15f + 0.85f * pos + 0.35f * over);
+            const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001);
+            // Lichter driften langsam im Glas (wabern), Phase pro Regler leicht verschoben
             auto light = [&] (float angleOffset, float dist, Colour col, float alpha, float size)
             {
                 if (alpha <= 0.003f)
                     return;
-                const auto p = c.getPointOnCircumference (capR * dist, valueAngle + angleOffset);
+                const float drift = tm * (0.35f + 0.13f * angleOffset) + angleOffset * 2.0f;
+                const auto p = c.getPointOnCircumference (capR * (dist + 0.12f * std::sin (drift * 1.3f)), valueAngle + angleOffset + 0.55f * std::sin (drift));
                 ColourGradient glow (col.withAlpha (alpha), p.x, p.y, col.withAlpha (0.0f), p.x + capR * size, p.y, true);
                 g.setGradientFill (glow);
                 g.fillEllipse (Rectangle<float> (capR * size * 2.0f, capR * size * 2.0f).withCentre (p));
             };
-            light (0.0f, 0.45f, Col::holo, 0.45f * amt, 1.15f);                        // in Zeigerrichtung
-            light (2.3f, 0.40f, Col::violet, 0.38f * amt * amt, 1.0f);                  // kommt mit dem Wert dazu
-            light (-2.3f, 0.40f, Col::cyan, 0.30f * amt, 0.95f);
+            light (0.0f, 0.45f, Col::holo, 0.60f * amt, 1.2f);                         // in Zeigerrichtung
+            light (2.3f, 0.40f, Col::violet, 0.55f * amt, 1.1f);
+            light (-2.3f, 0.40f, Col::cyan, 0.45f * amt, 1.05f);
+            light (1.2f, 0.35f, Col::pink.interpolatedWith (Col::violet, 0.5f), 0.40f * amt * amt, 1.0f);
+            light (-1.2f, 0.35f, Col::amber.interpolatedWith (Col::holo, 0.4f), 0.30f * amt * amt, 0.9f);
             light (MathConstants<float>::pi, 0.25f, Col::amber, 0.30f * jmax (0.0f, pos - 0.6f) * 2.5f + 0.25f * over, 0.9f); // Wärme ganz oben
 
             // Spiegelung oben links und feine Lichtkante

@@ -1556,6 +1556,9 @@ void PrizmAudioProcessorEditor::timerCallback()
         b->setAlpha (mode == highQuality ? 1.0f : 0.45f);
 
     animPhase += dt;
+    if (sections[secSignal].body.isVisible())
+        for (auto& k : knobs)
+            k.slider.repaint(); // Lichter im Glas wabern
     keyStrip.setPhase (animPhase);
     updateEnergy();
     prism.setEnergies (shownEnergy);
