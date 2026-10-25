@@ -51,6 +51,8 @@ private:
     std::vector<float> dampCurve;
 
     PitchMask lastMask = 0xFFFF;
+    float currentA4 = 440.0f;
+    void retune (float a4);
     float qSmoothed = 40.0f;
     float envFast = 0.0f, envSlow = 0.0f, transient = 0.0f;
     float fastAtt = 0, fastRel = 0, slowAtt = 0, slowRel = 0, transientRel = 0;

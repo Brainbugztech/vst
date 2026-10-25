@@ -92,9 +92,12 @@ private:
     PrismGlyph prism;
     ModeSwitch modeSwitch;
     juce::TextButton midiButton { "MIDI KEY" };
+    juce::TextButton learnButton { "LEARN" };
+    juce::String learnMessage;
+    int learnMessageTicks = 0;
     juce::ComboBox keyBox, scaleBox;
     KeyStrip keyStrip;
-    std::array<Knob, 9> knobs; // 0-4 SIGNAL, 5-8 RANGE + SPECTRAL
+    std::array<Knob, 10> knobs; // 0-4 SIGNAL, 5-9 RANGE + SPECTRAL
     static constexpr size_t kShiftKnob = 8;
     juce::TooltipWindow tooltips { this, 600 };
 

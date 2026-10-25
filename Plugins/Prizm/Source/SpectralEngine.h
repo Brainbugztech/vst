@@ -66,6 +66,7 @@ private:
     std::vector<int> peaks, regionPeak;
     ResponseModel model;
     float qSmoothed = 40.0f;
+    float refScale = 1.0f; // 440 / Stimmton: Frequenzen werden auf die 440-Hz-Notenreihe umgerechnet
     std::array<float, 128> noteLevel {}, noteSum {}, noteGate {};
     int numActiveChannels = 2;
     int writePos = 0, hopCounter = 0;

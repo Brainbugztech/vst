@@ -28,6 +28,7 @@ void FilterBankEngine::prepare (double sampleRate, int maxBlockSize)
         bands.push_back (b);
     }
 
+    currentA4 = 440.0f;
     wet.setSize (kMaxChannels, maxBlockSize, false, false, true);
     dampCurve.assign ((size_t) maxBlockSize, 1.0f);
 
@@ -39,6 +40,18 @@ void FilterBankEngine::prepare (double sampleRate, int maxBlockSize)
     fadeStep = (float) (1.0 / (0.03 * fs)); // 30 ms bei Tonartwechsel
 
     reset();
+}
+
+void FilterBankEngine::retune (float a4)
+{
+    // Stimmton: alle Bandfrequenzen um denselben Faktor verschieben
+    currentA4 = a4;
+    const double scale = a4 / 440.0;
+    for (auto& b : bands)
+    {
+        const double f = ResponseModel::noteHz (b.note) * scale;
+        b.g = (float) std::tan (juce::MathConstants<double>::pi * juce::jmin (f, 0.49 * fs) / fs);
+    }
 }
 
 void FilterBankEngine::reset()
@@ -71,6 +84,9 @@ void FilterBankEngine::process (juce::AudioBuffer<float>& buffer, int numSamples
         }
         lastMask = p.mask;
     }
+
+    if (std::abs (p.a4 - currentA4) > 0.01f)
+        retune (p.a4);
 
     qSmoothed += (ResponseModel::qFromColor (p.color) - qSmoothed) * blockCoef (fs, numSamples, 0.05);
     const float k = 1.0f / qSmoothed;

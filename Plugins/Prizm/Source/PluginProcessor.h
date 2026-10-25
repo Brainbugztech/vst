@@ -7,6 +7,7 @@
 
 #include "FilterBankEngine.h"
 #include "SpectralEngine.h"
+#include "KeyAnalyzer.h"
 
 namespace prizm
 {
@@ -26,6 +27,7 @@ namespace ParamIDs
     inline constexpr const char* gate       = "gate";
     inline constexpr const char* rangeLow   = "rangeLow";
     inline constexpr const char* rangeHigh  = "rangeHigh";
+    inline constexpr const char* tune       = "tune";
 }
 
 enum Mode { zeroLatency = 0, highQuality = 1 };
@@ -70,6 +72,14 @@ public:
     float getPitchEnergy (int pitchClass) const noexcept { return pitchEnergy[(size_t) pitchClass].load(); }
     uint32_t getBlockCounter() const noexcept { return blockCounter.load(); }
     void togglePitchClass (int pitchClass); // message thread: edits the custom scale
+
+    // Learn: Tonart und Stimmton aus dem Eingang erkennen
+    void startLearn() noexcept { learnCommand.store (1); }
+    void cancelLearn() noexcept { learnCommand.store (2); }
+    bool isLearning() const noexcept { return learnActive.load(); }
+    float getLearnProgress() const noexcept { return learnProgress.load(); }
+    // Message-Thread: übernimmt ein fertiges Ergebnis in die Parameter. Gibt true zurück, wenn eins da war.
+    bool applyLearnResult (prizm::KeyAnalyzer::Result& out);
 
 private:
     prizm::PitchMask computeMask();
@@ -118,6 +128,14 @@ private:
     std::array<std::atomic<float>, 12> pitchEnergy {};
     std::atomic<uint32_t> blockCounter { 0 };
 
+    prizm::KeyAnalyzer keyAnalyzer;
+    std::atomic<int> learnCommand { 0 }; // 1 = starten, 2 = abbrechen
+    std::atomic<bool> learnActive { false }, learnDone { false };
+    std::atomic<float> learnProgress { 0.0f };
+    std::atomic<int> learnedKey { 0 };
+    std::atomic<bool> learnedMinor { false };
+    std::atomic<float> learnedA4 { 440.0f }, learnedConfidence { 0.0f };
+
     juce::AudioParameterChoice* keyParam = nullptr;
     juce::AudioParameterChoice* scaleParam = nullptr;
     juce::AudioParameterInt* customMaskParam = nullptr;
@@ -132,6 +150,7 @@ private:
     std::atomic<float>* gateParam = nullptr;
     std::atomic<float>* rangeLowParam = nullptr;
     std::atomic<float>* rangeHighParam = nullptr;
+    std::atomic<float>* tuneParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PrizmAudioProcessor)
 };

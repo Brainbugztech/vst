@@ -15,6 +15,7 @@ struct EngineParams
     float clear = 0.3f;           // 0..1   alte Resonanzen bei neuen Anschlägen dämpfen
     float gate = 0.0f;            // 0..1   leise Noten relativ zur lautesten ausblenden
     float shift = 0.0f;           // 0..1   nur High Quality: schiefe Teiltöne auf die Tonart verschieben
+    float a4 = 440.0f;            // Stimmton in Hz
 };
 
 // Gate-Kennlinie, für beide Modi gleich: Schwelle relativ zur lautesten Note.

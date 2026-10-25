@@ -282,11 +282,21 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
     addAndMakeVisible (midiButton);
     midiAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (apvts, ParamIDs::midiKey, midiButton);
 
+    learnButton.setTooltip ("Listens to the input for a few seconds and sets Key, Scale and Tune. Click again to cancel.");
+    learnButton.onClick = [this]
+    {
+        if (processor.isLearning())
+            processor.cancelLearn();
+        else
+            processor.startLearn();
+    };
+    addAndMakeVisible (learnButton);
+
     keyStrip.onToggle = [this] (int pc) { processor.togglePitchClass (pc); };
     addAndMakeVisible (keyStrip);
 
     struct Def { const char* id; const char* title; const char* hint; };
-    const std::array<Def, 9> defs {{
+    const std::array<Def, 10> defs {{
         { ParamIDs::strength, "STRENGTH", "How hard the sound is pulled into the key." },
         { ParamIDs::color,    "COLOR",    "More tonal. Above 100 % (pink) a coloured decay tail is added." },
         { ParamIDs::clear,    "CLEAR",    "Keeps transients dry and damps old ringing on new hits." },
@@ -296,6 +306,7 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
         { ParamIDs::rangeHigh,"RANGE HIGH", "Above this frequency the signal stays untouched (keeps cymbals and air). OFF = full range." },
         { ParamIDs::gate,     "GATE",     "Pushes quiet notes down relative to the loudest one. Cleans up noise between the tones." },
         { ParamIDs::shift,    "SHIFT",    "High Quality only: moves out-of-key partials onto the nearest note instead of just filtering them." },
+        { ParamIDs::tune,     "TUNE A4",  "Tuning reference. Old samples and vinyl are often not at 440 Hz. LEARN sets this automatically." },
     }};
 
     for (size_t i = 0; i < knobs.size(); ++i)
@@ -379,6 +390,32 @@ void PrizmAudioProcessorEditor::timerCallback()
     const int mode = (int) apvts.getRawParameterValue (ParamIDs::mode)->load();
     modeSwitch.setMode (mode);
     modeSwitch.advance();
+
+    // Learn: Fortschritt anzeigen, Ergebnis übernehmen
+    if (processor.isLearning())
+    {
+        learnButton.setButtonText ("LISTENING " + juce::String (juce::roundToInt (processor.getLearnProgress() * 100.0f)) + " %");
+        learnButton.setToggleState (true, juce::dontSendNotification);
+    }
+    else if (learnButton.getToggleState())
+    {
+        learnButton.setButtonText ("LEARN");
+        learnButton.setToggleState (false, juce::dontSendNotification);
+    }
+    prizm::KeyAnalyzer::Result learned;
+    if (processor.applyLearnResult (learned))
+    {
+        learnMessage = "LEARNED: " + juce::String (kNoteNames[(size_t) learned.key]) + (learned.minor ? " MINOR" : " MAJOR")
+                       + "  //  A4 = " + juce::String (learned.a4, 1) + " HZ"
+                       + (learned.confidence < 0.25f ? "  //  UNSURE, CHECK BY EAR" : "");
+        learnMessageTicks = 30 * 8;
+        repaint();
+    }
+    else if (learnMessageTicks > 0 && --learnMessageTicks == 0)
+    {
+        learnMessage = {};
+        repaint();
+    }
 
     auto& shiftSlider = knobs[kShiftKnob].slider;
     if (shiftSlider.isEnabled() != (mode == highQuality))
@@ -617,17 +654,25 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
         const int count = BigInteger ((int) processor.getDisplayMask()).countNumberOfSetBits();
         g.setFont (display (12.5f, true).withExtraKerningFactor (0.1f));
         g.setColour (Col::muted);
-        g.drawText ("NOTES IN KEY", r.removeFromTop (16), Justification::centredRight);
-        const auto box = r.withTrimmedTop (2).removeFromRight (92).withHeight (34).toFloat();
+        g.drawText ("IN KEY", r.removeFromTop (16), Justification::centredRight);
+        const auto box = r.withTrimmedTop (2).removeFromRight (62).withHeight (34).toFloat();
         holo::box (g, box);
-        g.setFont (mono (20.0f));
+        g.setFont (mono (18.0f));
         g.setColour (midiShown ? Col::pink : Col::ink);
-        g.drawText (String (count) + " / 12", box, Justification::centred);
+        g.drawText (String (count) + "/12", box, Justification::centred);
     }
 
     g.setFont (display (12.5f, true).withExtraKerningFactor (0.1f));
-    g.setColour (midiShown ? Col::pink : Col::muted);
-    g.drawText (midiShown ? "KEY SET BY MIDI  -  LAST CHORD" : "NOTES  -  CLICK TO EDIT, GLOW = WHAT YOU HEAR", stripLabelArea, Justification::centredLeft);
+    if (learnMessage.isNotEmpty())
+    {
+        g.setColour (Col::tox);
+        g.drawText (learnMessage, stripLabelArea, Justification::centredLeft);
+    }
+    else
+    {
+        g.setColour (midiShown ? Col::pink : Col::muted);
+        g.drawText (midiShown ? "KEY SET BY MIDI  -  LAST CHORD" : "NOTES  -  CLICK TO EDIT, GLOW = WHAT YOU HEAR", stripLabelArea, Justification::centredLeft);
+    }
 }
 
 void PrizmAudioProcessorEditor::resized()
@@ -649,7 +694,8 @@ void PrizmAudioProcessorEditor::resized()
     scaleLabelArea = { keyPanel.getX() + 144, rowY, 236, 16 };
     scaleBox.setBounds (keyPanel.getX() + 144, rowY + 18, 236, 34);
     midiButton.setBounds (keyPanel.getX() + 394, rowY + 18, 132, 34);
-    readoutArea = { keyPanel.getX() + 540, rowY, keyPanel.getRight() - 20 - (keyPanel.getX() + 540), 52 };
+    learnButton.setBounds (keyPanel.getX() + 538, rowY + 18, 132, 34);
+    readoutArea = { keyPanel.getX() + 680, rowY, keyPanel.getRight() - 20 - (keyPanel.getX() + 680), 52 };
 
     stripLabelArea = { keyPanel.getX() + 20, keyPanel.getY() + 96, keyPanel.getWidth() - 40, 16 };
     keyStrip.setBounds (keyPanel.getX() + 10, keyPanel.getY() + 112, keyPanel.getWidth() - 20, 78);
@@ -666,9 +712,9 @@ void PrizmAudioProcessorEditor::resized()
     auto extraArea = extraPanel.reduced (14, 0);
     extraArea.removeFromTop (52);
     extraArea.removeFromBottom (10);
-    const int w2 = extraArea.getWidth() / 4;
-    for (size_t i = 5; i < 9; ++i)
-        knobs[i].slider.setBounds (extraArea.removeFromLeft (w2).reduced (24, 0));
+    const int w2 = extraArea.getWidth() / 5;
+    for (size_t i = 5; i < 10; ++i)
+        knobs[i].slider.setBounds (extraArea.removeFromLeft (w2).reduced (14, 0));
 
     footerArea = { 24, getHeight() - 30, getWidth() - 48, 20 };
 }

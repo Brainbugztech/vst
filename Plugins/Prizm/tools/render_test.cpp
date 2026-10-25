@@ -277,6 +277,33 @@ double toneLevel (const std::vector<float>& spec, float hz, float width = 6.0f)
     return 10.0 * std::log10 (e);
 }
 
+// Akkordfolge mit Grundton-Bass, additiv (8 Obertöne), jede Stufe 1 s. detune in Cent.
+juce::AudioBuffer<float> makeProgression (const std::vector<std::vector<int>>& chords, int bassNote, double seconds, float detuneCents = 0.0f)
+{
+    juce::AudioBuffer<float> b (2, (int) (seconds * kSampleRate));
+    b.clear();
+    const float scale = std::pow (2.0f, detuneCents / 1200.0f);
+    for (int i = 0; i < b.getNumSamples(); ++i)
+    {
+        const auto& chord = chords[(size_t) ((i / (int) kSampleRate) % (int) chords.size())];
+        const float t = (float) i / (float) kSampleRate;
+        float s = 0.0f;
+        auto voice = [&] (int note, float amp)
+        {
+            const float f = midiToHz ((float) note) * scale;
+            for (int h = 1; h <= 8; ++h)
+                if (f * (float) h < 8000.0f)
+                    s += amp / (float) h * std::sin (juce::MathConstants<float>::twoPi * f * (float) h * t);
+        };
+        for (int n : chord)
+            voice (n, 0.05f);
+        voice (bassNote + (chord[0] - chords[0][0]), 0.08f); // Bass folgt dem Akkordgrundton
+        b.setSample (0, i, s);
+        b.setSample (1, i, s);
+    }
+    return b;
+}
+
 std::unique_ptr<PrizmAudioProcessor> makeProcessor (int mode, float strength, float color, float clear)
 {
     auto p = std::make_unique<PrizmAudioProcessor>();
@@ -495,6 +522,53 @@ int main()
         };
         const double r0 = ratio (spectrum (o0, 48000 + lat)), r1 = ratio (spectrum (o1, 48000 + lat));
         check (r1 > r0 + 6.0, name + ": Gate 100 % lifts the tone above the noise by " + juce::String (r1 - r0, 1) + " dB");
+    }
+
+    // 3f) LEARN: Tonart und Stimmton aus dem Eingang erkennen.
+    {
+        struct LearnCase { const char* name; std::vector<std::vector<int>> chords; int bass; float detune; int key; bool minor; };
+        const std::vector<LearnCase> cases {
+            { "D major (D G A D)",            { { 62, 66, 69 }, { 67, 71, 74 }, { 69, 73, 76 }, { 62, 66, 69 } }, 38, 0.0f,  2, false },
+            { "E minor (Em Am Bm Em)",        { { 64, 67, 71 }, { 69, 72, 76 }, { 71, 74, 78 }, { 64, 67, 71 } }, 40, 0.0f,  4, true },
+            { "F major +30 cent (F Bb C F)",  { { 65, 69, 72 }, { 70, 74, 77 }, { 72, 76, 79 }, { 65, 69, 72 } }, 41, 30.0f, 5, false },
+            { "G minor -40 cent (Gm Cm D Gm)",{ { 67, 70, 74 }, { 72, 75, 79 }, { 74, 78, 81 }, { 67, 70, 74 } }, 43, -40.0f, 7, true },
+        };
+        for (const auto& c : cases)
+        {
+            auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+            p->startLearn();
+            render (*p, makeProgression (c.chords, c.bass, 10.0, c.detune));
+            KeyAnalyzer::Result r;
+            const bool got = p->applyLearnResult (r);
+            const float expectedA4 = 440.0f * std::pow (2.0f, c.detune / 1200.0f);
+            const int keyParam = p->apvts.getParameter (ParamIDs::key)->convertFrom0to1 (p->apvts.getParameter (ParamIDs::key)->getValue()) + 0.5f;
+            const float tune = p->apvts.getRawParameterValue (ParamIDs::tune)->load();
+            check (got && r.key == c.key && r.minor == c.minor && std::abs (r.a4 - expectedA4) < 1.0f && keyParam == c.key && std::abs (tune - r.a4) < 0.1f,
+                   juce::String ("Learn ") + c.name + ": " + (got ? juce::String (kNoteNames[(size_t) r.key]) + (r.minor ? " minor" : " major") : juce::String ("no result"))
+                       + ", A4 " + juce::String (r.a4, 1) + " Hz (expected " + juce::String (expectedA4, 1) + "), confidence " + juce::String (r.confidence, 2));
+        }
+    }
+
+    // 3g) TUNE: mit A4 = 450 Hz landet ein 460-Hz-Ton (SHIFT) auf 450 Hz, und beide Modi stimmen überein.
+    {
+        auto p = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+        setParam (*p, ParamIDs::shift, 100.0f);
+        setParam (*p, ParamIDs::tune, 450.0f);
+        auto out = render (*p, makeTone ({ 460.0f }, 2.0, 0.3f));
+        const float f = peakFrequency (out, 16000);
+        check (std::abs (f - 450.0f) < 3.0f, "Tune 450 Hz: SHIFT moves 460 Hz to " + juce::String (f, 1) + " Hz (target 450)");
+
+        // Gefiltertes Rauschen: die Resonanz von A muss mit Tune 450 bei 450 Hz liegen, nicht bei 440 Hz
+        for (int mode : { zeroLatency, highQuality })
+        {
+            auto pt = makeProcessor (mode, 100.0f, 130.0f, 0.0f);
+            setParam (*pt, ParamIDs::tune, 450.0f);
+            auto o = render (*pt, makeNoise (4.0, 0.2f));
+            const auto sp = spectrum (o, 48000 + pt->getLatencySamples());
+            const double at450 = toneLevel (sp, 450.0f, 2.0f), at440 = toneLevel (sp, 440.0f, 2.0f);
+            check (at450 > at440 + 6.0, juce::String (mode == zeroLatency ? "ZeroLatency" : "HighQuality")
+                                            + ": Tune 450 Hz puts the A resonance at 450 Hz (+" + juce::String (at450 - at440, 1) + " dB vs. 440 Hz)");
+        }
     }
 
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
