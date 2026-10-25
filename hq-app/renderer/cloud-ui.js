@@ -332,6 +332,34 @@
     toast('Ordner angelegt.'); if (cur) open.add(cur); refresh();
   });
 
+  // ---------- Archiv-Meldungen vom Board ----------
+  // Das Board schreibt „BUGZHQ_ARCHIVE {…}“ in die Konsole, sobald ein Projekt archiviert ist. Hier wird es in der Cloud abgelegt.
+  const archQueue = [], archTried = new Set(); let archBusy = false;
+  async function archivRun() {
+    if (archBusy) return; archBusy = true;
+    while (archQueue.length) {
+      const a = archQueue.shift();
+      const r = await api.archive(a.id, a.at, a.title, a.folder);
+      if (!r.ok) { toast(`Archiv „${a.title}“: ${r.error}`, true); continue; }
+      const d = r.data || {};
+      if (d.status === 'verschoben') toast(`„${a.title}“ liegt jetzt in ${a.folder}.`);
+      else if (d.status === 'angelegt') toast(`Ordner „${a.title}“ in ${a.folder} angelegt. Dateien dort ablegen.`);
+      else if (d.status === 'mehrdeutig') toast(`„${a.title}“: mehrere Ordner mit dem Namen gefunden, nichts verschoben. Leerer Ordner angelegt in ${a.folder}.`, true);
+      if (d.status && d.status !== 'schon erledigt' && d.status !== 'vorhanden') { statCache.clear(); refresh(); }
+    }
+    archBusy = false;
+  }
+  const boardView = $('#board');
+  if (boardView) boardView.addEventListener('console-message', ev => {
+    const m = String(ev.message || '');
+    if (!m.startsWith('BUGZHQ_ARCHIVE ')) return;
+    try {
+      const a = JSON.parse(m.slice(15));
+      const key = a && a.id + ':' + a.at;
+      if (a && a.id && a.at && a.title && a.folder && !archTried.has(key)) { archTried.add(key); archQueue.push({ id: String(a.id), at: Number(a.at), title: String(a.title), folder: String(a.folder) }); archivRun(); }
+    } catch {}
+  });
+
   // ---------- Start ----------
   (async () => {
     await loadStatus();

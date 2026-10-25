@@ -53,3 +53,11 @@ Tipp: Den Ordner in Google Drive für Desktop auf „Offline verfügbar“ stell
 - **Vorhören**: Play-Knopf bei Audio-Dateien, Leertaste = Play/Pause
 - Aktualisiert sich automatisch, wenn der andere etwas hochlädt
 - Es wird nie etwas überschrieben: gleiche Namen bekommen „(2)“ dran. Löschen geht nur im Explorer.
+
+## Archiv im Board und Ablage in der Cloud
+Archiviert ihr im Board ein Projekt (ab 100 %, mit Auswahl des Cloud-Ordners), legt die App es automatisch ab:
+- Ziel ist `<gewählter Ordner>/<Projektname>`.
+- Gibt es in der Cloud (bis 3 Ebenen tief) genau einen Ordner mit dem Projektnamen, wird er dorthin **verschoben**.
+- Sonst wird ein leerer Ordner angelegt, in den ihr die Dateien legt.
+- Gibt es mehrere gleichnamige Ordner oder das Ziel existiert schon, wird nichts verschoben und nichts überschrieben.
+Das passiert, sobald die App mit geöffnetem Board läuft. Jede Archivierung wird pro PC nur einmal ausgeführt.

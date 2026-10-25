@@ -160,6 +160,41 @@ async function copyOut(rel, target) {
   return dest;
 }
 
+// Archiv: ein fertiges Projekt aus dem Board in den gewählten Cloud-Ordner legen.
+// Ziel ist <Ordner>/<Projektname>. Gibt es irgendwo in der Cloud (bis 3 Ebenen tief) genau einen Ordner mit dem Projektnamen,
+// wird er dorthin verschoben, sonst wird ein leerer Zielordner angelegt. Es wird nie etwas überschrieben oder gelöscht.
+const ARCHIV_ZIELE = ['01_Projekte/_Archiv', '02_Presets', '03_Samples', '04_Plugins/Brain Bugz Builds', '05_Tracks/Fertig (Master)', '_Inbox (zum Einsortieren)'];
+async function findeOrdner(name, ausser) {
+  const gefunden = [];
+  async function walk(dir, tiefe) {
+    let ents; try { ents = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (!e.isDirectory() || e.name.startsWith('.')) continue;
+      const p = path.join(dir, e.name);
+      if (p === ausser) continue;
+      if (e.name.toLowerCase() === name.toLowerCase() && !isProtected(relOf(p))) gefunden.push(p);
+      if (tiefe < 3) await walk(p, tiefe + 1);
+    }
+  }
+  await walk(root, 1);
+  return gefunden;
+}
+async function archiveProject(title, folder) {
+  if (!root) throw new Error('Kein Cloud-Ordner eingestellt.');
+  const zielOrdner = ARCHIV_ZIELE.find(z => z === String(folder || ''));
+  if (!zielOrdner) throw new Error('Unbekannter Archiv-Ordner.');
+  const name = cleanName(title);
+  if (!name || name === '.' || name === '..') throw new Error('Ungültiger Projektname.');
+  const parent = abs(zielOrdner);
+  await fsp.mkdir(parent, { recursive: true });
+  const ziel = path.join(parent, name);
+  if (fs.existsSync(ziel)) return { status: 'vorhanden', rel: relOf(ziel) };
+  const treffer = await findeOrdner(name, ziel);
+  if (treffer.length === 1) { await fsp.rename(treffer[0], ziel); return { status: 'verschoben', rel: relOf(ziel), von: relOf(treffer[0]) }; }
+  await fsp.mkdir(ziel);
+  return { status: treffer.length ? 'mehrdeutig' : 'angelegt', rel: relOf(ziel), treffer: treffer.map(relOf) };
+}
+
 let watcher = null, timer = null;
 function watch(onChange) {
   unwatch();
@@ -171,4 +206,4 @@ function watch(onChange) {
 }
 function unwatch() { if (watcher) { try { watcher.close(); } catch {} watcher = null; } }
 
-module.exports = { ORDNER_NAME, STRUKTUR, setRoot, getRoot, detect, abs, status, ensureStructure, list, subdirs, stats, mkdir, importPaths, isProtected, copyOut, freeName, watch, unwatch };
+module.exports = { ORDNER_NAME, STRUKTUR, setRoot, getRoot, detect, abs, status, ensureStructure, list, subdirs, stats, mkdir, importPaths, isProtected, copyOut, freeName, archiveProject, watch, unwatch };

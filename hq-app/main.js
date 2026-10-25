@@ -78,6 +78,15 @@ app.whenReady().then(() => {
     if (r.canceled || !r.filePaths[0]) return cloud.status();
     store.patch({ cloudPath: r.filePaths[0] }); return cloudStart();
   });
+  // Archiv-Meldung vom Board: nur einmal pro Archivierung ausführen (beide PCs sehen dieselbe Meldung, Drive synct das Ergebnis)
+  ipcMain.handle('cloud:archive', safe(async (id, at, title, folder) => {
+    const key = String(id) + ':' + String(at);
+    const done = store.load().archivedDone || [];
+    if (done.includes(key)) return { status: 'schon erledigt' };
+    const r = await cloud.archiveProject(title, folder);
+    store.patch({ archivedDone: [...done, key].slice(-200) });
+    return r;
+  }));
   ipcMain.handle('cloud:ensure', safe(() => cloud.ensureStructure()));
   ipcMain.handle('cloud:list', safe(rel => cloud.list(rel)));
   ipcMain.handle('cloud:subdirs', safe(rel => cloud.subdirs(rel)));

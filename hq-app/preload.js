@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('cloud', {
   detect: () => ipcRenderer.invoke('cloud:detect'),
   choose: () => ipcRenderer.invoke('cloud:choose'),
   ensure: () => ipcRenderer.invoke('cloud:ensure'),
+  archive: (id, at, title, folder) => ipcRenderer.invoke('cloud:archive', id, at, title, folder),
   list: rel => ipcRenderer.invoke('cloud:list', rel),
   subdirs: rel => ipcRenderer.invoke('cloud:subdirs', rel),
   stats: rel => ipcRenderer.invoke('cloud:stats', rel),
