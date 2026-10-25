@@ -7,6 +7,7 @@
 #include "PluginProcessor.h"
 #include "PrizmLookAndFeel.h"
 #include "PitchMatrix.h"
+#include "ModPanel.h"
 
 // Small animated prism: a white beam enters, a spectrum fans out.
 class PrismGlyph : public juce::Component
@@ -70,13 +71,87 @@ private:
     std::array<float, 12> energy {};
 };
 
-class PrizmAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
+// Regler, auf den man eine Modulationsquelle ziehen kann. Wie in Serum: je Zuweisung ein farbiger Bogen
+// innen am Ring und ein kleiner Griff am Bogenende, mit dem man die Tiefe direkt am Regler zieht.
+// Rechtsklick: Menü (Uni/Bipolar, entfernen).
+class ModKnob : public juce::Slider, public juce::DragAndDropTarget
+{
+public:
+    struct Mod
+    {
+        int slot = -1, source = 0;
+        float amount = 0.0f; // -100..100
+        bool unipolar = false;
+        bool operator== (const Mod& o) const { return slot == o.slot && source == o.source && amount == o.amount && unipolar == o.unipolar; }
+    };
+
+    int target = -1; // Index in prizm::kModTargetIds
+    std::function<void (int)> onDropSource;
+    std::function<juce::String()> modInfo;                   // wird an den Tooltip angehängt
+    std::function<void()> onRemoveMenu;                      // Rechtsklick
+    std::function<void (int slot, float amount, int phase)> onDepth; // phase: 0 Start, 1 Ziehen, 2 Ende
+
+    // vom Editor-Timer: Zuweisungen, Reglerwert (0..1) und aktueller modulierter Wert (0..1)
+    void setModState (std::vector<Mod> newMods, float base01, float now01);
+    bool hasMods() const noexcept { return ! mods.empty(); }
+
+    void paint (juce::Graphics& g) override;
+    bool isInterestedInDragSource (const SourceDetails& d) override { return target >= 0 && d.description.toString().startsWith ("mod:"); }
+    void itemDragEnter (const SourceDetails& d) override;
+    void itemDragExit (const SourceDetails&) override;
+    void itemDropped (const SourceDetails& d) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDrag (const juce::MouseEvent& e) override;
+    void mouseUp (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent& e) override;
+    void mouseDoubleClick (const juce::MouseEvent& e) override;
+    juce::String getTooltip() override;
+
+private:
+    struct Geometry { juce::Point<float> centre; float ringR = 0.0f, start = 0.0f, end = 0.0f; };
+    Geometry geometry();
+    float modRadius (size_t index, const Geometry& g) const { return g.ringR - 6.0f - 4.5f * (float) index; }
+    juce::Point<float> handlePos (size_t index, const Geometry& g) const;
+    int handleAt (juce::Point<float> p);
+    float angleToValue (juce::Point<float> p, const Geometry& g) const;
+
+    std::vector<Mod> mods;
+    float base = 0.0f, now = 0.0f;
+    int dragHandle = -1, hoverHandle = -1;
+};
+
+// Inhalt eines aufklappbaren Bereichs. Die Höhe wird beim Ein- und Ausblenden animiert,
+// alles darin wird dadurch abgeschnitten. onPaint zeichnet Beschriftungen (Koordinaten im Bereich).
+class SectionBody : public juce::Component
+{
+public:
+    SectionBody() { setInterceptsMouseClicks (false, true); }
+    std::function<void (juce::Graphics&)> onPaint;
+    void paint (juce::Graphics& g) override { if (onPaint) onPaint (g); }
+};
+
+// Holo-Vorhang über einem Bereich beim Ein-/Ausblenden: Scan-Kante, Glitch-Streifen, Farbversatz.
+class HoloCurtain : public juce::Component
+{
+public:
+    HoloCurtain() { setInterceptsMouseClicks (false, false); }
+    void setEdge (float revealed01, int frame) { edge = revealed01; seed = frame; repaint(); }
+    void paint (juce::Graphics& g) override;
+
+private:
+    float edge = 0.0f;
+    int seed = 0;
+};
+
+class PrizmAudioProcessorEditor : public juce::AudioProcessorEditor, public juce::DragAndDropContainer, private juce::Timer
 {
 public:
     explicit PrizmAudioProcessorEditor (PrizmAudioProcessor&);
     ~PrizmAudioProcessorEditor() override;
 #if PRIZM_HEADLESS_TEST
     void tickForTest (int ticks) { for (int i = 0; i < ticks; ++i) timerCallback(); }
+    void setSectionOpenForTest (int section, bool open, bool animate) { setSectionOpen (section, open, animate); }
 #endif
 
     void paint (juce::Graphics&) override;
@@ -86,10 +161,15 @@ private:
     void timerCallback() override;
     void setMode (int mode);
     void updateEnergy();
+    void dragOperationStarted (const juce::DragAndDropTarget::SourceDetails&) override;
+    void dragOperationEnded (const juce::DragAndDropTarget::SourceDetails&) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent&) override { hoverHeader = -1; repaint(); }
 
     struct Knob
     {
-        juce::Slider slider;
+        ModKnob slider;
         juce::String title, hint;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     };
@@ -97,10 +177,54 @@ private:
     PrizmAudioProcessor& processor;
     prizm::PrizmLookAndFeel lnf;
     juce::Image logo, texture;
-    juce::Image staticLayer; // texture + panels + logo + title, rendered once per size
+    juce::Image staticLayer; // Textur + Logo + Titel, einmal pro Größe
     void renderStaticLayer (float scale);
     void drawHoloPanel (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& tag, const juce::String& code);
     juce::Rectangle<int> scanBand (juce::Rectangle<int> panel, float phase) const;
+
+    // --- Aufklappbare Bereiche --------------------------------------------------------------------
+    enum SectionId { secKey = 0, secSignal, secRange, secMod, kNumSections };
+    struct Section
+    {
+        juce::String id, tag, code;
+        int fullHeight = 0;
+        bool open = true;
+        enum Phase { idle, growing, revealing, covering, shrinking } phase = idle;
+        float t = 0.0f;               // Fortschritt der Phase 0..1
+        juce::Rectangle<int> bounds;  // aktuelle (animierte) Fläche des Panels
+        SectionBody body;
+        HoloCurtain curtain;
+        juce::Image cache;            // gerendertes Panel für die aktuelle Höhe
+        int cacheH = -1;
+        float cacheScale = 0.0f;
+        bool cacheOpen = true;
+        bool cacheHover = false;
+    };
+    std::array<Section, kNumSections> sections;
+    int hoverHeader = -1;
+    int animFrame = 0;
+    juce::String footerMessage;
+    int footerMessageTicks = 0;
+    void setSectionOpen (int index, bool open, bool animate);
+    void advanceSections (float dt);
+    void layoutSections();
+    int panelHeight (const Section& s) const;
+    int targetEditorHeight() const;
+    int availableHeight() const;
+    int headerAt (juce::Point<int> p) const;
+    juce::String sectionSummary (int index) const;
+    bool anyAnimating() const;
+    void setTimerRate (int hz);
+    int timerRate = 0;
+    void paintKeyBody (juce::Graphics& g);
+    void paintKnobTitles (juce::Graphics& g, size_t first, size_t last, int panelTop);
+    void showFooterMessage (const juce::String& text, int seconds);
+
+    // --- Modulation ----------------------------------------------------------------------------
+    ModPanel modPanel;
+    void updateModRings();
+    juce::String modInfoFor (int target) const;
+    void showKnobModMenu (int target);
 
     PrismGlyph prism;
     ModeSwitch modeSwitch;
@@ -110,6 +234,9 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> scAttachment;
     juce::ComboBox presetBox, stereoBox;
     juce::TextButton savePresetButton { "SAVE" };
+    juce::TextButton prevPresetButton { "<" }, nextPresetButton { ">" };
+    void stepPreset (int direction);
+    void presetLoaded (int index);
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> stereoAttachment;
     void refreshPresetBox();
     void askPresetName();
@@ -144,7 +271,8 @@ private:
     uint32_t lastCounter = 0;
     int idleTicks = 0;
 
-    juce::Rectangle<int> logoArea, titleArea, keyPanel, keyLabelArea, scaleLabelArea, stripLabelArea, readoutArea, knobPanel, extraPanel, footerArea;
+    // Flächen im Key-Bereich in dessen Koordinaten (SectionBody)
+    juce::Rectangle<int> logoArea, titleArea, keyLabelArea, scaleLabelArea, stripLabelArea, readoutArea, footerArea;
     juce::Rectangle<int> lastScanA, lastScanB;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PrizmAudioProcessorEditor)

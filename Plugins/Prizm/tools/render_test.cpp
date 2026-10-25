@@ -324,6 +324,21 @@ juce::AudioBuffer<float> makeHarmonic (std::initializer_list<float> f0s, int har
     return b;
 }
 
+// Simulierte DAW-Position für LFOs im Tempo
+struct TestPlayHead : juce::AudioPlayHead
+{
+    double ppq = 0.0, bpm = 120.0;
+    bool playing = true;
+    juce::Optional<PositionInfo> getPosition() const override
+    {
+        PositionInfo info;
+        info.setIsPlaying (playing);
+        info.setBpm (bpm);
+        info.setPpqPosition (ppq);
+        return info;
+    }
+};
+
 std::unique_ptr<PrizmAudioProcessor> makeProcessor (int mode, float strength, float color, float clear)
 {
     auto p = std::make_unique<PrizmAudioProcessor>();
@@ -837,6 +852,199 @@ int main()
                    + ", own preset save/load " + (userOk ? "ok" : "wrong"));
     }
 
+    // 3m) MODULATION
+    {
+        // Presets: alle Parameter-IDs gültig und Werte im Bereich
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        int bad = 0;
+        for (const auto& preset : prizm::factoryPresets())
+            for (const auto& [id, value] : preset.values)
+            {
+                auto* param = dynamic_cast<juce::RangedAudioParameter*> (p->apvts.getParameter (id));
+                if (param == nullptr || value < param->getNormalisableRange().start - 0.001f || value > param->getNormalisableRange().end + 0.001f)
+                {
+                    std::printf ("       bad preset value: %s / %s = %.3f\n", preset.name, id, value);
+                    ++bad;
+                }
+            }
+        check (bad == 0, juce::String ("All ") + juce::String ((int) prizm::factoryPresets().size()) + " factory presets use valid parameters");
+    }
+    {
+        // LFO 1 frei, 1/4 bei 120 BPM (0,5 s), Sinus auf Mix -100 %: Mix pendelt voll zwischen 0 und 1
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 3.0f);
+        setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), -100.0f);
+        auto in = makeNoise (2.0, 0.1f);
+        float lo = 1.0f, hi = 0.0f;
+        int rising = 0;
+        float prev = 1.0f;
+        for (int start = 0; start < in.getNumSamples(); start += kBlock)
+        {
+            juce::AudioBuffer<float> block (in.getArrayOfWritePointers(), 2, start, std::min (kBlock, in.getNumSamples() - start));
+            juce::MidiBuffer m;
+            p->processBlock (block, m);
+            const float v = p->getModNow (3);
+            lo = std::min (lo, v);
+            hi = std::max (hi, v);
+            if (prev < 0.5f && v >= 0.5f)
+                ++rising;
+            prev = v;
+        }
+        check (lo < 0.05f && hi > 0.95f && rising >= 3 && rising <= 5,
+               "LFO 1/4 (free, 120 BPM) sweeps Mix " + juce::String (lo, 2) + " .. " + juce::String (hi, 2) + ", " + juce::String (rising) + " cycles in 2 s (expect 4)");
+    }
+    {
+        // Im Songtakt: LFO 1 = 1 Bar, gezeichnete Kurve (0,-1) (0.25,1) (1,-1). Bei Viertel 1 (Phase 0.25) = +1.
+        auto p = makeProcessor (zeroLatency, 50.0f, 60.0f, 30.0f);
+        TestPlayHead ph;
+        p->setPlayHead (&ph);
+        setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 7.0f);
+        setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), 2.0f); // 1 Bar
+        p->setLfoCurve (0, { { 0.0f, -1.0f, 0.0f }, { 0.25f, 1.0f, 0.0f }, { 1.0f, -1.0f, 0.0f } });
+        setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 0.0f); // Strength
+        setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 50.0f);
+        juce::AudioBuffer<float> block (2, kBlock);
+        auto runAt = [&] (double ppq)
+        {
+            ph.ppq = ppq;
+            block.clear();
+            juce::MidiBuffer m;
+            p->processBlock (block, m);
+            return p->getLfoValue (0);
+        };
+        // Wert vom letzten 64er-Abschnitt im Block (ca. 0,02 Viertel später) -> kleine Toleranz
+        const float v0 = runAt (0.0), v1 = runAt (1.0);
+        const float strengthAtBeat1 = p->getModNow (0);
+        const float v2 = runAt (2.5), v4 = runAt (4.0);
+        check (std::abs (v0 + 1.0f) < 0.06f && std::abs (v1 - 1.0f) < 0.06f && std::abs (v2 - 0.0f) < 0.06f && std::abs (v4 + 1.0f) < 0.06f,
+               "LFO follows the song position with a drawn curve (" + juce::String (v0, 2) + ", " + juce::String (v1, 2) + ", "
+                   + juce::String (v2, 2) + ", " + juce::String (v4, 2) + " expected -1, 1, 0, -1)");
+        // Strength am Viertel 1: 50 % + 50 % * 1 = 100 %
+        check (strengthAtBeat1 > 0.85f, "Modulated Strength follows the LFO (" + juce::String (strengthAtBeat1, 2) + " at beat 1, expect ~1.0)");
+        p->setPlayHead (nullptr);
+    }
+    {
+        // ENV auf Color: laut -> hoch, still -> zurück
+        auto p = makeProcessor (zeroLatency, 100.0f, 0.0f, 30.0f);
+        setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 3.0f);
+        setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 100.0f);
+        setParam (*p, ParamIDs::modPol (0).toRawUTF8(), 1.0f); // unipolar
+        render (*p, makeNoise (0.5, 0.5f));
+        const float loud = p->getModNow (1);
+        juce::AudioBuffer<float> silence (2, 48000);
+        silence.clear();
+        render (*p, silence);
+        const float quiet = p->getModNow (1);
+        check (loud > 0.6f && quiet < 0.1f, "ENV follows the input (Color " + juce::String (loud, 2) + " loud, " + juce::String (quiet, 2) + " silent)");
+    }
+    {
+        // Hörbar: Rechteck-LFO (1 Bar) auf Strength 50 % +- 50 % -> abwechselnd gestimmt und trocken
+        auto p = makeProcessor (zeroLatency, 50.0f, 80.0f, 0.0f);
+        setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 4.0f);
+        setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), 2.0f);
+        setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 0.0f);
+        setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 50.0f);
+        auto out = render (*p, makeNoise (6.0, 0.2f));
+        const float wet = inKeyEnergyRatio (out, (int) (2.05 * kSampleRate), cMajor);  // Phase 0.03 .. 0.37: +1
+        const float dry = inKeyEnergyRatio (out, (int) (3.05 * kSampleRate), cMajor);  // Phase 0.53 .. 0.87: -1
+        check (wet > dry + 0.25f, "Square LFO on Strength: tuned half " + juce::String (wet * 100.0f, 1) + " % in key, dry half " + juce::String (dry * 100.0f, 1) + " %");
+    }
+    {
+        // Uni/Bipolar: LFO auf Mix 50 %, Tiefe 50. Bipolar 0..100 %, unipolar nur 50..100 %.
+        auto range = [] (bool uni)
+        {
+            auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+            setParam (*p, ParamIDs::mix, 50.0f);
+            setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 0.0f);
+            setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 1.0f);
+            setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 3.0f);
+            setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 50.0f);
+            setParam (*p, ParamIDs::modPol (0).toRawUTF8(), uni ? 1.0f : 0.0f);
+            auto in = makeNoise (2.0, 0.1f);
+            float lo = 1.0f, hi = 0.0f;
+            for (int start = 0; start < in.getNumSamples(); start += kBlock)
+            {
+                juce::AudioBuffer<float> block (in.getArrayOfWritePointers(), 2, start, std::min (kBlock, in.getNumSamples() - start));
+                juce::MidiBuffer m;
+                p->processBlock (block, m);
+                lo = std::min (lo, p->getModNow (3));
+                hi = std::max (hi, p->getModNow (3));
+            }
+            return std::make_pair (lo, hi);
+        };
+        const auto bi = range (false), uni = range (true);
+        check (bi.first < 0.05f && bi.second > 0.95f && uni.first > 0.47f && uni.second > 0.95f,
+               "Polarity: bipolar Mix " + juce::String (bi.first, 2) + ".." + juce::String (bi.second, 2) + ", unipolar "
+                   + juce::String (uni.first, 2) + ".." + juce::String (uni.second, 2) + " (expect 0..1 and 0.5..1)");
+    }
+    {
+        // LFO-Modi: Retrig per MIDI-Note, Envelope läuft einmal und bleibt stehen, Retrig per Anschlag im Audio
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        setParam (*p, ParamIDs::lfoSync (1).toRawUTF8(), 0.0f);
+        setParam (*p, ParamIDs::lfoRate (1).toRawUTF8(), 1.0f); // 1 Hz
+        setParam (*p, ParamIDs::lfoMode (1).toRawUTF8(), 1.0f); // Retrig
+        setParam (*p, ParamIDs::lfoTrig, 1.0f);                 // nur MIDI
+        juce::AudioBuffer<float> block (2, kBlock);
+        auto run = [&] (int blocks, int noteAt)
+        {
+            for (int b = 0; b < blocks; ++b)
+            {
+                block.clear();
+                juce::MidiBuffer m;
+                if (b == 0 && noteAt >= 0)
+                    m.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), noteAt);
+                p->processBlock (block, m);
+            }
+        };
+        run ((int) (0.4 * kSampleRate) / kBlock, -1);
+        const float before = p->getLfoPhase (0);
+        run (1, 0);
+        const float afterNote = p->getLfoPhase (0);
+        check (before > 0.3f && afterNote < 0.03f && p->getTrigCount (0) == 1,
+               "LFO Retrig: MIDI note restarts the LFO (phase " + juce::String (before, 2) + " -> " + juce::String (afterNote, 3) + ")");
+
+        setParam (*p, ParamIDs::lfoMode (1).toRawUTF8(), 2.0f); // Envelope
+        setParam (*p, ParamIDs::lfoRate (1).toRawUTF8(), 4.0f); // 0,25 s
+        run (1, 10);
+        run ((int) (0.5 * kSampleRate) / kBlock, -1);
+        const float held = p->getLfoPhase (0), heldValue = p->getLfoValue (0);
+        run ((int) (0.3 * kSampleRate) / kBlock, -1);
+        check (held > 0.999f && p->getLfoPhase (0) > 0.999f && std::abs (p->getLfoValue (0) - heldValue) < 1.0e-4f,
+               "LFO Envelope: runs once and holds at the end (phase " + juce::String (held, 3) + ")");
+        run (1, 10);
+        check (p->getLfoPhase (0) < 0.06f, "LFO Envelope: next note starts it again (phase " + juce::String (p->getLfoPhase (0), 3) + " after one block at 4 Hz)");
+
+        // Audio-Trigger: Stille, dann Anschläge alle 0,5 s -> Retrig bei jedem Anschlag
+        setParam (*p, ParamIDs::lfoMode (1).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::lfoTrig, 0.0f);
+        setParam (*p, ParamIDs::lfoRate (1).toRawUTF8(), 0.5f);
+        const auto startCount = p->getTrigCount (0);
+        juce::AudioBuffer<float> hits (2, (int) (2.0 * kSampleRate));
+        hits.clear();
+        for (int h = 0; h < 4; ++h)
+            for (int i = 0; i < 4000; ++i)
+                for (int ch = 0; ch < 2; ++ch)
+                    hits.setSample (ch, (int) ((0.1 + 0.5 * h) * kSampleRate) + i, 0.5f * std::exp (-(float) i / 800.0f) * std::sin ((float) i * 0.05f));
+        render (*p, hits);
+        const int counted = (int) (p->getTrigCount (0) - startCount);
+        check (counted == 4, "LFO Retrig by audio hits: " + juce::String (counted) + " triggers for 4 hits");
+    }
+    {
+        // Zuweisen per Drag & Drop (Processor-Seite): freier Slot, doppelt = gleicher Slot, voll = -1
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        const int a = p->assignModulation (1, 1), b = p->assignModulation (1, 1);
+        int last = -2;
+        for (int i = 0; i < 10; ++i)
+            last = p->assignModulation (2 + (i % 2), i % 11);
+        p->clearModSlot (a);
+        const int c = p->assignModulation (3, 10);
+        check (a == 0 && b == 0 && last == -1 && c == 0, "Mod slots: assign, no duplicates, full = -1, cleared slot is reused");
+    }
+
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
     for (int mode : { zeroLatency, highQuality })
     {
@@ -917,6 +1125,14 @@ int main()
             setParam (*p, ParamIDs::gate, u (rng) * 100.0f);
             setParam (*p, ParamIDs::rangeLow, 20.0f + u (rng) * 600.0f);
             setParam (*p, ParamIDs::rangeHigh, 2000.0f + u (rng) * 18000.0f);
+            for (int slot = 0; slot < 3; ++slot)
+            {
+                setParam (*p, ParamIDs::modSrc (slot).toRawUTF8(), (float) (1 + (run + slot) % 3));
+                setParam (*p, ParamIDs::modDst (slot).toRawUTF8(), (float) ((run * 3 + slot) % 11));
+                setParam (*p, ParamIDs::modAmt (slot).toRawUTF8(), u (rng) * 200.0f - 100.0f);
+            }
+            setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), (float) (run % 8));
+            setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), (float) (run % 13));
             juce::AudioBuffer<float> in = makeNoise (1.0, 1.0f);
             in.applyGain (0, 12000, 3.0f); // clipping-level burst
             for (int ch = 0; ch < 2; ++ch)
@@ -1025,6 +1241,64 @@ int main()
             juce::FileOutputStream os (file);
             juce::PNGImageFormat().writeImageToStream (out, os);
         }
+        // Aufklappbare Bereiche + Modulation: alles offen, Standard, alles zu, mitten in der Animation
+        auto layoutShot = [] (const char* fileName, std::function<void (PrizmAudioProcessorEditor&)> setup)
+        {
+            auto p = makeProcessor (highQuality, 85.0f, 120.0f, 30.0f);
+            setParam (*p, ParamIDs::key, 9.0f);
+            setParam (*p, ParamIDs::scale, 1.0f);
+            setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 7.0f);
+            setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), 8.0f);
+            setParam (*p, ParamIDs::lfoMode (1).toRawUTF8(), 1.0f);
+            p->setLfoCurve (0, prizm::LfoCurve::parse ("0,1,0;0.05,1,-0.6;0.5,-0.25,0.4;1,-1,0"));
+            p->assignModulation (prizm::srcLfo1, 1);  // LFO 1 -> Color
+            p->assignModulation (prizm::srcEnv, 0);   // ENV -> Strength
+            p->assignModulation (prizm::srcLfo2, 5);  // LFO 2 -> Range Low
+            setParam (*p, ParamIDs::modAmt (1).toRawUTF8(), -35.0f);
+            std::unique_ptr<juce::AudioProcessorEditor> editor (p->createEditor());
+            auto* ed = dynamic_cast<PrizmAudioProcessorEditor*> (editor.get());
+            auto in = makeHarmonic ({ 110.0f, 220.0f, 261.63f, 329.63f }, 6, 1.0, [] (float, int h) { return 0.05f / (float) h; });
+            int tick = 0;
+            for (int start = 0; start < in.getNumSamples(); start += kBlock)
+            {
+                const int n = std::min (kBlock, in.getNumSamples() - start);
+                juce::AudioBuffer<float> block (in.getArrayOfWritePointers(), 2, start, n);
+                juce::MidiBuffer midi;
+                p->processBlock (block, midi);
+                if (++tick % 3 == 0)
+                    ed->tickForTest (1);
+            }
+            setup (*ed);
+            auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.5f);
+            auto file = juce::File::getCurrentWorkingDirectory().getChildFile (juce::String ("renders/") + fileName);
+            file.deleteFile();
+            juce::FileOutputStream os (file);
+            juce::PNGImageFormat().writeImageToStream (image, os);
+            std::printf ("[INFO] %s: %d x %d\n", fileName, editor->getWidth(), editor->getHeight());
+        };
+        layoutShot ("ui_all_open.png", [] (PrizmAudioProcessorEditor& e)
+        {
+            for (int i = 0; i < 4; ++i)
+                e.setSectionOpenForTest (i, true, false);
+            e.tickForTest (2);
+        });
+        layoutShot ("ui_default.png", [] (PrizmAudioProcessorEditor& e) { e.tickForTest (2); });
+        layoutShot ("ui_collapsed.png", [] (PrizmAudioProcessorEditor& e)
+        {
+            for (int i = 0; i < 4; ++i)
+                e.setSectionOpenForTest (i, false, false);
+            e.tickForTest (2);
+        });
+        layoutShot ("ui_reveal.png", [] (PrizmAudioProcessorEditor& e)
+        {
+            e.setSectionOpenForTest (3, true, true);
+            e.tickForTest (22); // 60 Hz: Wachsen (11 Ticks), dann mitten im Einblenden
+        });
+        layoutShot ("ui_after_anim.png", [] (PrizmAudioProcessorEditor& e)
+        {
+            e.setSectionOpenForTest (1, false, true);
+            e.tickForTest (120);
+        });
         snapshot (highQuality, 100.0f, "ui.png");
         snapshot (zeroLatency, 0.0f, "ui_zl.png");
         std::printf ("[INFO] UI snapshots written\n");

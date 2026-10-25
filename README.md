@@ -117,7 +117,7 @@ Regler:
 - **Noten-Leiste**: grün = erlaubter Ton, Klick schaltet einen Ton an/aus (Skala wechselt auf Custom). **Hoch/runter ziehen** stellt die Gewichtung der Note ein (0–100 %, Shift = fein, Doppelklick = 100 %), die Füllhöhe der Taste zeigt sie an. Das Leuchten zeigt live, welche Töne gerade rauskommen.
 - **MIDI KEY**: Noten auf den MIDI-Eingang des Plugins bestimmen die Tonart, der letzte Akkord bleibt aktiv (Leiste wird pink).
 - **SIDECHAIN**: die Tonart folgt den Noten einer anderen Spur (z. B. Bass oder Keys), die in der DAW auf den Sidechain-Eingang von Prizm geroutet ist. Erkannt werden nur Grundtöne, bei Stille bleibt der letzte Akkord stehen (Leiste wird cyan). Wenn MIDI KEY auch an ist und Noten kommen, hat MIDI Vorrang.
-- **PRESET** (oben rechts): 12 Werkspresets und eigene Presets (**SAVE**, gespeichert in `Dokumente\Brain Bugz\Prizm\Presets` als `.przm`). Key, Scale, Custom-Noten, Tune, MIDI KEY und Sidechain bleiben beim Wechsel stehen, damit man im Song durchblättern kann.
+- **PRESET** (oben rechts): 39 Werkspresets in Gruppen (Basics, Color Bass, Movement, Creative, Drums & Vocals, Pitchmap) und eigene Presets (**<** / **>** blättert durch, **SAVE**, gespeichert in `Dokumente\Brain Bugz\Prizm\Presets` als `.przm`). Key, Scale, Custom-Noten, Tune, MIDI KEY und Sidechain bleiben beim Wechsel stehen, damit man im Song durchblättern kann.
 - **Strength**: wie viel vom gefilterten Signal das Original ersetzt.
 - **Color**: Filtergüte. 0 % weich, 100 % deutlich tonal, **über 100 %** (pinker Bogen) klingen die Töne lange nach, bei 200 % mehrere Sekunden.
 - **Clear**: Anschläge kommen trocken durch, alte Resonanzen werden bei neuen Hits gedämpft.
@@ -132,6 +132,20 @@ Regler:
 - **Formant** (nur High Quality): erhält die Klangfarbe beim Verschieben, damit Stimmen bei größeren Sprüngen nicht nach Mickey Mouse klingen.
 - **Learn**: hört 8 Sekunden hörbares Material am Eingang und stellt Key, Scale (Dur/Moll) und Tune selbst ein. Danach steht das Ergebnis über der Noten-Leiste, bei unsicherem Ergebnis mit Hinweis. Nochmal klicken bricht ab.
 - **Tune A4**: Stimmton 415–466 Hz (Standard 440). Wichtig für alte Samples und Vinyl, die oft nicht auf 440 Hz liegen, sonst zieht Prizm alles in die falschen Töne. Learn setzt ihn automatisch.
+
+Oberfläche:
+
+- **Aufklappbare Bereiche**: KEY + PITCH MATRIX, SIGNAL, RANGE + SPECTRAL und MODULATION lassen sich per Klick auf die Kopfzeile auf- und zuklappen (mit Holo-Scan beim Ein- und Ausblenden). Eingeklappt zeigt die Kopfzeile die wichtigsten Werte. Welche Bereiche offen sind, wird im Projekt gespeichert. Passt das Fenster nicht mehr auf den Bildschirm, klappen andere Bereiche automatisch zu. Preset-Auswahl und PROCESS bleiben auch eingeklappt erreichbar.
+- Nach dem Laden eines Werkspresets steht unten kurz, wofür es gedacht ist.
+
+Modulation (Bereich MODULATION):
+
+- Quellen: **LFO 1**, **LFO 2** (Custom als Standard, dazu Sine, Triangle, Saw Up/Down, Square, S&H, Smooth Random; frei in Hz oder **SYNC** im Songtempo von 4 Takten bis 1/32, auch punktiert und Triolen) und **ENV** (Envelope Follower auf den Eingang, mit Attack, Release und Sens).
+- **MODE** je LFO: **FREE** läuft durch (mit SYNC fest an der Songposition), **RETRIG** startet bei jedem Trigger von vorn, **ENV** läuft bei jedem Trigger einmal durch und bleibt am Ende stehen. **TRIG** legt fest, was auslöst: **AUDIO** (Anschläge im Eingang), **MIDI** (Noten am MIDI-Eingang) oder **BOTH**. Der Reiter blitzt bei jedem Trigger kurz auf.
+- Zuweisen wie in Serum: Reiter **LFO 1 / LFO 2 / ENV** auf einen Regler ziehen. Ziele: Strength, Color, Clear, Mix, Output, Range Low/High, Gate, Shift, Formant, Tune. Bis zu 8 Zuweisungen. Am Regler zeigt je Zuweisung ein farbiger Bogen den Bereich, ein Punkt den aktuellen Wert. Wie in Serum sitzt am Bogenende ein kleiner Griff: entlang des Rings ziehen stellt die Tiefe ein (Shift = fein, Doppelklick = +50 %). Rechtsklick auf den Regler: Uni/Bipolar, Tiefe umkehren, entfernen.
+- **UNI / BI** je Zuweisung: bipolar schwingt die Quelle um den Reglerwert, unipolar nur in eine Richtung. LFOs starten bipolar, ENV unipolar.
+- **ROUTING**-Liste (zwei Spalten): UNI/BI per Klick, Tiefe per Ziehen nach links/rechts (−100 bis +100 %, Shift = fein, Doppelklick = +50 %), × entfernt.
+- **LFO-Form zeichnen** (große Anzeige mit Spur der Abspielposition): Doppelklick setzt einen Punkt, Punkte ziehen, Doppelklick oder Alt+Klick auf einen Punkt löscht ihn, Segment hoch/runter ziehen (mit Alt irgendwo im Abschnitt) biegt die Kurve. **GRID** (aus, 1/4 bis 1/32) legt das Raster fest, Strg/Cmd = frei. Beim Ziehen werden Position bzw. Biegung angezeigt. Rechtsklick: Form laden, spiegeln, umdrehen, Biegungen gerade, zurücksetzen. Auch die Standardformen zeigen ihre Punkte und lassen sich direkt weiterziehen, dann springt SHAPE auf Custom. S&H und Smooth Random sind Zufall und nicht zeichenbar. Die Kurven werden im Projekt und in eigenen Presets gespeichert.
 
 Gemeinsam für beide Modi im Processor: Bereichsweichen, Pegelausgleich, Strength, Clear, Mix. Unterschiede gibt es nur noch durch das Prinzip selbst: Zero Latency verschmiert Anschläge etwas, High Quality kann sehr eng beieinander liegende Teiltöne (unter ca. 25 Hz Abstand) nicht ganz sauber trennen.
 
@@ -156,7 +170,7 @@ cmake --build build --config Release
 - `Plugins/BugzAlign` – Kick/Bass-Phasenausrichtung (DSP in `AlignEngine.h`, Anzeige in `AlignView.cpp`)
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
-- `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Pitch Matrix in `PitchMatrix.*`, Learn in `KeyAnalyzer.h`, Sidechain in `ChordTracker.h`, Werkspresets in `Presets.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
+- `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Pitch Matrix in `PitchMatrix.*`, Modulation in `Modulation.h` und `ModPanel.*`, Learn in `KeyAnalyzer.h`, Sidechain in `ChordTracker.h`, Werkspresets in `Presets.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)

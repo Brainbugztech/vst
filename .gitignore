@@ -2,3 +2,4 @@ build/
 out/
 *.user
 .vs/
+Plugins/Prizm/renders/
