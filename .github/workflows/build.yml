@@ -3,6 +3,7 @@ name: Build Windows VST3
 on:
   push:
     branches: [ main ]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -13,6 +14,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # bei Pull Requests: Vergleich mit main, welche Plugins geändert sind
 
       - name: Schriften holen (Chakra Petch, Share Tech Mono, Sedgwick Ave Display, Creepster, Audiowide, OFL)
         shell: bash
@@ -42,7 +45,7 @@ jobs:
           cmake --build build --config Release --parallel 2>&1 | tee build.log
 
       - name: Build-Fehler auf Branch "build-log" ablegen
-        if: failure()
+        if: failure() && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           mkdir logpub
@@ -73,6 +76,31 @@ jobs:
         with:
           name: Brainbugz-VST3
           path: out/
+
+      # Bei Pull Requests zusätzlich ein Download nur mit den Plugins, die der PR ändert
+      - name: Im PR geänderte Plugins einsammeln
+        id: changed
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          mkdir -p out-pr
+          changed=$(git diff --name-only HEAD^1 HEAD | grep '^Plugins/' | cut -d/ -f2 | sort -u)
+          echo "Geändert: $changed"
+          for p in $changed; do
+            [ -d "build/Plugins/$p" ] || continue
+            find "build/Plugins/$p" -type d -name "*.vst3" -path "*Release/VST3/*" -prune -exec cp -r {} out-pr/ \;
+          done
+          ls -la out-pr
+          names=$(echo $changed | tr ' ' '-')
+          echo "name=PR-${{ github.event.pull_request.number }}-${names:-keine}-VST3" >> "$GITHUB_OUTPUT"
+
+      - name: Geänderte Plugins hochladen
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.changed.outputs.name }}
+          path: out-pr/
+          if-no-files-found: ignore
 
       - name: Pluginval-Test
         id: pv
@@ -111,6 +139,7 @@ jobs:
           Compress-Archive -Path (Get-ChildItem out -Directory -Filter "*.vst3").FullName -DestinationPath out/Brainbugz-alle-VST3.zip -Force
 
       - name: Auf Branch "builds" ablegen
+        if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           mkdir pub && cp out/*.zip out/build-info.txt out/pluginval-*.txt pub/ 2>/dev/null || true

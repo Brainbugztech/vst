@@ -22,6 +22,10 @@ namespace ParamIDs
     inline constexpr const char* clear      = "clear";
     inline constexpr const char* mix        = "mix";
     inline constexpr const char* output     = "output";
+    inline constexpr const char* shift      = "shift";
+    inline constexpr const char* gate       = "gate";
+    inline constexpr const char* rangeLow   = "rangeLow";
+    inline constexpr const char* rangeHigh  = "rangeHigh";
 }
 
 enum Mode { zeroLatency = 0, highQuality = 1 };
@@ -46,7 +50,7 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 3.0; }
+    double getTailLengthSeconds() const override { return 5.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -74,9 +78,34 @@ private:
     prizm::FilterBankEngine filterBank;
     prizm::SpectralEngine spectral;
 
-    juce::AudioBuffer<float> dryBuffer;
-    std::array<std::vector<float>, 2> dryDelay;
-    int dryDelayPos = 0;
+    // Gemeinsamer Signalweg beider Modi (Bereich, Pegelausgleich, Strength, Clear, Mix)
+    struct DelayLine
+    {
+        std::array<std::vector<float>, 2> data;
+        int pos = 0;
+        void prepare (int length) { for (auto& d : data) d.assign ((size_t) juce::jmax (1, length), 0.0f); pos = 0; }
+        void clear() { for (auto& d : data) std::fill (d.begin(), d.end(), 0.0f); pos = 0; }
+        float process (int ch, float x)
+        {
+            auto& d = data[(size_t) ch];
+            const float y = d[(size_t) pos];
+            d[(size_t) pos] = x;
+            return y;
+        }
+        void advance() { pos = (pos + 1) % (int) data[0].size(); }
+    };
+
+    void resetSignalPath();
+
+    juce::AudioBuffer<float> midBuffer, dryMidBuffer, outerBuffer;
+    DelayLine dryMidDelay, outerDelay;
+    juce::dsp::LinkwitzRileyFilter<float> lowSplit, highSplit, lowAllpass;
+    bool splitActive = false;
+    double sampleRateHz = 48000.0;
+
+    float inMeanSquare = 0.0f, wetMeanSquare = 0.0f, autoGain = 1.0f;
+    float envFast = 0.0f, envSlow = 0.0f, transient = 0.0f;
+    float fastAtt = 0, fastRel = 0, slowAtt = 0, slowRel = 0, transientRel = 0;
 
     std::array<bool, 128> heldNotes {};
     prizm::PitchMask latchedMidiMask = 0;
@@ -99,6 +128,10 @@ private:
     std::atomic<float>* clearParam = nullptr;
     std::atomic<float>* mixParam = nullptr;
     std::atomic<float>* outputParam = nullptr;
+    std::atomic<float>* shiftParam = nullptr;
+    std::atomic<float>* gateParam = nullptr;
+    std::atomic<float>* rangeLowParam = nullptr;
+    std::atomic<float>* rangeHighParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PrizmAudioProcessor)
 };

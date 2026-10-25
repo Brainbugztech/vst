@@ -97,7 +97,7 @@ public:
         const float radius = jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
         const auto c = bounds.getCentre();
         const float valueAngle = startAngle + pos * (endAngle - startAngle);
-        const bool hasOverdrive = slider.getMaximum() > 150.0;
+        const bool hasOverdrive = (bool) slider.getProperties().getWithDefault ("overdrive", false);
         const float splitAngle = startAngle + 0.5f * (endAngle - startAngle);
         const bool hot = slider.isMouseOverOrDragging();
 

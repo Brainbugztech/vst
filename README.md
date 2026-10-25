@@ -106,22 +106,27 @@ Titel-Schrift: Audiowide (SIL Open Font License), wird beim Build geladen.
 
 ## Brainbugz Prizm
 
-Harmonic Sweetener: zieht beliebiges Audio in eine Tonart. Schiefe Pads, Noise, Drums oder ganze Loops klingen danach „in Key“. Zwei Modi, oben rechts umschaltbar:
+Harmonic Sweetener: zieht beliebiges Audio in eine Tonart. Schiefe Pads, Noise, Drums oder ganze Loops klingen danach „in Key“. Beide Modi benutzen denselben Filter-Kern (eine Bandpass-Bank, ein Filter pro Note der Tonart) und klingen bei gleichen Einstellungen gleich:
 
-- **Zero Latency**: Resonatorbank, ein Filter pro erlaubter Note ab C1. Keine Latenz, gut für Live und Recording.
-- **High Quality**: Phase-Vocoder, schiefe Frequenzanteile werden auf die nächste Note der Tonart **verschoben** statt weggefiltert. Latenz 4096 Samples (bei 88,2/96 kHz 8192), wird dem Host gemeldet.
+- **Zero Latency**: die Filterbank wird direkt gerechnet. Keine Latenz, gut für Live und Recording.
+- **High Quality**: dieselbe Filterkurve als spektrale Maske (Phase-Vocoder), ohne das Verschmieren der Filter, Transienten bleiben klarer. Latenz 4096 Samples (bei 88,2/96 kHz 8192), wird dem Host gemeldet. Zusätzlich gibt es hier **Shift**.
 
 Regler:
 
 - **Key / Scale**: Grundton und Skala (Dur, Moll, Kirchentonarten, Pentatonik, Blues, Dur-/Moll-Akkord, chromatisch).
 - **Noten-Leiste**: grün = erlaubter Ton, Klick schaltet einen Ton an/aus (Skala wechselt auf Custom). Das Leuchten zeigt live, welche Töne gerade rauskommen.
 - **MIDI KEY**: Noten auf den MIDI-Eingang des Plugins bestimmen die Tonart, der letzte Akkord bleibt aktiv (Leiste wird pink).
-- **Strength**: wie stark in die Tonart gezogen wird (High Quality: 50 % = halber Weg).
-- **Color**: 0–100 % macht den Klang tonaler, **über 100 %** (pinker Bogen) kommt ein farbiger Nachhall-Tail dazu, bei 200 % bis ca. 3 s.
-- **Clear**: Transienten kommen trocken durch, alte Resonanzen werden bei neuen Hits gedämpft.
-- **Mix** (im High-Quality-Modus latenzkorrigiert) und **Output** (−24 bis +12 dB, Soft-Limiter am Ausgang).
+- **Strength**: wie viel vom gefilterten Signal das Original ersetzt.
+- **Color**: Filtergüte. 0 % weich, 100 % deutlich tonal, **über 100 %** (pinker Bogen) klingen die Töne lange nach, bei 200 % mehrere Sekunden.
+- **Clear**: Anschläge kommen trocken durch, alte Resonanzen werden bei neuen Hits gedämpft.
+- **Mix** (latenzkorrigiert) und **Output** (−24 bis +12 dB, Soft-Limiter am Ausgang).
+- **Range Low / Range High**: nur dieser Frequenzbereich wird in die Tonart gezogen, darunter und darüber bleibt das Signal unverändert (Linkwitz-Riley-Weichen). So bleiben Kick, Sub und Becken sauber. OFF = ganzer Bereich.
+- **Gate**: drückt leise Noten relativ zur lautesten herunter, räumt Rauschen zwischen den Tönen auf.
+- **Shift** (nur High Quality): verschiebt schiefe Teiltöne auf die nächste Note statt sie nur zu dämpfen. Teiltöne werden als Ganzes um ihren Peak verschoben (Phase-Locking), dadurch kaum Phasing.
 
-Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft Tonhöhe, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
+Gemeinsam für beide Modi im Processor: Bereichsweichen, Pegelausgleich, Strength, Clear, Mix. Unterschiede gibt es nur noch durch das Prinzip selbst: Zero Latency verschmiert Anschläge etwas, High Quality kann sehr eng beieinander liegende Teiltöne (unter ca. 25 Hz Abstand) nicht ganz sauber trennen.
+
+Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
 
 ## Bauen
 
@@ -142,7 +147,7 @@ cmake --build build --config Release
 - `Plugins/BugzAlign` – Kick/Bass-Phasenausrichtung (DSP in `AlignEngine.h`, Anzeige in `AlignView.cpp`)
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
-- `Plugins/Prizm` – Harmonic Sweetener (Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
+- `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
