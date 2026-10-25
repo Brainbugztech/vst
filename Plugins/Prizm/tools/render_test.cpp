@@ -562,7 +562,7 @@ int main()
             const float expectedA4 = 440.0f * std::pow (2.0f, c.detune / 1200.0f);
             const int keyParam = p->apvts.getParameter (ParamIDs::key)->convertFrom0to1 (p->apvts.getParameter (ParamIDs::key)->getValue()) + 0.5f;
             const float tune = p->apvts.getRawParameterValue (ParamIDs::tune)->load();
-            check (got && r.key == c.key && r.minor == c.minor && std::abs (r.a4 - expectedA4) < 1.0f && keyParam == c.key && std::abs (tune - r.a4) < 0.1f,
+            check (got && r.key == c.key && r.minor == c.minor && std::abs (r.a4 - expectedA4) < 0.6f && keyParam == c.key && std::abs (tune - r.a4) < 0.1f,
                    juce::String ("Learn ") + c.name + ": " + (got ? juce::String (kNoteNames[(size_t) r.key]) + (r.minor ? " minor" : " major") : juce::String ("no result"))
                        + ", A4 " + juce::String (r.a4, 1) + " Hz (expected " + juce::String (expectedA4, 1) + "), confidence " + juce::String (r.confidence, 2));
         }
