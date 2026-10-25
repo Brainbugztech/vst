@@ -40,6 +40,8 @@ class SegmentSwitch : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     SegmentSwitch (juce::RangedAudioParameter& param, juce::StringArray segmentLabels, bool cycles, juce::String prefixText = {});
+    // ohne Parameter (z. B. Raster der Kurvenanzeige)
+    SegmentSwitch (juce::StringArray segmentLabels, bool cycles, juce::String prefixText, int initial, std::function<void (int)> changed);
     int getValue() const noexcept { return value; }
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
@@ -52,7 +54,8 @@ private:
     bool cycle;
     juce::String prefix;
     int value = 0;
-    juce::ParameterAttachment attachment;
+    std::unique_ptr<juce::ParameterAttachment> attachment;
+    std::function<void (int)> onChange;
 };
 
 // Reiter einer Quelle: Klick = anzeigen, Ziehen auf einen Regler = zuweisen
@@ -84,6 +87,9 @@ public:
     explicit CurveEditor (PrizmAudioProcessor& p) : processor (p) {}
 
     void setSource (int sourceIndex) { source = sourceIndex; selectedPoint = -1; repaint(); }
+    // Raster: 0 = aus, sonst Spalten (4, 8, 16, 32); senkrecht rastet es dann in Achteln ein
+    void setGrid (int columns) { gridColumns = columns; repaint(); }
+    static constexpr std::array<int, 5> kGridOptions { 0, 4, 8, 16, 32 };
     void tick();
 
     void paint (juce::Graphics& g) override;
@@ -110,12 +116,16 @@ private:
     int segmentAt (juce::Point<float> pos) const;
     float valueAt (float x) const; // aktuelle Form (Standard oder Kurve)
     void showMenu();
+    juce::Point<float> snap (juce::Point<float> c, const juce::ModifierKeys& mods) const;
+    int segmentIndexAtX (float x) const; // Segment unter x, egal wie weit die Maus von der Linie weg ist
 
     PrizmAudioProcessor& processor;
     int source = prizm::srcLfo1;
     std::vector<Point> dragPoints;
     int selectedPoint = -1, hoverPoint = -1, hoverSegment = -1, dragSegment = -1;
     float dragStartCurve = 0.0f;
+    int gridColumns = 16;
+    bool dragging = false;
     std::deque<float> envHistory;
 };
 
@@ -129,13 +139,14 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override;
     void mouseUp (const juce::MouseEvent& e) override;
     void mouseDoubleClick (const juce::MouseEvent& e) override;
-    void mouseMove (const juce::MouseEvent& e) override { hoverRow = rowAt (e.y); repaint(); }
+    void mouseMove (const juce::MouseEvent& e) override { hoverRow = rowAt (e.position); repaint(); }
     void mouseExit (const juce::MouseEvent&) override { hoverRow = -1; repaint(); }
     juce::String getTooltip() override;
 
 private:
     std::vector<int> activeSlots() const;
-    int rowAt (int y) const;
+    int rowAt (juce::Point<float> p) const;
+    juce::Rectangle<float> polarityBounds (int row) const;
     juce::Rectangle<float> rowBounds (int row) const;
     juce::Rectangle<float> barBounds (int row) const;
     juce::Rectangle<float> removeBounds (int row) const;
@@ -179,6 +190,7 @@ private:
     std::array<LfoControls, 2> lfo;
     std::array<std::unique_ptr<SegmentSwitch>, 2> modeSwitch; // FREE / RETRIG / ENV je LFO
     std::unique_ptr<SegmentSwitch> trigSwitch;                 // gilt für beide LFOs
+    std::unique_ptr<SegmentSwitch> gridSwitch;                 // Raster der Kurvenanzeige
     std::array<uint32_t, 2> lastTrig {};
 
     juce::Slider envAttack, envRelease, envSens;

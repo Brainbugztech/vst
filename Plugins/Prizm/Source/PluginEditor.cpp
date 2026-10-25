@@ -15,7 +15,7 @@ namespace
     constexpr int kBodyTop = 30;         // Inhalt beginnt 30 px unter der Oberkante des Panels
     constexpr int kFooterSpace = 44;     // Fußzeile unter dem letzten Bereich
     constexpr int kPoolSpace = 20;       // Lichtschein unter einem Panel
-    constexpr int kKeyHeight = 332, kSignalHeight = 186, kRangeHeight = 150, kModHeight = 228;
+    constexpr int kKeyHeight = 332, kSignalHeight = 186, kRangeHeight = 150, kModHeight = 428;
     constexpr float kTitleSize = 48.0f;
 
     juce::Font display (float size, bool bold = false) { return bb::fonts::display (size, bold); }
@@ -358,6 +358,124 @@ void ModKnob::itemDropped (const SourceDetails& d)
         onDropSource (d.description.toString().fromFirstOccurrenceOf ("mod:", false, false).getIntValue());
 }
 
+void ModKnob::setModState (std::vector<Mod> newMods, float base01, float now01)
+{
+    if (newMods == mods && std::abs (base01 - base) < 1.0e-4f && std::abs (now01 - now) < 1.0e-4f)
+        return;
+    mods = std::move (newMods);
+    base = base01;
+    now = now01;
+    if (dragHandle >= (int) mods.size())
+        dragHandle = -1;
+    repaint();
+}
+
+ModKnob::Geometry ModKnob::geometry()
+{
+    // gleiche Geometrie wie PrizmLookAndFeel::drawRotarySlider
+    const auto sb = getLookAndFeel().getSliderLayout (*this).sliderBounds.toFloat().reduced (3.0f);
+    const auto rp = getRotaryParameters();
+    return { sb.getCentre(), juce::jmin (sb.getWidth(), sb.getHeight()) * 0.5f - 4.0f, rp.startAngleRadians, rp.endAngleRadians };
+}
+
+juce::Point<float> ModKnob::handlePos (size_t index, const Geometry& g) const
+{
+    const float pos = juce::jlimit (0.0f, 1.0f, base + mods[index].amount * 0.01f);
+    return g.centre.getPointOnCircumference (modRadius (index, g), g.start + pos * (g.end - g.start));
+}
+
+int ModKnob::handleAt (juce::Point<float> p)
+{
+    const auto g = geometry();
+    int best = -1;
+    float bestDist = 9.0f;
+    for (size_t i = 0; i < mods.size() && i < 3; ++i)
+    {
+        const float d = handlePos (i, g).getDistanceFrom (p);
+        if (d < bestDist)
+        {
+            bestDist = d;
+            best = (int) i;
+        }
+    }
+    return best;
+}
+
+float ModKnob::angleToValue (juce::Point<float> p, const Geometry& g) const
+{
+    // Winkel wie bei JUCE-Drehreglern: 0 = oben, im Uhrzeigersinn
+    float a = std::atan2 (p.x - g.centre.x, g.centre.y - p.y);
+    while (a < g.start - 0.5f)
+        a += juce::MathConstants<float>::twoPi;
+    while (a > g.end + 0.5f)
+        a -= juce::MathConstants<float>::twoPi;
+    return juce::jlimit (0.0f, 1.0f, (a - g.start) / (g.end - g.start));
+}
+
+void ModKnob::paint (juce::Graphics& g)
+{
+    juce::Slider::paint (g);
+    if (mods.empty())
+        return;
+    using namespace juce;
+    const auto geo = geometry();
+    const float span = geo.end - geo.start;
+
+    for (size_t i = 0; i < mods.size() && i < 3; ++i)
+    {
+        const auto& m = mods[i];
+        const auto col = modSourceColour (m.source);
+        const float a = m.amount * 0.01f;
+        const float lo = jlimit (0.0f, 1.0f, base + (m.unipolar ? jmin (0.0f, a) : -std::abs (a)));
+        const float hi = jlimit (0.0f, 1.0f, base + (m.unipolar ? jmax (0.0f, a) : std::abs (a)));
+        const float r = modRadius (i, geo);
+        Path track;
+        track.addCentredArc (geo.centre.x, geo.centre.y, r, r, 0.0f, geo.start, geo.end, true);
+        g.setColour (col.withAlpha (0.10f));
+        g.strokePath (track, PathStrokeType (1.0f));
+        if (hi > lo + 0.001f)
+        {
+            Path range;
+            range.addCentredArc (geo.centre.x, geo.centre.y, r, r, 0.0f, geo.start + lo * span, geo.start + hi * span, true);
+            g.setColour (col.withAlpha (0.25f));
+            g.strokePath (range, PathStrokeType (5.0f, PathStrokeType::curved, PathStrokeType::rounded));
+            g.setColour (col);
+            g.strokePath (range, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
+        }
+        // Tiefen-Griff am Bogenende
+        const auto h = handlePos (i, geo);
+        const bool hot = (int) i == hoverHandle || (int) i == dragHandle;
+        g.setColour (col.withAlpha (hot ? 0.45f : 0.25f));
+        g.fillEllipse (Rectangle<float> (hot ? 14.0f : 11.0f, hot ? 14.0f : 11.0f).withCentre (h));
+        g.setColour (Col::glassDeep);
+        g.fillEllipse (Rectangle<float> (7.0f, 7.0f).withCentre (h));
+        g.setColour (hot ? juce::Colours::white : col);
+        g.drawEllipse (Rectangle<float> (7.0f, 7.0f).withCentre (h), 1.6f);
+    }
+
+    // aktueller Wert inklusive Modulation
+    const auto dot = geo.centre.getPointOnCircumference (geo.ringR, geo.start + now * span);
+    const auto col = modSourceColour (mods.front().source);
+    g.setColour (col.withAlpha (0.35f));
+    g.fillEllipse (Rectangle<float> (11.0f, 11.0f).withCentre (dot));
+    g.setColour (juce::Colours::white);
+    g.fillEllipse (Rectangle<float> (5.0f, 5.0f).withCentre (dot));
+
+    // beim Ziehen am Griff: Tiefe als Zahl in der Mitte
+    if (dragHandle >= 0)
+    {
+        const int amt = roundToInt (mods[(size_t) dragHandle].amount);
+        const auto box = Rectangle<float> (54.0f, 18.0f).withCentre (geo.centre);
+        g.setColour (Col::glassDeep.withAlpha (0.9f));
+        g.fillRoundedRectangle (box, 3.0f);
+        g.setColour (modSourceColour (mods[(size_t) dragHandle].source));
+        g.drawRoundedRectangle (box, 3.0f, 1.0f);
+        g.setFont (bb::fonts::mono (12.0f));
+        g.setColour (Col::ink);
+        g.drawText ((amt > 0 ? "+" : "") + String (amt) + " %", box, Justification::centred);
+    }
+}
+
 void ModKnob::mouseDown (const juce::MouseEvent& e)
 {
     if (e.mods.isPopupMenu() && onRemoveMenu)
@@ -365,7 +483,94 @@ void ModKnob::mouseDown (const juce::MouseEvent& e)
         onRemoveMenu();
         return;
     }
+    dragHandle = handleAt (e.position);
+    if (dragHandle >= 0)
+    {
+        if (onDepth)
+            onDepth (mods[(size_t) dragHandle].slot, mods[(size_t) dragHandle].amount, 0);
+        repaint();
+        return;
+    }
     juce::Slider::mouseDown (e);
+}
+
+void ModKnob::mouseDrag (const juce::MouseEvent& e)
+{
+    if (dragHandle < 0)
+    {
+        juce::Slider::mouseDrag (e);
+        return;
+    }
+    const auto geo = geometry();
+    float amt = (angleToValue (e.position, geo) - base) * 100.0f;
+    if (e.mods.isShiftDown())
+        amt = std::round (amt);
+    else
+        amt = std::round (amt * 0.5f) * 2.0f; // in 2er-Schritten, Shift = fein
+    amt = juce::jlimit (-100.0f, 100.0f, amt);
+    mods[(size_t) dragHandle].amount = amt;
+    if (onDepth)
+        onDepth (mods[(size_t) dragHandle].slot, amt, 1);
+    repaint();
+}
+
+void ModKnob::mouseUp (const juce::MouseEvent& e)
+{
+    if (dragHandle < 0)
+    {
+        juce::Slider::mouseUp (e);
+        return;
+    }
+    if (onDepth)
+        onDepth (mods[(size_t) dragHandle].slot, mods[(size_t) dragHandle].amount, 2);
+    dragHandle = -1;
+    repaint();
+}
+
+void ModKnob::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    const int h = handleAt (e.position);
+    if (h >= 0) // Doppelklick auf den Griff: Tiefe zurück auf +50 %
+    {
+        if (onDepth)
+        {
+            onDepth (mods[(size_t) h].slot, mods[(size_t) h].amount, 0);
+            onDepth (mods[(size_t) h].slot, 50.0f, 1);
+            onDepth (mods[(size_t) h].slot, 50.0f, 2);
+        }
+        return;
+    }
+    juce::Slider::mouseDoubleClick (e);
+}
+
+void ModKnob::mouseMove (const juce::MouseEvent& e)
+{
+    const int h = handleAt (e.position);
+    if (h != hoverHandle)
+    {
+        hoverHandle = h;
+        setMouseCursor (h >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+    juce::Slider::mouseMove (e);
+}
+
+void ModKnob::mouseExit (const juce::MouseEvent& e)
+{
+    if (hoverHandle >= 0)
+    {
+        hoverHandle = -1;
+        repaint();
+    }
+    juce::Slider::mouseExit (e);
+}
+
+juce::String ModKnob::getTooltip()
+{
+    if (hoverHandle >= 0 && hoverHandle < (int) mods.size())
+        return juce::String::fromUTF8 ("MODULATIONSTIEFE\nGriff entlang des Rings ziehen: wie weit ") + modSourceName (mods[(size_t) hoverHandle].source)
+               + juce::String::fromUTF8 (" den Regler bewegt (Shift = fein). Über den Reglerwert hinaus = positiv, darunter = umgekehrt. Doppelklick: +50 %. Rechtsklick: Uni/Bipolar, entfernen.");
+    return juce::Slider::getTooltip() + (modInfo ? modInfo() : juce::String());
 }
 
 //==============================================================================
@@ -517,11 +722,14 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
         if (idx < 0)
             return;
         processor.loadPreset (idx); // gleiches Preset nochmal = zurücksetzen
-        shownPreset = processor.getCurrentPreset();
-        const auto hint = processor.getPresetHint (idx);
-        if (hint.isNotEmpty())
-            showFooterMessage (presetBox.getText().toUpperCase() + ":  " + hint, 8);
+        presetLoaded (idx);
     };
+    prevPresetButton.setTooltip (de ("VORHERIGES PRESET\nBlättert durch alle Presets, Werkspresets und eigene."));
+    nextPresetButton.setTooltip (de ("NÄCHSTES PRESET\nBlättert durch alle Presets, Werkspresets und eigene."));
+    prevPresetButton.onClick = [this] { stepPreset (-1); };
+    nextPresetButton.onClick = [this] { stepPreset (1); };
+    addAndMakeVisible (prevPresetButton);
+    addAndMakeVisible (nextPresetButton);
     addAndMakeVisible (presetBox);
     savePresetButton.setTooltip (de ("SAVE\nAktuelle Einstellungen als eigenes Preset speichern (Dokumente/Brain Bugz/Prizm/Presets). Gezeichnete LFO-Kurven werden mitgespeichert."));
     savePresetButton.onClick = [this] { askPresetName(); };
@@ -588,6 +796,18 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
         };
         k.slider.modInfo = [this, target] { return modInfoFor (target); };
         k.slider.onRemoveMenu = [this, target] { showKnobModMenu (target); };
+        k.slider.onDepth = [this] (int slot, float amount, int phase)
+        {
+            if (auto* p = processor.apvts.getParameter (ParamIDs::modAmt (slot)))
+            {
+                if (phase == 0)
+                    p->beginChangeGesture();
+                else
+                    p->setValueNotifyingHost (p->convertTo0to1 (amount));
+                if (phase == 2)
+                    p->endChangeGesture();
+            }
+        };
     }
 
     sections[secMod].body.addAndMakeVisible (modPanel);
@@ -676,6 +896,25 @@ void PrizmAudioProcessorEditor::refreshPresetBox()
     }
     shownPreset = processor.getCurrentPreset();
     presetBox.setSelectedId (shownPreset + 1, juce::dontSendNotification);
+}
+
+void PrizmAudioProcessorEditor::stepPreset (int direction)
+{
+    const int count = processor.getPresetNames().size();
+    if (count <= 0)
+        return;
+    const int idx = ((processor.getCurrentPreset() + direction) % count + count) % count;
+    processor.loadPreset (idx);
+    presetBox.setSelectedId (idx + 1, juce::dontSendNotification);
+    presetLoaded (idx);
+}
+
+void PrizmAudioProcessorEditor::presetLoaded (int index)
+{
+    shownPreset = processor.getCurrentPreset();
+    updateModRings();
+    const auto hint = processor.getPresetHint (index);
+    showFooterMessage (presetBox.getText().toUpperCase() + (hint.isNotEmpty() ? ":  " + hint : juce::String()), hint.isNotEmpty() ? 8 : 3);
 }
 
 void PrizmAudioProcessorEditor::askPresetName()
@@ -825,61 +1064,20 @@ void PrizmAudioProcessorEditor::updateModRings()
     auto& apvts = processor.apvts;
     for (size_t i = 0; i < knobs.size(); ++i)
     {
-        auto& sl = knobs[i].slider;
-        float lo = 0.0f, hi = 0.0f;
-        bool has = false;
-        int firstSrc = srcOff;
-        bool mixed = false;
+        std::vector<ModKnob::Mod> mods;
         for (int s = 0; s < kNumModSlots; ++s)
         {
             const int src = (int) apvts.getRawParameterValue (ParamIDs::modSrc (s))->load();
             if (src == srcOff || (int) apvts.getRawParameterValue (ParamIDs::modDst (s))->load() != (int) i)
                 continue;
-            const float a = apvts.getRawParameterValue (ParamIDs::modAmt (s))->load() * 0.01f;
-            has = true;
-            if (firstSrc == srcOff)
-                firstSrc = src;
-            else if (firstSrc != src)
-                mixed = true;
-            if (src == srcEnv) // ENV ist 0..1, LFOs schwingen um den Wert
-            {
-                lo += juce::jmin (0.0f, a);
-                hi += juce::jmax (0.0f, a);
-            }
-            else
-            {
-                lo -= std::abs (a);
-                hi += std::abs (a);
-            }
-        }
-        auto& props = sl.getProperties();
-        const bool had = (bool) props.getWithDefault ("hasMod", false);
-        if (! has)
-        {
-            if (had)
-            {
-                props.set ("hasMod", false);
-                sl.repaint();
-            }
-            continue;
+            mods.push_back ({ s, src, apvts.getRawParameterValue (ParamIDs::modAmt (s))->load(),
+                              (int) apvts.getRawParameterValue (ParamIDs::modPol (s))->load() == 1 });
         }
         float base = 0.0f;
         if (auto* p = apvts.getParameter (kModTargetIds[i]))
             base = p->getValue();
-        const float newLo = juce::jlimit (0.0f, 1.0f, base + lo);
-        const float newHi = juce::jlimit (0.0f, 1.0f, base + hi);
-        const float now = idleTicks <= 6 ? processor.getModNow ((int) i) : base;
-        const auto col = mixed ? Col::ink : modSourceColour (firstSrc);
-        if (! had || std::abs ((float) props["modLo"] - newLo) > 1.0e-4f || std::abs ((float) props["modHi"] - newHi) > 1.0e-4f
-            || std::abs ((float) props["modNow"] - now) > 1.0e-4f || (juce::int64) props["modCol"] != (juce::int64) col.getARGB())
-        {
-            props.set ("hasMod", true);
-            props.set ("modLo", newLo);
-            props.set ("modHi", newHi);
-            props.set ("modNow", now);
-            props.set ("modCol", (juce::int64) col.getARGB());
-            sl.repaint();
-        }
+        const float now = (! mods.empty() && idleTicks <= 6) ? processor.getModNow ((int) i) : base;
+        knobs[i].slider.setModState (std::move (mods), base, now);
     }
 }
 
@@ -897,7 +1095,7 @@ juce::String PrizmAudioProcessorEditor::modInfoFor (int target) const
     }
     if (parts.isEmpty())
         return de ("\nModulieren: LFO 1, LFO 2 oder ENV aus dem Bereich MODULATION auf diesen Regler ziehen.");
-    return de ("\nMODULIERT VON: ") + parts.joinIntoString (", ") + de (". Rechtsklick: Modulation entfernen.");
+    return de ("\nMODULIERT VON: ") + parts.joinIntoString (", ") + de (". Tiefe: Griff am farbigen Bogen ziehen. Rechtsklick: Uni/Bipolar, entfernen.");
 }
 
 void PrizmAudioProcessorEditor::showKnobModMenu (int target)
@@ -911,36 +1109,65 @@ void PrizmAudioProcessorEditor::showKnobModMenu (int target)
         const int src = (int) apvts.getRawParameterValue (ParamIDs::modSrc (s))->load();
         if (src == srcOff || (int) apvts.getRawParameterValue (ParamIDs::modDst (s))->load() != target)
             continue;
-        menu.addItem (1 + s, modSourceName (src) + de (" entfernen"));
+        const bool uni = (int) apvts.getRawParameterValue (ParamIDs::modPol (s))->load() == 1;
+        juce::PopupMenu sub;
+        sub.addItem (100 + s, de ("Bipolar (schwingt um den Reglerwert)"), true, ! uni);
+        sub.addItem (200 + s, de ("Unipolar (nur in eine Richtung)"), true, uni);
+        sub.addItem (300 + s, de ("Tiefe umkehren"));
+        sub.addSeparator();
+        sub.addItem (1 + s, de ("Entfernen"));
+        const int amt = juce::roundToInt (apvts.getRawParameterValue (ParamIDs::modAmt (s))->load());
+        menu.addSubMenu (modSourceName (src) + "  " + (amt > 0 ? "+" : "") + juce::String (amt) + " %" + (uni ? "  UNI" : "  BI"), sub);
         ++count;
     }
     if (count == 0)
     {
-        menu.addItem (100, de ("Keine Modulation. Zum Zuweisen LFO 1, LFO 2 oder ENV hierher ziehen."), false);
+        menu.addItem (1000, de ("Keine Modulation. Zum Zuweisen LFO 1, LFO 2 oder ENV hierher ziehen."), false);
         if (! sections[secMod].open)
-            menu.addItem (101, de ("Bereich MODULATION aufklappen"));
+            menu.addItem (1001, de ("Bereich MODULATION aufklappen"));
     }
     else if (count > 1)
+    {
+        menu.addSeparator();
         menu.addItem (99, de ("Alle entfernen"));
+    }
 
     juce::Component::SafePointer<PrizmAudioProcessorEditor> safe (this);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&knobs[(size_t) target].slider), [safe, target] (int result)
     {
         if (safe == nullptr || result == 0)
             return;
-        if (result == 101)
+        if (result == 1001)
         {
             safe->setSectionOpen (secMod, true, true);
             return;
         }
         auto& ap = safe->processor.apvts;
-        for (int s = 0; s < kNumModSlots; ++s)
+        auto setParam = [&ap] (const juce::String& id, float plain)
         {
-            const bool match = (int) ap.getRawParameterValue (ParamIDs::modSrc (s))->load() != srcOff
-                               && (int) ap.getRawParameterValue (ParamIDs::modDst (s))->load() == target;
-            if (match && (result == 99 || result == 1 + s))
-                safe->processor.clearModSlot (s);
+            if (auto* p = ap.getParameter (id))
+            {
+                p->beginChangeGesture();
+                p->setValueNotifyingHost (p->convertTo0to1 (plain));
+                p->endChangeGesture();
+            }
+        };
+        if (result >= 100 && result < 400)
+        {
+            const int s = result % 100;
+            if (result < 300)
+                setParam (ParamIDs::modPol (s), result < 200 ? 0.0f : 1.0f);
+            else
+                setParam (ParamIDs::modAmt (s), -ap.getRawParameterValue (ParamIDs::modAmt (s))->load());
         }
+        else
+            for (int s = 0; s < kNumModSlots; ++s)
+            {
+                const bool match = (int) ap.getRawParameterValue (ParamIDs::modSrc (s))->load() != srcOff
+                                   && (int) ap.getRawParameterValue (ParamIDs::modDst (s))->load() == target;
+                if (match && (result == 99 || result == 1 + s))
+                    safe->processor.clearModSlot (s);
+            }
         safe->updateModRings();
     });
 }
@@ -1144,8 +1371,10 @@ void PrizmAudioProcessorEditor::layoutSections()
 
     // Kopfzeilen-Bedienung
     const auto& keyB = sections[secKey].bounds;
-    presetBox.setBounds (keyB.getRight() - 20 - 64 - 6 - 220, keyB.getY() + 5, 220, 24);
     savePresetButton.setBounds (keyB.getRight() - 20 - 64, keyB.getY() + 5, 64, 24);
+    nextPresetButton.setBounds (savePresetButton.getX() - 6 - 24, keyB.getY() + 5, 24, 24);
+    prevPresetButton.setBounds (nextPresetButton.getX() - 2 - 24, keyB.getY() + 5, 24, 24);
+    presetBox.setBounds (prevPresetButton.getX() - 4 - 200, keyB.getY() + 5, 200, 24);
     const auto& rangeB = sections[secRange].bounds;
     stereoBox.setBounds (rangeB.getRight() - 20 - 150, rangeB.getY() + 5, 150, 24);
 
@@ -1790,7 +2019,7 @@ void PrizmAudioProcessorEditor::resized()
     }
 
     // MODULATION
-    modPanel.setBounds (local (20, 40, panelW - 40, 174));
+    modPanel.setBounds (local (20, 40, panelW - 40, kModHeight - 54));
 
     layoutSections();
 }

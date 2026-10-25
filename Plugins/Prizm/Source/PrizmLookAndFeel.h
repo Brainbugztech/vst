@@ -242,8 +242,7 @@ public:
         g.fillEllipse (Rectangle<float> (3.0f, 3.0f).withCentre (edgeDot));
     }
 
-    // Modulation am Regler: Bereich als Bogen innen am Ring, aktueller Wert als Punkt,
-    // beim Ziehen einer Quelle leuchtet der Regler als Ziel auf.
+    // Beim Ziehen einer Modulationsquelle leuchtet der Regler als Ziel auf.
     static void drawModRing (juce::Graphics& g, juce::Point<float> c, float ringR, float startAngle, float endAngle, juce::Slider& slider)
     {
         using namespace juce;
@@ -260,27 +259,7 @@ public:
             g.setColour (col.withAlpha (drop > 0 ? 0.9f : 0.35f));
             g.strokePath (p, PathStrokeType (1.2f));
         }
-        if (! (bool) props.getWithDefault ("hasMod", false))
-            return;
-        const auto col = Colour ((uint32) (int64) props.getWithDefault ("modCol", (int64) 0xff2fe6ff));
-        const float lo = (float) props.getWithDefault ("modLo", 0.0), hi = (float) props.getWithDefault ("modHi", 0.0);
-        const float now = (float) props.getWithDefault ("modNow", 0.0);
-        const float span = endAngle - startAngle;
-        const float r = ringR - 5.5f;
-        if (hi > lo + 0.001f)
-        {
-            Path range;
-            range.addCentredArc (c.x, c.y, r, r, 0.0f, startAngle + lo * span, startAngle + hi * span, true);
-            g.setColour (col.withAlpha (0.25f));
-            g.strokePath (range, PathStrokeType (5.0f, PathStrokeType::curved, PathStrokeType::rounded));
-            g.setColour (col);
-            g.strokePath (range, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        }
-        const auto dot = c.getPointOnCircumference (ringR, startAngle + now * span);
-        g.setColour (col.withAlpha (0.35f));
-        g.fillEllipse (Rectangle<float> (11.0f, 11.0f).withCentre (dot));
-        g.setColour (juce::Colours::white);
-        g.fillEllipse (Rectangle<float> (5.0f, 5.0f).withCentre (dot));
+        // Modulationsbögen und Tiefen-Griffe zeichnet ModKnob selbst (PluginEditor)
     }
 
     // Kleiner Regler (Modulations-Bereich): Ring + dunkle Kappe, Wert rechts daneben

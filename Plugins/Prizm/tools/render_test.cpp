@@ -931,6 +931,7 @@ int main()
         setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 3.0f);
         setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 1.0f);
         setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 100.0f);
+        setParam (*p, ParamIDs::modPol (0).toRawUTF8(), 1.0f); // unipolar
         render (*p, makeNoise (0.5, 0.5f));
         const float loud = p->getModNow (1);
         juce::AudioBuffer<float> silence (2, 48000);
@@ -951,6 +952,34 @@ int main()
         const float wet = inKeyEnergyRatio (out, (int) (2.05 * kSampleRate), cMajor);  // Phase 0.03 .. 0.37: +1
         const float dry = inKeyEnergyRatio (out, (int) (3.05 * kSampleRate), cMajor);  // Phase 0.53 .. 0.87: -1
         check (wet > dry + 0.25f, "Square LFO on Strength: tuned half " + juce::String (wet * 100.0f, 1) + " % in key, dry half " + juce::String (dry * 100.0f, 1) + " %");
+    }
+    {
+        // Uni/Bipolar: LFO auf Mix 50 %, Tiefe 50. Bipolar 0..100 %, unipolar nur 50..100 %.
+        auto range = [] (bool uni)
+        {
+            auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+            setParam (*p, ParamIDs::mix, 50.0f);
+            setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 0.0f);
+            setParam (*p, ParamIDs::modSrc (0).toRawUTF8(), 1.0f);
+            setParam (*p, ParamIDs::modDst (0).toRawUTF8(), 3.0f);
+            setParam (*p, ParamIDs::modAmt (0).toRawUTF8(), 50.0f);
+            setParam (*p, ParamIDs::modPol (0).toRawUTF8(), uni ? 1.0f : 0.0f);
+            auto in = makeNoise (2.0, 0.1f);
+            float lo = 1.0f, hi = 0.0f;
+            for (int start = 0; start < in.getNumSamples(); start += kBlock)
+            {
+                juce::AudioBuffer<float> block (in.getArrayOfWritePointers(), 2, start, std::min (kBlock, in.getNumSamples() - start));
+                juce::MidiBuffer m;
+                p->processBlock (block, m);
+                lo = std::min (lo, p->getModNow (3));
+                hi = std::max (hi, p->getModNow (3));
+            }
+            return std::make_pair (lo, hi);
+        };
+        const auto bi = range (false), uni = range (true);
+        check (bi.first < 0.05f && bi.second > 0.95f && uni.first > 0.47f && uni.second > 0.95f,
+               "Polarity: bipolar Mix " + juce::String (bi.first, 2) + ".." + juce::String (bi.second, 2) + ", unipolar "
+                   + juce::String (uni.first, 2) + ".." + juce::String (uni.second, 2) + " (expect 0..1 and 0.5..1)");
     }
     {
         // LFO-Modi: Retrig per MIDI-Note, Envelope läuft einmal und bleibt stehen, Retrig per Anschlag im Audio

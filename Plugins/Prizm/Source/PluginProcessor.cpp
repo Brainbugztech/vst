@@ -52,6 +52,7 @@ PrizmAudioProcessor::PrizmAudioProcessor()
         modSrcParams[(size_t) i] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::modSrc (i)));
         modDstParams[(size_t) i] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::modDst (i)));
         modAmtParams[(size_t) i] = apvts.getRawParameterValue (ParamIDs::modAmt (i));
+        modPolParams[(size_t) i] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::modPol (i)));
     }
     for (int n = 0; n < 2; ++n)
     {
@@ -181,6 +182,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
             layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::modDst (i), 1 }, name + " Target", targets, 0));
             layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::modAmt (i), 1 }, name + " Amount",
                                                                NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 50.0f, amtAttr));
+            // Bipolar: Quelle schwingt um den Reglerwert (-1..1). Unipolar: nur in eine Richtung (0..1).
+            layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::modPol (i), 1 }, name + " Polarity",
+                                                                StringArray { "Bipolar", "Unipolar" }, 0));
         }
     }
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::stereo, 1 }, "Stereo",
@@ -675,7 +679,11 @@ std::array<float, kNumModTargets> PrizmAudioProcessor::targetValues (bool modula
             if (s == srcOff)
                 continue;
             const int dst = modDstParams[(size_t) i]->getIndex();
-            offset[(size_t) dst] += modAmtParams[(size_t) i]->load() * 0.01f * src[(size_t) s];
+            const bool uni = modPolParams[(size_t) i]->getIndex() == 1;
+            const float raw = src[(size_t) s];
+            const float v = s == srcEnv ? (uni ? raw : raw * 2.0f - 1.0f)  // ENV ist von sich aus 0..1
+                                        : (uni ? 0.5f * (raw + 1.0f) : raw); // LFOs sind -1..1
+            offset[(size_t) dst] += modAmtParams[(size_t) i]->load() * 0.01f * v;
         }
 
     // kurz glätten (4 ms), damit Rechteck und Zufall nicht knacken
@@ -713,6 +721,7 @@ int PrizmAudioProcessor::assignModulation (int source, int target)
             };
             set (modDstParams[(size_t) i], (float) target);
             set (dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (ParamIDs::modAmt (i))), 50.0f);
+            set (modPolParams[(size_t) i], source == srcEnv ? 1.0f : 0.0f); // ENV unipolar, LFOs bipolar
             set (modSrcParams[(size_t) i], (float) source);
             return i;
         }

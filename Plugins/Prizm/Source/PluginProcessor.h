@@ -50,6 +50,7 @@ namespace ParamIDs
     inline juce::String modSrc (int i) { return "modSrc" + juce::String (i); }
     inline juce::String modDst (int i) { return "modDst" + juce::String (i); }
     inline juce::String modAmt (int i) { return "modAmt" + juce::String (i); }
+    inline juce::String modPol (int i) { return "modPol" + juce::String (i); } // 0 = bipolar, 1 = unipolar
 }
 
 enum Mode { zeroLatency = 0, highQuality = 1 };
@@ -212,6 +213,7 @@ private:
     std::array<float, prizm::kNumModTargets> modSmooth {};
     std::array<juce::AudioParameterChoice*, prizm::kNumModSlots> modSrcParams {}, modDstParams {};
     std::array<std::atomic<float>*, prizm::kNumModSlots> modAmtParams {};
+    std::array<juce::AudioParameterChoice*, prizm::kNumModSlots> modPolParams {};
     std::array<juce::AudioParameterChoice*, 2> lfoShapeParams {}, lfoDivParams {};
     std::array<juce::AudioParameterBool*, 2> lfoSyncParams {};
     std::array<juce::AudioParameterChoice*, 2> lfoModeParams {};

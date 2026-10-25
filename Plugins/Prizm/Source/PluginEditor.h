@@ -71,21 +71,54 @@ private:
     std::array<float, 12> energy {};
 };
 
-// Regler, auf den man eine Modulationsquelle ziehen kann. Rechtsklick: Zuweisungen entfernen.
+// Regler, auf den man eine Modulationsquelle ziehen kann. Wie in Serum: je Zuweisung ein farbiger Bogen
+// innen am Ring und ein kleiner Griff am Bogenende, mit dem man die Tiefe direkt am Regler zieht.
+// Rechtsklick: Menü (Uni/Bipolar, entfernen).
 class ModKnob : public juce::Slider, public juce::DragAndDropTarget
 {
 public:
+    struct Mod
+    {
+        int slot = -1, source = 0;
+        float amount = 0.0f; // -100..100
+        bool unipolar = false;
+        bool operator== (const Mod& o) const { return slot == o.slot && source == o.source && amount == o.amount && unipolar == o.unipolar; }
+    };
+
     int target = -1; // Index in prizm::kModTargetIds
     std::function<void (int)> onDropSource;
-    std::function<juce::String()> modInfo;   // wird an den Tooltip angehängt
-    std::function<void()> onRemoveMenu;      // Rechtsklick bei vorhandener Modulation
+    std::function<juce::String()> modInfo;                   // wird an den Tooltip angehängt
+    std::function<void()> onRemoveMenu;                      // Rechtsklick
+    std::function<void (int slot, float amount, int phase)> onDepth; // phase: 0 Start, 1 Ziehen, 2 Ende
 
+    // vom Editor-Timer: Zuweisungen, Reglerwert (0..1) und aktueller modulierter Wert (0..1)
+    void setModState (std::vector<Mod> newMods, float base01, float now01);
+    bool hasMods() const noexcept { return ! mods.empty(); }
+
+    void paint (juce::Graphics& g) override;
     bool isInterestedInDragSource (const SourceDetails& d) override { return target >= 0 && d.description.toString().startsWith ("mod:"); }
     void itemDragEnter (const SourceDetails& d) override;
     void itemDragExit (const SourceDetails&) override;
     void itemDropped (const SourceDetails& d) override;
     void mouseDown (const juce::MouseEvent& e) override;
-    juce::String getTooltip() override { return juce::Slider::getTooltip() + (modInfo ? modInfo() : juce::String()); }
+    void mouseDrag (const juce::MouseEvent& e) override;
+    void mouseUp (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent& e) override;
+    void mouseDoubleClick (const juce::MouseEvent& e) override;
+    juce::String getTooltip() override;
+
+private:
+    struct Geometry { juce::Point<float> centre; float ringR = 0.0f, start = 0.0f, end = 0.0f; };
+    Geometry geometry();
+    float modRadius (size_t index, const Geometry& g) const { return g.ringR - 6.0f - 4.5f * (float) index; }
+    juce::Point<float> handlePos (size_t index, const Geometry& g) const;
+    int handleAt (juce::Point<float> p);
+    float angleToValue (juce::Point<float> p, const Geometry& g) const;
+
+    std::vector<Mod> mods;
+    float base = 0.0f, now = 0.0f;
+    int dragHandle = -1, hoverHandle = -1;
 };
 
 // Inhalt eines aufklappbaren Bereichs. Die Höhe wird beim Ein- und Ausblenden animiert,
@@ -201,6 +234,9 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> scAttachment;
     juce::ComboBox presetBox, stereoBox;
     juce::TextButton savePresetButton { "SAVE" };
+    juce::TextButton prevPresetButton { "<" }, nextPresetButton { ">" };
+    void stepPreset (int direction);
+    void presetLoaded (int index);
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> stereoAttachment;
     void refreshPresetBox();
     void askPresetName();

@@ -21,9 +21,14 @@ namespace
 //==============================================================================
 SegmentSwitch::SegmentSwitch (juce::RangedAudioParameter& param, juce::StringArray segmentLabels, bool cycles, juce::String prefixText)
     : labels (std::move (segmentLabels)), cycle (cycles), prefix (std::move (prefixText)),
-      attachment (param, [this] (float v) { value = juce::jlimit (0, labels.size() - 1, juce::roundToInt (v)); repaint(); })
+      attachment (std::make_unique<juce::ParameterAttachment> (param, [this] (float v) { value = juce::jlimit (0, labels.size() - 1, juce::roundToInt (v)); repaint(); }))
 {
-    attachment.sendInitialUpdate();
+    attachment->sendInitialUpdate();
+}
+
+SegmentSwitch::SegmentSwitch (juce::StringArray segmentLabels, bool cycles, juce::String prefixText, int initial, std::function<void (int)> changed)
+    : labels (std::move (segmentLabels)), cycle (cycles), prefix (std::move (prefixText)), value (initial), onChange (std::move (changed))
+{
 }
 
 int SegmentSwitch::segmentAt (int x) const
@@ -40,7 +45,7 @@ void SegmentSwitch::paint (juce::Graphics& g)
     g.fillRoundedRectangle (r, 2.0f);
     g.setColour (Col::holo.withAlpha (hot ? 0.8f : 0.45f));
     g.drawRoundedRectangle (r, 2.0f, 1.0f);
-    g.setFont (bb::fonts::mono (10.5f));
+    g.setFont (bb::fonts::mono (juce::jlimit (10.5f, 12.5f, (float) getHeight() * 0.46f)));
     if (cycle)
     {
         g.setColour (hot ? Col::ink : Col::holoBright);
@@ -72,8 +77,17 @@ void SegmentSwitch::paint (juce::Graphics& g)
 void SegmentSwitch::mouseDown (const juce::MouseEvent& e)
 {
     const int next = cycle ? (value + 1) % labels.size() : segmentAt (e.x);
-    if (next != value)
-        attachment.setValueAsCompleteGesture ((float) next);
+    if (next == value)
+        return;
+    if (attachment != nullptr)
+        attachment->setValueAsCompleteGesture ((float) next);
+    else
+    {
+        value = next;
+        repaint();
+        if (onChange)
+            onChange (next);
+    }
 }
 
 //==============================================================================
@@ -160,7 +174,7 @@ void ModSourceTab::mouseDrag (const juce::MouseEvent& e)
 //==============================================================================
 juce::Rectangle<float> CurveEditor::plotArea() const
 {
-    return getLocalBounds().toFloat().reduced (12.0f, 22.0f).withTrimmedBottom (-10.0f);
+    return getLocalBounds().toFloat().withTrimmedTop (32.0f).withTrimmedBottom (14.0f).reduced (16.0f, 0.0f);
 }
 
 juce::Point<float> CurveEditor::toScreen (float x, float y) const
@@ -236,7 +250,7 @@ int CurveEditor::pointAt (juce::Point<float> pos) const
 {
     const auto pts = shownPoints();
     for (int i = 0; i < (int) pts.size(); ++i)
-        if (toScreen (pts[(size_t) i].x, pts[(size_t) i].y).getDistanceFrom (pos) < 8.0f)
+        if (toScreen (pts[(size_t) i].x, pts[(size_t) i].y).getDistanceFrom (pos) < 11.0f)
             return i;
     return -1;
 }
@@ -249,9 +263,29 @@ int CurveEditor::segmentAt (juce::Point<float> pos) const
         if (x >= pts[(size_t) i].x && x <= pts[(size_t) i + 1].x)
         {
             const float y = LfoCurve::evaluate (pts, x);
-            return std::abs (toScreen (x, y).y - pos.y) < 14.0f ? i : -1;
+            return std::abs (toScreen (x, y).y - pos.y) < 16.0f ? i : -1;
         }
     return -1;
+}
+
+int CurveEditor::segmentIndexAtX (float x) const
+{
+    const auto pts = shownPoints();
+    for (int i = 0; i + 1 < (int) pts.size(); ++i)
+        if (x >= pts[(size_t) i].x && x <= pts[(size_t) i + 1].x)
+            return i;
+    return -1;
+}
+
+juce::Point<float> CurveEditor::snap (juce::Point<float> c, const juce::ModifierKeys& mods) const
+{
+    // Raster an (GRID), Strg/Cmd gedrückt = frei
+    if (gridColumns > 0 && ! mods.isCommandDown())
+    {
+        c.x = std::round (c.x * (float) gridColumns) / (float) gridColumns;
+        c.y = std::round (c.y * 4.0f) / 4.0f;
+    }
+    return c;
 }
 
 void CurveEditor::tick()
@@ -270,19 +304,34 @@ void CurveEditor::paint (juce::Graphics& g)
     using namespace juce;
     const auto bounds = getLocalBounds().toFloat();
     const auto col = modSourceColour (source);
-    holo::box (g, bounds.reduced (0.5f), 1.0f, false);
+    {
+        // dunkles Glas ohne Glanzstreifen, damit die Kurve gut lesbar bleibt
+        const auto r = bounds.reduced (0.5f);
+        ColourGradient fill (Col::glassDeep.withAlpha (0.92f), 0.0f, r.getY(), Colour (0xff03070c).withAlpha (0.95f), 0.0f, r.getBottom(), false);
+        g.setGradientFill (fill);
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (Col::holo.withAlpha (0.06f));
+        g.fillRect (r.getX() + 1.0f, r.getY() + 1.0f, r.getWidth() - 2.0f, 18.0f);
+        g.setColour (Col::holo.withAlpha (0.5f));
+        g.drawRoundedRectangle (r, 3.0f, 1.0f);
+        holo::cornerBrackets (g, r, 6.0f, Col::holoBright.withAlpha (0.8f), 1.4f);
+    }
     const auto a = plotArea();
 
-    // Raster: 16 Spalten (Viertel hervorgehoben), Mittellinie
-    for (int i = 0; i <= 16; ++i)
+    // Raster (GRID), Viertel hervorgehoben, Mittellinie
     {
-        const float x = a.getX() + a.getWidth() * (float) i / 16.0f;
-        g.setColour (Col::holo.withAlpha (i % 4 == 0 ? 0.16f : 0.06f));
-        g.fillRect (x - 0.5f, a.getY(), 1.0f, a.getHeight());
+        const int cols = isLfo() && gridColumns > 0 ? gridColumns : 16;
+        for (int i = 0; i <= cols; ++i)
+        {
+            const float x = a.getX() + a.getWidth() * (float) i / (float) cols;
+            const bool quarter = (i * 4) % cols == 0;
+            g.setColour (Col::holo.withAlpha (quarter ? 0.16f : (gridColumns > 0 || ! isLfo() ? 0.07f : 0.03f)));
+            g.fillRect (x - 0.5f, a.getY(), 1.0f, a.getHeight());
+        }
     }
-    for (float yy : { -1.0f, -0.5f, 0.0f, 0.5f, 1.0f })
+    for (float yy : { -1.0f, -0.75f, -0.5f, -0.25f, 0.0f, 0.25f, 0.5f, 0.75f, 1.0f })
     {
-        g.setColour (Col::holo.withAlpha (yy == 0.0f ? 0.2f : 0.06f));
+        g.setColour (Col::holo.withAlpha (yy == 0.0f ? 0.22f : (std::abs (yy) == 0.5f || std::abs (yy) == 1.0f ? 0.07f : 0.035f)));
         const float y = toScreen (0.0f, yy).y;
         g.fillRect (a.getX(), y - 0.5f, a.getWidth(), 1.0f);
     }
@@ -351,7 +400,7 @@ void CurveEditor::paint (juce::Graphics& g)
             const auto c = toScreen (mx, LfoCurve::evaluate (pts, mx));
             const bool hot = i == hoverSegment || i == dragSegment;
             Path d;
-            d.addPolygon (c, 4, hot ? 5.0f : 3.5f, MathConstants<float>::pi * 0.25f);
+            d.addPolygon (c, 4, hot ? 6.5f : 4.5f, MathConstants<float>::pi * 0.25f);
             g.setColour (hot ? Col::ink : col.withAlpha (0.6f * handleAlpha));
             g.fillPath (d);
         }
@@ -360,16 +409,38 @@ void CurveEditor::paint (juce::Graphics& g)
             const auto c = toScreen (pts[(size_t) i].x, pts[(size_t) i].y);
             const bool hot = i == hoverPoint || i == selectedPoint;
             g.setColour (col.withAlpha (0.3f * handleAlpha));
-            g.fillEllipse (Rectangle<float> (hot ? 14.0f : 10.0f, hot ? 14.0f : 10.0f).withCentre (c));
+            g.fillEllipse (Rectangle<float> (hot ? 19.0f : 14.0f, hot ? 19.0f : 14.0f).withCentre (c));
             g.setColour (Col::glassDeep);
-            g.fillEllipse (Rectangle<float> (7.0f, 7.0f).withCentre (c));
-            g.setColour (hot ? Col::ink : col.withAlpha (handleAlpha));
-            g.drawEllipse (Rectangle<float> (7.0f, 7.0f).withCentre (c), 1.6f);
+            g.fillEllipse (Rectangle<float> (9.0f, 9.0f).withCentre (c));
+            g.setColour (hot ? juce::Colours::white : col.withAlpha (handleAlpha));
+            g.drawEllipse (Rectangle<float> (9.0f, 9.0f).withCentre (c), 1.8f);
         }
     }
 
-    // Abspielposition
+    // Abspielposition mit leuchtender Spur
     const float phase = processor.getLfoPhase (lfoIndex());
+    {
+        Path trail;
+        const float len = 0.12f;
+        for (int i = 0; i <= 24; ++i)
+        {
+            float x = phase - len + len * (float) i / 24.0f;
+            if (x < 0.0f)
+                continue;
+            const auto pt = toScreen (x, valueAt (x));
+            if (trail.isEmpty())
+                trail.startNewSubPath (pt);
+            else
+                trail.lineTo (pt);
+        }
+        if (! trail.isEmpty())
+        {
+            g.setColour (col.withAlpha (0.25f));
+            g.strokePath (trail, PathStrokeType (8.0f, PathStrokeType::curved, PathStrokeType::rounded));
+            g.setColour (col.brighter (0.6f));
+            g.strokePath (trail, PathStrokeType (2.6f, PathStrokeType::curved, PathStrokeType::rounded));
+        }
+    }
     const auto head = toScreen (phase, valueAt (phase));
     g.setColour (Col::ink.withAlpha (0.25f));
     g.fillRect (head.x - 0.5f, a.getY(), 1.0f, a.getHeight());
@@ -384,14 +455,52 @@ void CurveEditor::paint (juce::Graphics& g)
     const bool sync = apvts.getRawParameterValue (ParamIDs::lfoSync (n))->load() > 0.5f;
     const String rate = sync ? String (kSyncDivisions[(size_t) (int) apvts.getRawParameterValue (ParamIDs::lfoDiv (n))->load()].name)
                              : apvts.getParameter (ParamIDs::lfoRate (n))->getCurrentValueAsText();
+    const int modeIndex = (int) apvts.getRawParameterValue (ParamIDs::lfoMode (n))->load();
     g.setColour (Col::muted);
-    g.drawText ("LFO " + String (n) + "  //  " + rate.toUpperCase(), Rectangle<float> (10.0f, 4.0f, 110.0f, 14.0f), Justification::centredLeft);
+    g.drawText ("LFO " + String (n) + "  //  " + rate.toUpperCase() + "  //  " + String (kLfoModeNames[(size_t) modeIndex]).toUpperCase(),
+                Rectangle<float> (10.0f, 4.0f, bounds.getWidth() - 20.0f, 14.0f), Justification::centredLeft);
+    g.setColour (Col::dim);
+    g.drawText (de ("DOPPELKLICK = PUNKT  //  ALT+KLICK = LÖSCHEN  //  ALT+ZIEHEN = BIEGEN"), Rectangle<float> (10.0f, 4.0f, bounds.getWidth() - 20.0f, 14.0f), Justification::centredRight);
+
+    // Wert beim Ziehen
+    if (dragging && (selectedPoint >= 0 || dragSegment >= 0))
+    {
+        const auto pts = shownPoints();
+        String text;
+        juce::Point<float> at;
+        if (selectedPoint >= 0 && selectedPoint < (int) pts.size())
+        {
+            const auto& p = pts[(size_t) selectedPoint];
+            text = "X " + String (p.x, 3) + "   Y " + (p.y >= 0.0f ? "+" : "") + String (p.y, 2);
+            at = toScreen (p.x, p.y);
+        }
+        else if (dragSegment >= 0 && dragSegment + 1 < (int) pts.size())
+        {
+            const float c = pts[(size_t) dragSegment].curve;
+            text = "CURVE " + String (c >= 0.0f ? "+" : "") + String (roundToInt (c * 100.0f));
+            const float mx = 0.5f * (pts[(size_t) dragSegment].x + pts[(size_t) dragSegment + 1].x);
+            at = toScreen (mx, LfoCurve::evaluate (pts, mx));
+        }
+        if (text.isNotEmpty())
+        {
+            g.setFont (mono (11.5f));
+            const float w = (float) GlyphArrangement::getStringWidthInt (g.getCurrentFont(), text) + 16.0f;
+            auto box = Rectangle<float> (w, 20.0f).withCentre (at.translated (0.0f, at.y > a.getCentreY() ? -22.0f : 22.0f));
+            box = box.constrainedWithin (bounds.reduced (4.0f));
+            g.setColour (Col::glassDeep.withAlpha (0.92f));
+            g.fillRoundedRectangle (box, 3.0f);
+            g.setColour (col);
+            g.drawRoundedRectangle (box, 3.0f, 1.0f);
+            g.setColour (Col::ink);
+            g.drawText (text, box, Justification::centred);
+        }
+    }
 }
 
 void CurveEditor::mouseMove (const juce::MouseEvent& e)
 {
     const int p = pointAt (e.position);
-    const int s = p < 0 ? segmentAt (e.position) : -1;
+    const int s = p < 0 ? (e.mods.isAltDown() ? segmentIndexAtX (toCurve (e.position).x) : segmentAt (e.position)) : -1;
     if (p != hoverPoint || s != hoverSegment)
     {
         hoverPoint = p;
@@ -412,10 +521,27 @@ void CurveEditor::mouseDown (const juce::MouseEvent& e)
         return;
     }
     selectedPoint = pointAt (e.position);
-    dragSegment = selectedPoint < 0 ? segmentAt (e.position) : -1;
     dragPoints = editablePoints();
+    if (e.mods.isAltDown() && selectedPoint >= 0)
+    {
+        // Alt+Klick auf einen Punkt: löschen (erster und letzter Punkt bleiben)
+        if (selectedPoint > 0 && selectedPoint < (int) dragPoints.size() - 1)
+        {
+            dragPoints.erase (dragPoints.begin() + selectedPoint);
+            commit (dragPoints);
+        }
+        selectedPoint = -1;
+        hoverPoint = -1;
+        dragSegment = -1;
+        return;
+    }
+    // Alt+Ziehen irgendwo im Segment biegt es, ohne Alt nur direkt auf der Linie
+    dragSegment = selectedPoint >= 0 ? -1 : (e.mods.isAltDown() ? segmentIndexAtX (toCurve (e.position).x) : segmentAt (e.position));
+    if (dragSegment >= (int) dragPoints.size() - 1)
+        dragSegment = -1;
     if (dragSegment >= 0)
         dragStartCurve = dragPoints[(size_t) dragSegment].curve;
+    dragging = selectedPoint >= 0 || dragSegment >= 0;
 }
 
 void CurveEditor::mouseDrag (const juce::MouseEvent& e)
@@ -424,12 +550,7 @@ void CurveEditor::mouseDrag (const juce::MouseEvent& e)
         return;
     if (selectedPoint >= 0 && selectedPoint < (int) dragPoints.size())
     {
-        auto c = toCurve (e.position);
-        if (! e.mods.isAltDown()) // Raster: 1/16 waagrecht, Viertel senkrecht
-        {
-            c.x = std::round (c.x * 16.0f) / 16.0f;
-            c.y = std::round (c.y * 4.0f) / 4.0f;
-        }
+        const auto c = snap (toCurve (e.position), e.mods);
         auto& pt = dragPoints[(size_t) selectedPoint];
         const bool edge = selectedPoint == 0 || selectedPoint == (int) dragPoints.size() - 1;
         if (! edge)
@@ -455,6 +576,8 @@ void CurveEditor::mouseDrag (const juce::MouseEvent& e)
 void CurveEditor::mouseUp (const juce::MouseEvent&)
 {
     dragSegment = -1;
+    dragging = false;
+    repaint();
 }
 
 void CurveEditor::mouseDoubleClick (const juce::MouseEvent& e)
@@ -470,12 +593,7 @@ void CurveEditor::mouseDoubleClick (const juce::MouseEvent& e)
     }
     else if (hit < 0)
     {
-        auto c = toCurve (e.position);
-        if (! e.mods.isAltDown())
-        {
-            c.x = std::round (c.x * 16.0f) / 16.0f;
-            c.y = std::round (c.y * 4.0f) / 4.0f;
-        }
+        auto c = snap (toCurve (e.position), e.mods);
         c.x = juce::jlimit (0.001f, 0.999f, c.x);
         for (const auto& p : pts)
             if (std::abs (p.x - c.x) < 0.0005f)
@@ -539,9 +657,9 @@ juce::String CurveEditor::getTooltip()
     if (! isLfo())
         return de ("ENVELOPE FOLLOWER\nZeigt die Lautstärke des Eingangs. Zieh ENV links auf einen Regler, dann bewegen lautere Stellen ihn stärker.");
     if (hoverPoint >= 0)
-        return de ("PUNKT\nZiehen: verschieben (rastet ein, Alt = frei). Doppelklick: löschen.");
+        return de ("PUNKT\nZiehen: verschieben (rastet im GRID ein, Strg/Cmd = frei). Doppelklick oder Alt+Klick: löschen.");
     if (hoverSegment >= 0)
-        return de ("KURVE\nHoch/runter ziehen: Segment biegen (Shift = fein). Doppelklick: neuer Punkt.");
+        return de ("KURVE\nHoch/runter ziehen (oder mit Alt irgendwo im Abschnitt): Segment biegen, Shift = fein. Doppelklick: neuer Punkt.");
     if (currentShape() == 5 || currentShape() == 6)
         return de ("LFO-FORM\nS&H und Smooth Random sind Zufall und lassen sich nicht zeichnen. Doppelklick oder Rechtsklick > Form laden: zeichenbare Form.");
     return de ("LFO-FORM\nJede Form ist zeichenbar: Punkte ziehen, Segmente hoch/runter biegen, Doppelklick setzt oder löscht einen Punkt. "
@@ -558,27 +676,38 @@ std::vector<int> ModSlotList::activeSlots() const
     return out;
 }
 
+// Zwei Spalten mit je vier Zeilen
 juce::Rectangle<float> ModSlotList::rowBounds (int row) const
 {
-    return { 8.0f, 24.0f + (float) row * 19.0f, (float) getWidth() - 16.0f, 17.0f };
+    const float colW = ((float) getWidth() - 24.0f) * 0.5f;
+    return { 8.0f + (float) (row / 4) * (colW + 8.0f), 26.0f + (float) (row % 4) * 24.0f, colW, 22.0f };
+}
+
+juce::Rectangle<float> ModSlotList::polarityBounds (int row) const
+{
+    const auto r = rowBounds (row);
+    return { r.getRight() - 152.0f, r.getY() + 3.0f, 34.0f, 16.0f };
 }
 
 juce::Rectangle<float> ModSlotList::barBounds (int row) const
 {
     const auto r = rowBounds (row);
-    return { r.getRight() - 100.0f, r.getY() + 5.0f, 50.0f, 7.0f };
+    return { r.getRight() - 110.0f, r.getY() + 7.5f, 58.0f, 7.0f };
 }
 
 juce::Rectangle<float> ModSlotList::removeBounds (int row) const
 {
     const auto r = rowBounds (row);
-    return { r.getRight() - 14.0f, r.getY(), 14.0f, r.getHeight() };
+    return { r.getRight() - 16.0f, r.getY(), 16.0f, r.getHeight() };
 }
 
-int ModSlotList::rowAt (int y) const
+int ModSlotList::rowAt (juce::Point<float> p) const
 {
-    const int row = (int) std::floor (((float) y - 24.0f) / 19.0f);
-    return row >= 0 && row < (int) activeSlots().size() ? row : -1;
+    const int n = (int) activeSlots().size();
+    for (int row = 0; row < n; ++row)
+        if (rowBounds (row).contains (p))
+            return row;
+    return -1;
 }
 
 void ModSlotList::paint (juce::Graphics& g)
@@ -621,7 +750,21 @@ void ModSlotList::paint (juce::Graphics& g)
         g.setFont (display (12.5f, true));
         g.setColour (Col::ink);
         g.drawFittedText (modSourceName (src) + String::fromUTF8 (" → ") + String (kModTargetNames[(size_t) dst]).toUpperCase(),
-                          r.withTrimmedLeft (14.0f).withTrimmedRight (104.0f).toNearestInt(), Justification::centredLeft, 1, 0.7f);
+                          r.withTrimmedLeft (14.0f).withTrimmedRight (156.0f).toNearestInt(), Justification::centredLeft, 1, 0.7f);
+
+        // UNI / BI
+        {
+            const bool uni = (int) apvts.getRawParameterValue (ParamIDs::modPol (slot))->load() == 1;
+            const auto pb = polarityBounds (row);
+            const bool hot = pb.contains (getMouseXYRelative().toFloat()) && isMouseOver();
+            g.setColour (col.withAlpha (hot ? 0.3f : 0.14f));
+            g.fillRoundedRectangle (pb, 3.0f);
+            g.setColour (col.withAlpha (hot ? 1.0f : 0.6f));
+            g.drawRoundedRectangle (pb, 3.0f, 1.0f);
+            g.setFont (mono (10.5f));
+            g.setColour (Col::ink);
+            g.drawText (uni ? "UNI" : "BI", pb, Justification::centred);
+        }
 
         // Tiefe als bipolarer Balken
         const auto bar = barBounds (row);
@@ -635,7 +778,7 @@ void ModSlotList::paint (juce::Graphics& g)
 
         g.setFont (mono (11.0f));
         g.setColour (Col::muted);
-        g.drawText ((amt > 0 ? "+" : "") + String (roundToInt (amt)), Rectangle<float> (bar.getRight() + 2.0f, r.getY(), 34.0f, r.getHeight()), Justification::centredRight);
+        g.drawText ((amt > 0 ? "+" : "") + String (roundToInt (amt)), Rectangle<float> (bar.getRight() + 2.0f, r.getY(), 32.0f, r.getHeight()), Justification::centredRight);
 
         const auto x = removeBounds (row);
         g.setColour (row == hoverRow ? Col::pink : Col::dim);
@@ -646,13 +789,24 @@ void ModSlotList::paint (juce::Graphics& g)
 
 void ModSlotList::mouseDown (const juce::MouseEvent& e)
 {
-    const int row = rowAt (e.y);
+    const int row = rowAt (e.position);
     if (row < 0)
         return;
     const int slot = activeSlots()[(size_t) row];
     if (removeBounds (row).expanded (3.0f).contains (e.position) || e.mods.isPopupMenu())
     {
         processor.clearModSlot (slot);
+        repaint();
+        return;
+    }
+    if (polarityBounds (row).expanded (2.0f).contains (e.position))
+    {
+        if (auto* p = processor.apvts.getParameter (ParamIDs::modPol (slot)))
+        {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f);
+            p->endChangeGesture();
+        }
         repaint();
         return;
     }
@@ -683,8 +837,8 @@ void ModSlotList::mouseUp (const juce::MouseEvent&)
 
 void ModSlotList::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    const int row = rowAt (e.y);
-    if (row < 0)
+    const int row = rowAt (e.position);
+    if (row < 0 || polarityBounds (row).expanded (2.0f).contains (e.position))
         return;
     if (auto* p = processor.apvts.getParameter (ParamIDs::modAmt (activeSlots()[(size_t) row])))
     {
@@ -697,9 +851,12 @@ void ModSlotList::mouseDoubleClick (const juce::MouseEvent& e)
 
 juce::String ModSlotList::getTooltip()
 {
-    const int row = rowAt (getMouseXYRelative().y);
+    const auto mouse = getMouseXYRelative().toFloat();
+    const int row = rowAt (mouse);
     if (row < 0)
-        return de ("ROUTING\nAlle Zuweisungen. Neue Zuweisung: LFO 1, LFO 2 oder ENV links auf einen Regler ziehen.");
+        return de ("ROUTING\nAlle Zuweisungen. Neue Zuweisung: LFO 1, LFO 2 oder ENV auf einen Regler ziehen. Die Tiefe geht auch direkt am Regler über den Griff am farbigen Bogen.");
+    if (polarityBounds (row).expanded (2.0f).contains (mouse))
+        return de ("UNI / BI\nBipolar: die Quelle schwingt um den Reglerwert, nach oben und unten.\nUnipolar: nur in eine Richtung, ab dem Reglerwert (bei positiver Tiefe nach oben). Klick schaltet um.");
     return de ("ZUWEISUNG\nIrgendwo in der Zeile nach links/rechts ziehen: Tiefe (Shift = fein). Negative Werte drehen die Richtung um. "
                "Doppelklick: +50 %. × oder Rechtsklick: entfernen.");
 }
@@ -737,6 +894,20 @@ ModPanel::ModPanel (PrizmAudioProcessor& p) : processor (p), editor (p), slots (
                                 "AUDIO: Anschläge im Eingang, z. B. jeder Bass- oder Drum-Hit.\n"
                                 "MIDI: Noten am MIDI-Eingang von Prizm.\nBOTH: beides."));
     addChildComponent (*trigSwitch);
+
+    // Raster der Kurvenanzeige (Bedien-Einstellung, wird im Projekt gemerkt)
+    {
+        const int saved = juce::jlimit (0, 4, (int) apvts.state.getProperty ("lfoGrid", 3));
+        editor.setGrid (CurveEditor::kGridOptions[(size_t) saved]);
+        gridSwitch = std::make_unique<SegmentSwitch> (juce::StringArray { "OFF", "1/4", "1/8", "1/16", "1/32" }, true, "GRID ", saved, [this] (int v)
+        {
+            editor.setGrid (CurveEditor::kGridOptions[(size_t) v]);
+            processor.apvts.state.setProperty ("lfoGrid", v, nullptr);
+        });
+        gridSwitch->setTooltip (de ("GRID\nRaster zum Zeichnen: Punkte rasten waagrecht auf diese Teilung und senkrecht in Achteln ein. "
+                                    "Klick schaltet weiter. Strg/Cmd beim Ziehen = frei."));
+        addChildComponent (*gridSwitch);
+    }
 
     auto setupKnob = [] (juce::Slider& s, const juce::String& tip)
     {
@@ -795,6 +966,7 @@ void ModPanel::select (int source)
     for (int k = 0; k < 2; ++k)
         modeSwitch[(size_t) k]->setVisible (source == srcLfo1 + k);
     trigSwitch->setVisible (source != srcEnv);
+    gridSwitch->setVisible (source != srcEnv);
     updateRateVisibility();
     repaint();
 }
@@ -840,31 +1012,34 @@ void ModPanel::tick()
 
 void ModPanel::resized()
 {
+    // oben: Quellen-Reiter links, große Kurvenanzeige rechts; darunter Bedienung; unten Routing in zwei Spalten
     const int w = getWidth();
-    const int tabW = 96, listW = 262, gap = 12;
+    const int tabW = 96, gap = 12, editorH = 180;
     for (int i = 0; i < 3; ++i)
-        tabs[(size_t) i]->setBounds (0, i * 58, tabW, 52);
+        tabs[(size_t) i]->setBounds (0, i * 62, tabW, 56);
 
-    const int cx = tabW + gap, cw = w - tabW - listW - 2 * gap;
-    editor.setBounds (cx, 0, cw, 110);
-    for (auto& m : modeSwitch)
-        m->setBounds (cx + cw - 6 - 132, 3, 132, 17);
-    trigSwitch->setBounds (cx + cw - 6 - 132 - 6 - 84, 3, 84, 17);
-    controlsRow = { cx, 116, cw, 58 };
-    slots.setBounds (w - listW, 0, listW, 174);
-
+    const int cx = tabW + gap, cw = w - cx;
+    editor.setBounds (cx, 0, cw, editorH);
+    controlsRow = { cx, editorH + 12, cw, 44 };
     const int y = controlsRow.getY() + 16;
     for (auto& c : lfo)
     {
-        c.shape.setBounds (cx, y + 4, 132, 28);
-        c.sync.setBounds (cx + 140, y + 4, 66, 28);
-        c.rate.setBounds (cx + 216, y - 2, cw - 216, 42);
-        c.division.setBounds (cx + 216, y - 2, cw - 216, 42);
+        c.shape.setBounds (cx, y, 140, 28);
+        c.sync.setBounds (cx + 320, y, 64, 28);
+        c.rate.setBounds (cx + 396, y - 3, 112, 34);
+        c.division.setBounds (cx + 396, y - 3, 112, 34);
     }
+    for (auto& m : modeSwitch)
+        m->setBounds (cx + 152, y, 156, 28);
+    trigSwitch->setBounds (w - 104, y, 104, 28);
+    gridSwitch->setBounds (0, y, tabW, 28);
+
     const int third = cw / 3;
-    envAttack.setBounds (cx, y - 2, third - 6, 42);
-    envRelease.setBounds (cx + third, y - 2, third - 6, 42);
-    envSens.setBounds (cx + 2 * third, y - 2, third - 6, 42);
+    envAttack.setBounds (cx, y - 3, third - 12, 34);
+    envRelease.setBounds (cx + third, y - 3, third - 12, 34);
+    envSens.setBounds (cx + 2 * third, y - 3, third - 12, 34);
+
+    slots.setBounds (0, controlsRow.getBottom() + 10, w, getHeight() - controlsRow.getBottom() - 10);
 }
 
 void ModPanel::paint (juce::Graphics& g)
@@ -882,7 +1057,10 @@ void ModPanel::paint (juce::Graphics& g)
     }
     else
     {
-        g.drawText ("SHAPE", x, y, 130, 14, Justification::centredLeft);
-        g.drawText ("RATE", x + 216, y, 120, 14, Justification::centredLeft);
+        g.drawText ("SHAPE", x, y, 140, 14, Justification::centredLeft);
+        g.drawText ("MODE", x + 152, y, 156, 14, Justification::centredLeft);
+        g.drawText ("RATE", x + 320, y, 180, 14, Justification::centredLeft);
+        g.drawText ("TRIGGER", getWidth() - 104, y, 104, 14, Justification::centredLeft);
+        g.drawText ("DRAW", 0, y, 96, 14, Justification::centredLeft);
     }
 }
