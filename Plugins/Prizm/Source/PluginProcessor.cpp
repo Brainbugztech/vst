@@ -59,7 +59,9 @@ PrizmAudioProcessor::PrizmAudioProcessor()
         lfoDivParams[(size_t) n] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::lfoDiv (n + 1)));
         lfoSyncParams[(size_t) n] = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::lfoSync (n + 1)));
         lfoRateParams[(size_t) n] = apvts.getRawParameterValue (ParamIDs::lfoRate (n + 1));
+        lfoModeParams[(size_t) n] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::lfoMode (n + 1)));
     }
+    lfoTrigParam = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::lfoTrig));
     envAttackParam = apvts.getRawParameterValue (ParamIDs::envAttack);
     envReleaseParam = apvts.getRawParameterValue (ParamIDs::envRelease);
     envSensParam = apvts.getRawParameterValue (ParamIDs::envSens);
@@ -140,10 +142,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
         for (int n = 1; n <= 2; ++n)
         {
             const String name = "LFO " + String (n);
-            layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::lfoShape (n), 1 }, name + " Shape", shapes, 0));
+            // Standard: Custom, also direkt die zeichenbare Kurve
+            layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::lfoShape (n), 1 }, name + " Shape", shapes, kShapeCustom));
             layout.add (std::make_unique<AudioParameterBool> (ParameterID { ParamIDs::lfoSync (n), 1 }, name + " Sync", true));
             layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::lfoRate (n), 1 }, name + " Rate", rate, 1.0f, hzAttr));
             layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::lfoDiv (n), 1 }, name + " Division", divs, n == 1 ? 5 : 2));
+            StringArray modes;
+            for (auto* m : kLfoModeNames)
+                modes.add (m);
+            layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::lfoMode (n), 1 }, name + " Mode", modes, lfoFree));
+        }
+        {
+            StringArray trig;
+            for (auto* t : kTrigSourceNames)
+                trig.add (t);
+            layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::lfoTrig, 1 }, "LFO Trigger", trig, trigBoth));
         }
         auto msAttr = AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction (
             [] (float v, int) { return String (roundToInt (v)) + " ms"; });
@@ -240,6 +253,7 @@ void PrizmAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     mixSmoothed.reset (sampleRate, 0.02);
     outputSmoothed.reset (sampleRate, 0.02);
     envFollower.prepare (sampleRate);
+    onsetDetector.prepare (sampleRate);
     lfo1.reset();
     lfo2.reset();
     modSmooth.fill (0.0f);
@@ -334,6 +348,10 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         return;
 
     handleMidi (midi);
+    numNoteOns = 0;
+    for (const auto meta : midi)
+        if (meta.getMessage().isNoteOn() && numNoteOns < (int) noteOnPos.size())
+            noteOnPos[(size_t) numNoteOns++] = meta.samplePosition;
     blockCounter.fetch_add (1, std::memory_order_relaxed);
 
     // Learn: auf den unbearbeiteten Eingang hören
@@ -454,7 +472,7 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         // Reglerwerte für diesen Abschnitt (mit Modulation)
         Transport t = transport;
         t.ppq = transport.ppq + (double) start / sampleRateHz * transport.bpm / 60.0;
-        const auto v = targetValues (modulate, n, t, chunk.getArrayOfReadPointers(), numCh);
+        const auto v = targetValues (modulate, n, t, chunk.getArrayOfReadPointers(), numCh, start);
         p.color = v[1] * 0.01f;
         p.clear = v[2] * 0.01f;
         p.gate = v[7] * 0.01f;
@@ -617,8 +635,17 @@ bool PrizmAudioProcessor::modulationActive() const
 }
 
 std::array<float, kNumModTargets> PrizmAudioProcessor::targetValues (bool modulate, int numSamples, const Transport& t,
-                                                                     const float* const* input, int numInputChannels)
+                                                                     const float* const* input, int numInputChannels, int chunkStart)
 {
+    // Trigger für Retrig/Envelope: Anschlag im Eingang und/oder Note-On in diesem Abschnitt
+    const int trigSrc = lfoTrigParam->getIndex();
+    const bool audioHit = onsetDetector.process (input, numInputChannels, numSamples) && trigSrc != trigMidi;
+    bool midiHit = false;
+    if (trigSrc != trigAudio)
+        for (int i = 0; i < numNoteOns; ++i)
+            midiHit = midiHit || (noteOnPos[(size_t) i] >= chunkStart && noteOnPos[(size_t) i] < chunkStart + numSamples);
+    const bool trigger = audioHit || midiHit;
+
     // Quellen laufen immer (die Anzeige soll sich bewegen), wirken aber nur über belegte Slots
     std::array<float, 4> src {};
     for (int k = 0; k < 2; ++k)
@@ -628,8 +655,11 @@ std::array<float, kNumModTargets> PrizmAudioProcessor::targetValues (bool modula
         ls.sync = lfoSyncParams[(size_t) k]->get();
         ls.rateHz = lfoRateParams[(size_t) k]->load();
         ls.division = lfoDivParams[(size_t) k]->getIndex();
+        ls.mode = lfoModeParams[(size_t) k]->getIndex();
+        if (trigger && ls.mode != lfoFree)
+            trigCount[(size_t) k].fetch_add (1, std::memory_order_relaxed);
         auto& lfo = k == 0 ? lfo1 : lfo2;
-        src[(size_t) (srcLfo1 + k)] = lfo.process (ls, numSamples, sampleRateHz, t, &lfoCurves[(size_t) k]);
+        src[(size_t) (srcLfo1 + k)] = lfo.process (ls, numSamples, sampleRateHz, t, &lfoCurves[(size_t) k], trigger);
         lfoValue[(size_t) k].store (src[(size_t) (srcLfo1 + k)], std::memory_order_relaxed);
         lfoPhase[(size_t) k].store ((float) lfo.getPhase(), std::memory_order_relaxed);
     }

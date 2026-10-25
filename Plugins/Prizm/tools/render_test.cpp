@@ -953,6 +953,58 @@ int main()
         check (wet > dry + 0.25f, "Square LFO on Strength: tuned half " + juce::String (wet * 100.0f, 1) + " % in key, dry half " + juce::String (dry * 100.0f, 1) + " %");
     }
     {
+        // LFO-Modi: Retrig per MIDI-Note, Envelope läuft einmal und bleibt stehen, Retrig per Anschlag im Audio
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        setParam (*p, ParamIDs::lfoSync (1).toRawUTF8(), 0.0f);
+        setParam (*p, ParamIDs::lfoRate (1).toRawUTF8(), 1.0f); // 1 Hz
+        setParam (*p, ParamIDs::lfoMode (1).toRawUTF8(), 1.0f); // Retrig
+        setParam (*p, ParamIDs::lfoTrig, 1.0f);                 // nur MIDI
+        juce::AudioBuffer<float> block (2, kBlock);
+        auto run = [&] (int blocks, int noteAt)
+        {
+            for (int b = 0; b < blocks; ++b)
+            {
+                block.clear();
+                juce::MidiBuffer m;
+                if (b == 0 && noteAt >= 0)
+                    m.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), noteAt);
+                p->processBlock (block, m);
+            }
+        };
+        run ((int) (0.4 * kSampleRate) / kBlock, -1);
+        const float before = p->getLfoPhase (0);
+        run (1, 0);
+        const float afterNote = p->getLfoPhase (0);
+        check (before > 0.3f && afterNote < 0.03f && p->getTrigCount (0) == 1,
+               "LFO Retrig: MIDI note restarts the LFO (phase " + juce::String (before, 2) + " -> " + juce::String (afterNote, 3) + ")");
+
+        setParam (*p, ParamIDs::lfoMode (1).toRawUTF8(), 2.0f); // Envelope
+        setParam (*p, ParamIDs::lfoRate (1).toRawUTF8(), 4.0f); // 0,25 s
+        run (1, 10);
+        run ((int) (0.5 * kSampleRate) / kBlock, -1);
+        const float held = p->getLfoPhase (0), heldValue = p->getLfoValue (0);
+        run ((int) (0.3 * kSampleRate) / kBlock, -1);
+        check (held > 0.999f && p->getLfoPhase (0) > 0.999f && std::abs (p->getLfoValue (0) - heldValue) < 1.0e-4f,
+               "LFO Envelope: runs once and holds at the end (phase " + juce::String (held, 3) + ")");
+        run (1, 10);
+        check (p->getLfoPhase (0) < 0.06f, "LFO Envelope: next note starts it again (phase " + juce::String (p->getLfoPhase (0), 3) + " after one block at 4 Hz)");
+
+        // Audio-Trigger: Stille, dann Anschläge alle 0,5 s -> Retrig bei jedem Anschlag
+        setParam (*p, ParamIDs::lfoMode (1).toRawUTF8(), 1.0f);
+        setParam (*p, ParamIDs::lfoTrig, 0.0f);
+        setParam (*p, ParamIDs::lfoRate (1).toRawUTF8(), 0.5f);
+        const auto startCount = p->getTrigCount (0);
+        juce::AudioBuffer<float> hits (2, (int) (2.0 * kSampleRate));
+        hits.clear();
+        for (int h = 0; h < 4; ++h)
+            for (int i = 0; i < 4000; ++i)
+                for (int ch = 0; ch < 2; ++ch)
+                    hits.setSample (ch, (int) ((0.1 + 0.5 * h) * kSampleRate) + i, 0.5f * std::exp (-(float) i / 800.0f) * std::sin ((float) i * 0.05f));
+        render (*p, hits);
+        const int counted = (int) (p->getTrigCount (0) - startCount);
+        check (counted == 4, "LFO Retrig by audio hits: " + juce::String (counted) + " triggers for 4 hits");
+    }
+    {
         // Zuweisen per Drag & Drop (Processor-Seite): freier Slot, doppelt = gleicher Slot, voll = -1
         auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
         const int a = p->assignModulation (1, 1), b = p->assignModulation (1, 1);
@@ -1168,6 +1220,7 @@ int main()
             setParam (*p, ParamIDs::scale, 1.0f);
             setParam (*p, ParamIDs::lfoShape (1).toRawUTF8(), 7.0f);
             setParam (*p, ParamIDs::lfoDiv (1).toRawUTF8(), 8.0f);
+            setParam (*p, ParamIDs::lfoMode (1).toRawUTF8(), 1.0f);
             p->setLfoCurve (0, prizm::LfoCurve::parse ("0,1,0;0.05,1,-0.6;0.5,-0.25,0.4;1,-1,0"));
             p->assignModulation (prizm::srcLfo1, 1);  // LFO 1 -> Color
             p->assignModulation (prizm::srcEnv, 0);   // ENV -> Strength

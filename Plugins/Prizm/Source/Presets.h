@@ -11,7 +11,8 @@ namespace prizm
 //
 // Spickzettel für die Indizes:
 //   mode: 0 = Zero Latency, 1 = High Quality       stereo: 0 = Stereo, 1 = Mid, 2 = Side
-//   lfoNShape: 0 Sine, 1 Triangle, 2 Saw Up, 3 Saw Down, 4 Square, 5 S&H, 6 Smooth Random, 7 Custom
+//   lfoNShape: 0 Sine, 1 Triangle, 2 Saw Up, 3 Saw Down, 4 Square, 5 S&H, 6 Smooth Random, 7 Custom (Standard)
+//   lfoNMode: 0 Free, 1 Retrig, 2 Envelope      lfoTrig: 0 Audio, 1 MIDI, 2 Audio + MIDI (Standard)
 //   lfoNDiv: 0 4 Bars, 1 2 Bars, 2 1 Bar, 3 1/2, 4 1/4., 5 1/4, 6 1/4T, 7 1/8., 8 1/8, 9 1/8T, 10 1/16, 11 1/16T, 12 1/32
 //   modSrcI: 1 LFO 1, 2 LFO 2, 3 ENV
 //   modDstI: 0 Strength, 1 Color, 2 Clear, 3 Mix, 4 Output, 5 Range Low, 6 Range High, 7 Gate, 8 Shift, 9 Formant, 10 Tune
@@ -46,6 +47,11 @@ inline const std::vector<FactoryPreset>& factoryPresets()
           { { "mode", 1 }, { "strength", 100 }, { "color", 130 }, { "clear", 35 }, { "rangeLow", 110 }, { "gate", 35 },
             { "lfo1Shape", 7 }, { "lfo1Div", 8 }, { "modSrc0", 1 }, { "modDst0", 1 }, { "modAmt0", 25 } },
           FactoryPreset::Map::reset, "0,1,0;0.05,1,-0.6;1,-1,0" },
+        { "COLOR BASS", "CB Hit Wobble", "Wobble in Achtel-Triolen, der bei jedem Bass-Anschlag von vorn startet (Retrig). Sitzt immer gleich auf dem Groove.",
+          { { "mode", 1 }, { "strength", 70 }, { "color", 100 }, { "clear", 30 }, { "rangeLow", 90 },
+            { "lfo1Shape", 0 }, { "lfo1Div", 9 }, { "lfo1Mode", 1 },
+            { "modSrc0", 1 }, { "modDst0", 1 }, { "modAmt0", 40 },
+            { "modSrc1", 1 }, { "modDst1", 0 }, { "modAmt1", 30 } } },
         { "COLOR BASS", "CB Wobble 1/8", "Klassischer Wobble: Stimmung und Resonanz pendeln im 1/8-Takt. Tipp: SCALE auf Minor Chord.",
           { { "mode", 1 }, { "strength", 60 }, { "color", 90 }, { "clear", 30 }, { "rangeLow", 90 },
             { "lfo1Shape", 0 }, { "lfo1Div", 8 },
@@ -76,6 +82,11 @@ inline const std::vector<FactoryPreset>& factoryPresets()
             { "modSrc1", 2 }, { "modDst1", 1 }, { "modAmt1", 40 } } },
 
         // --- Movement -------------------------------------------------------------------------------
+        { "MOVEMENT", "Hit Bloom", "Jeder Anschlag startet trocken und blüht dann über eine Viertel in den Akkord auf (Envelope).",
+          { { "mode", 1 }, { "strength", 50 }, { "color", 120 }, { "clear", 40 }, { "rangeLow", 90 },
+            { "lfo1Div", 5 }, { "lfo1Mode", 2 }, { "modSrc0", 1 }, { "modDst0", 0 }, { "modAmt0", 50 },
+            { "modSrc1", 1 }, { "modDst1", 1 }, { "modAmt1", 20 } },
+          FactoryPreset::Map::reset, "0,-1,0.45;1,1,0" },
         { "MOVEMENT", "Harmonic Gate 1/16", "Der Tonart-Effekt springt im 1/16-Takt an und aus. Gut auf Pads und Noise.",
           { { "mode", 1 }, { "strength", 50 }, { "color", 100 }, { "clear", 50 },
             { "lfo1Shape", 4 }, { "lfo1Div", 10 }, { "modSrc0", 1 }, { "modDst0", 0 }, { "modAmt0", 50 } } },

@@ -30,6 +30,13 @@ inline constexpr std::array<const char*, kNumModTargets> kModTargetNames {
 inline constexpr std::array<const char*, 8> kLfoShapeNames { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Smooth Random", "Custom" };
 inline constexpr int kShapeCustom = 7;
 
+// Lauf-Modus der LFOs (wie in Serum)
+enum LfoMode { lfoFree = 0, lfoRetrig = 1, lfoEnvelope = 2 };
+inline constexpr std::array<const char*, 3> kLfoModeNames { "Free", "Retrig", "Envelope" };
+// Was Retrig/Envelope auslöst (gilt für beide LFOs)
+enum TrigSource { trigAudio = 0, trigMidi = 1, trigBoth = 2 };
+inline constexpr std::array<const char*, 3> kTrigSourceNames { "Audio", "MIDI", "Audio + MIDI" };
+
 // Gezeichnete LFO-Kurve: Punkte (x 0..1, y -1..1), jedes Segment mit eigener Biegung (-1..1).
 // Bearbeitet wird auf dem Message-Thread, der Audio-Thread liest eine fertige Tabelle
 // (doppelt gepuffert, Umschalten über einen atomaren Index).
@@ -80,8 +87,12 @@ public:
     }
 
     // Wert bei Phase 0..1 direkt aus den Punkten (für die Anzeige)
-    float evaluatePoints (float x) const
+    float evaluatePoints (float x) const { return evaluate (points, x); }
+
+    static float evaluate (const std::vector<Point>& points, float x)
     {
+        if (points.empty())
+            return 0.0f;
         for (size_t i = 0; i + 1 < points.size(); ++i)
         {
             const auto& a = points[i];
@@ -181,6 +192,7 @@ struct LfoSettings
     bool sync = true;
     float rateHz = 1.0f;
     int division = 5; // 1/4
+    int mode = lfoFree;
 };
 
 // Wert einer LFO-Form bei Phase 0..1, Ergebnis -1..1
@@ -213,16 +225,30 @@ public:
     {
         phase = 0.0;
         cycle = 0;
+        finished = false;
         rndPrev = rng.nextFloat() * 2.0f - 1.0f;
         rndNext = rng.nextFloat() * 2.0f - 1.0f;
     }
 
     // Wert für einen Abschnitt von numSamples ab der aktuellen Position, danach weiterlaufen.
-    float process (const LfoSettings& s, int numSamples, double sampleRate, const Transport& t, const LfoCurve* curve = nullptr)
+    // trigger: Anschlag/Note in diesem Abschnitt (wirkt bei Retrig und Envelope).
+    float process (const LfoSettings& s, int numSamples, double sampleRate, const Transport& t, const LfoCurve* curve = nullptr,
+                   bool trigger = false)
     {
         const double beatsPerCycle = kSyncDivisions[(size_t) juce::jlimit (0, (int) kSyncDivisions.size() - 1, s.division)].beats;
 
-        if (s.sync && t.playing && t.hasPpq)
+        if (s.mode != lfoEnvelope)
+            finished = false;
+        if (trigger && s.mode != lfoFree)
+        {
+            phase = 0.0;
+            finished = false;
+            nextRandom (cycle + 1);
+        }
+
+        // Nur Free läuft im Songtakt fest an der Songposition, Retrig/Envelope starten beim Trigger
+        const bool locked = s.mode == lfoFree && s.sync && t.playing && t.hasPpq;
+        if (locked)
         {
             // fest am Takt der DAW: Phase direkt aus der Songposition
             const double cycles = t.ppq / beatsPerCycle;
@@ -235,11 +261,17 @@ public:
         const float value = (s.shape == kShapeCustom && curve != nullptr) ? curve->evaluate (phase)
                                                                           : lfoShape (s.shape, phase, rndPrev, rndNext);
 
-        if (! (s.sync && t.playing && t.hasPpq))
+        if (! locked && ! finished)
         {
             const double hz = s.sync ? (t.bpm / 60.0) / beatsPerCycle : (double) s.rateHz;
             phase += hz * (double) numSamples / sampleRate;
-            if (phase >= 1.0)
+            if (phase >= 1.0 && s.mode == lfoEnvelope)
+            {
+                // einmal durch, dann am Ende stehen bleiben
+                phase = 1.0;
+                finished = true;
+            }
+            else if (phase >= 1.0)
             {
                 const auto wraps = (int64_t) std::floor (phase);
                 phase -= (double) wraps;
@@ -251,6 +283,7 @@ public:
     }
 
     double getPhase() const noexcept { return phase; }
+    bool isFinished() const noexcept { return finished; }
     float getValue() const noexcept { return lastValue; }
 
 private:
@@ -265,6 +298,48 @@ private:
     double phase = 0.0;
     int64_t cycle = 0;
     float rndPrev = 0.0f, rndNext = 0.0f, lastValue = 0.0f;
+    bool finished = false;
+};
+
+// Anschlags-Erkennung für Retrig/Envelope: schnelle Hüllkurve springt deutlich über die langsame
+class OnsetDetector
+{
+public:
+    void prepare (double sampleRate)
+    {
+        fs = sampleRate;
+        fast = slow = 0.0f;
+        holdoff = 0;
+    }
+
+    bool process (const float* const* channels, int numChannels, int numSamples)
+    {
+        const float fastRel = 1.0f - std::exp (-1.0f / ((float) fs * 0.005f));
+        const float slowAtt = 1.0f - std::exp (-1.0f / ((float) fs * 0.030f));
+        const float slowRel = 1.0f - std::exp (-1.0f / ((float) fs * 0.200f));
+        bool hit = false;
+        for (int n = 0; n < numSamples; ++n)
+        {
+            float x = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                x = juce::jmax (x, std::abs (channels[ch][n]));
+            fast = x > fast ? x : fast + (x - fast) * fastRel;
+            slow += (fast - slow) * (fast > slow ? slowAtt : slowRel);
+            if (holdoff > 0)
+                --holdoff;
+            else if (fast > 0.003f && fast > slow * 2.0f + 1.0e-4f) // über -50 dB und gut 6 dB über dem Schnitt
+            {
+                hit = true;
+                holdoff = (int) (fs * 0.07); // höchstens ein Anschlag pro 70 ms
+            }
+        }
+        return hit;
+    }
+
+private:
+    double fs = 48000.0;
+    float fast = 0.0f, slow = 0.0f;
+    int holdoff = 0;
 };
 
 // Envelope Follower: Lautstärke des Eingangs als 0..1 (linear in dB, -60 dB .. 0 dB, plus Empfindlichkeit)

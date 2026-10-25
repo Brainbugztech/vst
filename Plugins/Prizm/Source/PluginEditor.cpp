@@ -1213,7 +1213,9 @@ juce::String PrizmAudioProcessorEditor::sectionSummary (int index) const
             {
                 const bool sync = apvts.getRawParameterValue (ParamIDs::lfoSync (n))->load() > 0.5f;
                 return "LFO " + juce::String (n) + " " + apvts.getParameter (ParamIDs::lfoShape (n))->getCurrentValueAsText().toUpperCase() + " "
-                       + (sync ? apvts.getParameter (ParamIDs::lfoDiv (n))->getCurrentValueAsText() : apvts.getParameter (ParamIDs::lfoRate (n))->getCurrentValueAsText()).toUpperCase();
+                       + (sync ? apvts.getParameter (ParamIDs::lfoDiv (n))->getCurrentValueAsText() : apvts.getParameter (ParamIDs::lfoRate (n))->getCurrentValueAsText()).toUpperCase()
+                       + ((int) apvts.getRawParameterValue (ParamIDs::lfoMode (n))->load() == lfoFree ? juce::String()
+                                                                                                       : " " + apvts.getParameter (ParamIDs::lfoMode (n))->getCurrentValueAsText().toUpperCase());
             };
             return (count == 0 ? juce::String ("NO ROUTING") : juce::String (count) + (count == 1 ? " ROUTING" : " ROUTINGS")) + sep + lfoText (1) + sep + lfoText (2);
         }

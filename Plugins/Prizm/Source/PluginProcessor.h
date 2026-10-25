@@ -42,6 +42,8 @@ namespace ParamIDs
     inline juce::String lfoSync (int n)  { return "lfo" + juce::String (n) + "Sync"; }
     inline juce::String lfoRate (int n)  { return "lfo" + juce::String (n) + "Rate"; }
     inline juce::String lfoDiv (int n)   { return "lfo" + juce::String (n) + "Div"; }
+    inline juce::String lfoMode (int n)  { return "lfo" + juce::String (n) + "Mode"; } // Free / Retrig / Envelope
+    inline constexpr const char* lfoTrig = "lfoTrig";                                   // Audio / MIDI / beides
     inline constexpr const char* envAttack  = "envAttack";
     inline constexpr const char* envRelease = "envRelease";
     inline constexpr const char* envSens    = "envSens";
@@ -125,6 +127,7 @@ public:
     float getLfoValue (int lfo) const noexcept { return lfoValue[(size_t) lfo].load(); }    // -1..1
     float getLfoPhase (int lfo) const noexcept { return lfoPhase[(size_t) lfo].load(); }    // 0..1
     float getEnvValue() const noexcept { return envValue.load(); }                         // 0..1
+    uint32_t getTrigCount (int lfo) const noexcept { return trigCount[(size_t) lfo].load(); } // zählt Retrig/Envelope-Starts
     // Message-Thread: Quelle auf ein Ziel legen (freier Slot, Tiefe 50 %). Gibt den Slot zurück oder -1, wenn alle belegt sind.
     int assignModulation (int source, int target);
     void clearModSlot (int slot);
@@ -211,6 +214,12 @@ private:
     std::array<std::atomic<float>*, prizm::kNumModSlots> modAmtParams {};
     std::array<juce::AudioParameterChoice*, 2> lfoShapeParams {}, lfoDivParams {};
     std::array<juce::AudioParameterBool*, 2> lfoSyncParams {};
+    std::array<juce::AudioParameterChoice*, 2> lfoModeParams {};
+    juce::AudioParameterChoice* lfoTrigParam = nullptr;
+    prizm::OnsetDetector onsetDetector;
+    std::array<int, 64> noteOnPos {}; // Note-On-Positionen im aktuellen Block (für MIDI-Trigger)
+    int numNoteOns = 0;
+    std::array<std::atomic<uint32_t>, 2> trigCount {};
     std::array<std::atomic<float>*, 2> lfoRateParams {};
     std::atomic<float>* envAttackParam = nullptr;
     std::atomic<float>* envReleaseParam = nullptr;
@@ -221,7 +230,7 @@ private:
     bool modulationActive() const;
     // Werte aller Ziele für einen Abschnitt (in Parametereinheiten), mit Modulation
     std::array<float, prizm::kNumModTargets> targetValues (bool modulate, int numSamples, const prizm::Transport& t,
-                                                           const float* const* input, int numInputChannels);
+                                                           const float* const* input, int numInputChannels, int chunkStart = 0);
 
     prizm::KeyAnalyzer keyAnalyzer;
     std::atomic<int> learnCommand { 0 }; // 1 = starten, 2 = abbrechen

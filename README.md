@@ -117,7 +117,7 @@ Regler:
 - **Noten-Leiste**: grün = erlaubter Ton, Klick schaltet einen Ton an/aus (Skala wechselt auf Custom). **Hoch/runter ziehen** stellt die Gewichtung der Note ein (0–100 %, Shift = fein, Doppelklick = 100 %), die Füllhöhe der Taste zeigt sie an. Das Leuchten zeigt live, welche Töne gerade rauskommen.
 - **MIDI KEY**: Noten auf den MIDI-Eingang des Plugins bestimmen die Tonart, der letzte Akkord bleibt aktiv (Leiste wird pink).
 - **SIDECHAIN**: die Tonart folgt den Noten einer anderen Spur (z. B. Bass oder Keys), die in der DAW auf den Sidechain-Eingang von Prizm geroutet ist. Erkannt werden nur Grundtöne, bei Stille bleibt der letzte Akkord stehen (Leiste wird cyan). Wenn MIDI KEY auch an ist und Noten kommen, hat MIDI Vorrang.
-- **PRESET** (oben rechts): 25 Werkspresets in Gruppen (Basics, Color Bass, Movement, Creative, Drums & Vocals, Pitchmap) und eigene Presets (**SAVE**, gespeichert in `Dokumente\Brain Bugz\Prizm\Presets` als `.przm`). Key, Scale, Custom-Noten, Tune, MIDI KEY und Sidechain bleiben beim Wechsel stehen, damit man im Song durchblättern kann.
+- **PRESET** (oben rechts): 27 Werkspresets in Gruppen (Basics, Color Bass, Movement, Creative, Drums & Vocals, Pitchmap) und eigene Presets (**SAVE**, gespeichert in `Dokumente\Brain Bugz\Prizm\Presets` als `.przm`). Key, Scale, Custom-Noten, Tune, MIDI KEY und Sidechain bleiben beim Wechsel stehen, damit man im Song durchblättern kann.
 - **Strength**: wie viel vom gefilterten Signal das Original ersetzt.
 - **Color**: Filtergüte. 0 % weich, 100 % deutlich tonal, **über 100 %** (pinker Bogen) klingen die Töne lange nach, bei 200 % mehrere Sekunden.
 - **Clear**: Anschläge kommen trocken durch, alte Resonanzen werden bei neuen Hits gedämpft.
@@ -140,10 +140,11 @@ Oberfläche:
 
 Modulation (Bereich MODULATION):
 
-- Quellen: **LFO 1**, **LFO 2** (Sine, Triangle, Saw Up/Down, Square, S&H, Smooth Random, Custom; frei in Hz oder **SYNC** im Songtempo von 4 Takten bis 1/32, auch punktiert und Triolen, fest an der Songposition) und **ENV** (Envelope Follower auf den Eingang, mit Attack, Release und Sens).
+- Quellen: **LFO 1**, **LFO 2** (Custom als Standard, dazu Sine, Triangle, Saw Up/Down, Square, S&H, Smooth Random; frei in Hz oder **SYNC** im Songtempo von 4 Takten bis 1/32, auch punktiert und Triolen) und **ENV** (Envelope Follower auf den Eingang, mit Attack, Release und Sens).
+- **MODE** je LFO: **FREE** läuft durch (mit SYNC fest an der Songposition), **RETRIG** startet bei jedem Trigger von vorn, **ENV** läuft bei jedem Trigger einmal durch und bleibt am Ende stehen. **TRIG** legt fest, was auslöst: **AUDIO** (Anschläge im Eingang), **MIDI** (Noten am MIDI-Eingang) oder **BOTH**. Der Reiter blitzt bei jedem Trigger kurz auf.
 - Zuweisen wie in Serum: Reiter **LFO 1 / LFO 2 / ENV** auf einen Regler ziehen. Ziele: Strength, Color, Clear, Mix, Output, Range Low/High, Gate, Shift, Formant, Tune. Bis zu 8 Zuweisungen. Am Regler zeigt ein farbiger Bogen den Bereich, ein Punkt den aktuellen Wert. Rechtsklick auf den Regler entfernt die Modulation.
 - **ROUTING**-Liste: Tiefe per Ziehen nach links/rechts (−100 bis +100 %, Shift = fein, Doppelklick = +50 %), × entfernt.
-- **LFO-Form zeichnen**: Doppelklick in die Anzeige setzt einen Punkt (rastet ein, Alt = frei), Punkte ziehen, Doppelklick auf einen Punkt löscht ihn, Segmente hoch/runter ziehen biegt die Kurve. Rechtsklick: Form laden, spiegeln, umdrehen, Biegungen gerade, zurücksetzen. Sobald man zeichnet, springt SHAPE auf Custom. Die Kurven werden im Projekt und in eigenen Presets gespeichert.
+- **LFO-Form zeichnen**: Doppelklick in die Anzeige setzt einen Punkt (rastet ein, Alt = frei), Punkte ziehen, Doppelklick auf einen Punkt löscht ihn, Segmente hoch/runter ziehen biegt die Kurve. Rechtsklick: Form laden, spiegeln, umdrehen, Biegungen gerade, zurücksetzen. Auch die Standardformen zeigen ihre Punkte und lassen sich direkt weiterziehen, dann springt SHAPE auf Custom. S&H und Smooth Random sind Zufall und nicht zeichenbar. Die Kurven werden im Projekt und in eigenen Presets gespeichert.
 
 Gemeinsam für beide Modi im Processor: Bereichsweichen, Pegelausgleich, Strength, Clear, Mix. Unterschiede gibt es nur noch durch das Prinzip selbst: Zero Latency verschmiert Anschläge etwas, High Quality kann sehr eng beieinander liegende Teiltöne (unter ca. 25 Hz Abstand) nicht ganz sauber trennen.
 

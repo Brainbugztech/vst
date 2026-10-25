@@ -19,12 +19,77 @@ namespace
 } // namespace
 
 //==============================================================================
+SegmentSwitch::SegmentSwitch (juce::RangedAudioParameter& param, juce::StringArray segmentLabels, bool cycles, juce::String prefixText)
+    : labels (std::move (segmentLabels)), cycle (cycles), prefix (std::move (prefixText)),
+      attachment (param, [this] (float v) { value = juce::jlimit (0, labels.size() - 1, juce::roundToInt (v)); repaint(); })
+{
+    attachment.sendInitialUpdate();
+}
+
+int SegmentSwitch::segmentAt (int x) const
+{
+    return juce::jlimit (0, labels.size() - 1, x * labels.size() / juce::jmax (1, getWidth()));
+}
+
+void SegmentSwitch::paint (juce::Graphics& g)
+{
+    using namespace juce;
+    const auto r = getLocalBounds().toFloat().reduced (0.5f);
+    const bool hot = isMouseOver();
+    g.setColour (Col::glassDeep.withAlpha (0.9f));
+    g.fillRoundedRectangle (r, 2.0f);
+    g.setColour (Col::holo.withAlpha (hot ? 0.8f : 0.45f));
+    g.drawRoundedRectangle (r, 2.0f, 1.0f);
+    g.setFont (bb::fonts::mono (10.5f));
+    if (cycle)
+    {
+        g.setColour (hot ? Col::ink : Col::holoBright);
+        g.drawText (prefix + labels[value], r, Justification::centred);
+        return;
+    }
+    const float w = r.getWidth() / (float) labels.size();
+    const int hover = hot ? segmentAt (getMouseXYRelative().x) : -1;
+    for (int i = 0; i < labels.size(); ++i)
+    {
+        const auto seg = Rectangle<float> (r.getX() + w * (float) i, r.getY(), w, r.getHeight());
+        if (i == value)
+        {
+            g.setColour (Col::holo.withAlpha (0.25f));
+            g.fillRoundedRectangle (seg.reduced (1.5f), 1.5f);
+            g.setColour (Col::holoBright);
+            g.fillRect (seg.getX() + 4.0f, seg.getBottom() - 2.5f, seg.getWidth() - 8.0f, 1.2f);
+        }
+        else if (i > 0 && i != value + 1)
+        {
+            g.setColour (Col::holoDim.withAlpha (0.6f));
+            g.fillRect (seg.getX(), seg.getY() + 4.0f, 1.0f, seg.getHeight() - 8.0f);
+        }
+        g.setColour (i == value ? Col::ink : (i == hover ? Col::ink.withAlpha (0.8f) : Col::muted));
+        g.drawText (labels[i], seg, Justification::centred);
+    }
+}
+
+void SegmentSwitch::mouseDown (const juce::MouseEvent& e)
+{
+    const int next = cycle ? (value + 1) % labels.size() : segmentAt (e.x);
+    if (next != value)
+        attachment.setValueAsCompleteGesture ((float) next);
+}
+
+//==============================================================================
 void ModSourceTab::paint (juce::Graphics& g)
 {
     using namespace juce;
     const auto r = getLocalBounds().toFloat().reduced (1.0f);
     const auto col = modSourceColour (source);
     holo::box (g, r, 1.0f, selected || isMouseOver());
+    if (flashAmount > 0.0f) // Retrig/Envelope ausgelöst
+    {
+        g.setColour (col.withAlpha (0.35f * flashAmount));
+        g.drawRoundedRectangle (r.expanded (0.5f), 3.0f, 5.0f);
+        g.setColour (col.withAlpha (flashAmount));
+        g.drawRoundedRectangle (r, 3.0f, 1.5f);
+    }
     if (selected)
     {
         g.setColour (col.withAlpha (0.16f));
@@ -156,11 +221,20 @@ void CurveEditor::commit (std::vector<Point> pts)
     repaint();
 }
 
+std::vector<CurveEditor::Point> CurveEditor::shownPoints() const
+{
+    // Custom: die gezeichnete Kurve. Standardformen: ihre Punkte, damit man sie direkt weiterziehen kann.
+    const int shape = currentShape();
+    if (! isLfo() || shape == 5 || shape == 6)
+        return {};
+    if (shape == kShapeCustom)
+        return processor.getLfoCurve (lfoIndex()).getPoints();
+    return LfoCurve::pointsForShape (shape);
+}
+
 int CurveEditor::pointAt (juce::Point<float> pos) const
 {
-    if (! isLfo() || currentShape() != kShapeCustom)
-        return -1;
-    const auto& pts = processor.getLfoCurve (lfoIndex()).getPoints();
+    const auto pts = shownPoints();
     for (int i = 0; i < (int) pts.size(); ++i)
         if (toScreen (pts[(size_t) i].x, pts[(size_t) i].y).getDistanceFrom (pos) < 8.0f)
             return i;
@@ -169,14 +243,12 @@ int CurveEditor::pointAt (juce::Point<float> pos) const
 
 int CurveEditor::segmentAt (juce::Point<float> pos) const
 {
-    if (! isLfo() || currentShape() != kShapeCustom)
-        return -1;
-    const auto& pts = processor.getLfoCurve (lfoIndex()).getPoints();
+    const auto pts = shownPoints();
     const float x = toCurve (pos).x;
     for (int i = 0; i + 1 < (int) pts.size(); ++i)
         if (x >= pts[(size_t) i].x && x <= pts[(size_t) i + 1].x)
         {
-            const float y = processor.getLfoCurve (lfoIndex()).evaluatePoints (x);
+            const float y = LfoCurve::evaluate (pts, x);
             return std::abs (toScreen (x, y).y - pos.y) < 14.0f ? i : -1;
         }
     return -1;
@@ -269,29 +341,29 @@ void CurveEditor::paint (juce::Graphics& g)
     g.setColour (col);
     g.strokePath (curve, PathStrokeType (1.8f, PathStrokeType::curved, PathStrokeType::rounded));
 
-    // Punkte und Biege-Griffe (nur bei gezeichneter Kurve)
-    if (shape == kShapeCustom)
+    // Punkte und Biege-Griffe: bei Custom die Kurve, bei Standardformen deren Punkte (Ziehen macht daraus Custom)
     {
-        const auto& pts = processor.getLfoCurve (lfoIndex()).getPoints();
+        const auto pts = shownPoints();
+        const float handleAlpha = shape == kShapeCustom ? 1.0f : 0.6f;
         for (int i = 0; i + 1 < (int) pts.size(); ++i)
         {
             const float mx = 0.5f * (pts[(size_t) i].x + pts[(size_t) i + 1].x);
-            const auto c = toScreen (mx, processor.getLfoCurve (lfoIndex()).evaluatePoints (mx));
+            const auto c = toScreen (mx, LfoCurve::evaluate (pts, mx));
             const bool hot = i == hoverSegment || i == dragSegment;
             Path d;
             d.addPolygon (c, 4, hot ? 5.0f : 3.5f, MathConstants<float>::pi * 0.25f);
-            g.setColour (hot ? Col::ink : col.withAlpha (0.6f));
+            g.setColour (hot ? Col::ink : col.withAlpha (0.6f * handleAlpha));
             g.fillPath (d);
         }
         for (int i = 0; i < (int) pts.size(); ++i)
         {
             const auto c = toScreen (pts[(size_t) i].x, pts[(size_t) i].y);
             const bool hot = i == hoverPoint || i == selectedPoint;
-            g.setColour (col.withAlpha (0.3f));
+            g.setColour (col.withAlpha (0.3f * handleAlpha));
             g.fillEllipse (Rectangle<float> (hot ? 14.0f : 10.0f, hot ? 14.0f : 10.0f).withCentre (c));
             g.setColour (Col::glassDeep);
             g.fillEllipse (Rectangle<float> (7.0f, 7.0f).withCentre (c));
-            g.setColour (hot ? Col::ink : col);
+            g.setColour (hot ? Col::ink : col.withAlpha (handleAlpha));
             g.drawEllipse (Rectangle<float> (7.0f, 7.0f).withCentre (c), 1.6f);
         }
     }
@@ -313,11 +385,7 @@ void CurveEditor::paint (juce::Graphics& g)
     const String rate = sync ? String (kSyncDivisions[(size_t) (int) apvts.getRawParameterValue (ParamIDs::lfoDiv (n))->load()].name)
                              : apvts.getParameter (ParamIDs::lfoRate (n))->getCurrentValueAsText();
     g.setColour (Col::muted);
-    g.drawText ("LFO " + String (n) + "  //  " + String (kLfoShapeNames[(size_t) shape]).toUpperCase() + "  //  " + rate.toUpperCase(),
-                Rectangle<float> (10.0f, 4.0f, bounds.getWidth() - 20.0f, 14.0f), Justification::centredLeft);
-    g.setColour (Col::dim);
-    g.drawText (shape == kShapeCustom ? de ("RECHTSKLICK = MENÜ") : de ("ZUM ZEICHNEN DOPPELKLICKEN"),
-                Rectangle<float> (10.0f, 4.0f, bounds.getWidth() - 20.0f, 14.0f), Justification::centredRight);
+    g.drawText ("LFO " + String (n) + "  //  " + rate.toUpperCase(), Rectangle<float> (10.0f, 4.0f, 110.0f, 14.0f), Justification::centredLeft);
 }
 
 void CurveEditor::mouseMove (const juce::MouseEvent& e)
@@ -474,8 +542,10 @@ juce::String CurveEditor::getTooltip()
         return de ("PUNKT\nZiehen: verschieben (rastet ein, Alt = frei). Doppelklick: löschen.");
     if (hoverSegment >= 0)
         return de ("KURVE\nHoch/runter ziehen: Segment biegen (Shift = fein). Doppelklick: neuer Punkt.");
-    return de ("LFO-FORM\nDoppelklick: Punkt setzen. Punkte ziehen, Segmente biegen. Rechtsklick: Formen laden, spiegeln, umdrehen. "
-               "Sobald du zeichnest, springt SHAPE auf Custom.");
+    if (currentShape() == 5 || currentShape() == 6)
+        return de ("LFO-FORM\nS&H und Smooth Random sind Zufall und lassen sich nicht zeichnen. Doppelklick oder Rechtsklick > Form laden: zeichenbare Form.");
+    return de ("LFO-FORM\nJede Form ist zeichenbar: Punkte ziehen, Segmente hoch/runter biegen, Doppelklick setzt oder löscht einen Punkt. "
+               "Rechtsklick: Formen laden, spiegeln, umdrehen. Sobald du eine Standardform änderst, wird daraus Custom.");
 }
 
 //==============================================================================
@@ -651,6 +721,23 @@ ModPanel::ModPanel (PrizmAudioProcessor& p) : processor (p), editor (p), slots (
     addAndMakeVisible (editor);
     addAndMakeVisible (slots);
 
+    // Lauf-Modus je LFO und Trigger-Quelle, oben rechts in der Kurvenanzeige
+    for (int k = 0; k < 2; ++k)
+    {
+        modeSwitch[(size_t) k] = std::make_unique<SegmentSwitch> (*apvts.getParameter (ParamIDs::lfoMode (k + 1)),
+                                                                  juce::StringArray { "FREE", "RETRIG", "ENV" }, false);
+        modeSwitch[(size_t) k]->setTooltip (de ("MODE\nFree: läuft durch, mit SYNC fest an der Songposition.\n"
+                                                "Retrig: startet bei jedem Trigger von vorn und läuft weiter.\n"
+                                                "Env: läuft bei jedem Trigger einmal durch und bleibt am Ende stehen, wie eine Hüllkurve.\n"
+                                                "Was auslöst, stellt TRIG daneben ein."));
+        addChildComponent (*modeSwitch[(size_t) k]);
+    }
+    trigSwitch = std::make_unique<SegmentSwitch> (*apvts.getParameter (ParamIDs::lfoTrig), juce::StringArray { "AUDIO", "MIDI", "BOTH" }, true, "TRIG ");
+    trigSwitch->setTooltip (de ("TRIG\nWas Retrig und Env auslöst (gilt für beide LFOs). Klick schaltet weiter.\n"
+                                "AUDIO: Anschläge im Eingang, z. B. jeder Bass- oder Drum-Hit.\n"
+                                "MIDI: Noten am MIDI-Eingang von Prizm.\nBOTH: beides."));
+    addChildComponent (*trigSwitch);
+
     auto setupKnob = [] (juce::Slider& s, const juce::String& tip)
     {
         s.setTooltip (tip);
@@ -705,6 +792,9 @@ void ModPanel::select (int source)
     }
     for (auto* s : { &envAttack, &envRelease, &envSens })
         s->setVisible (source == srcEnv);
+    for (int k = 0; k < 2; ++k)
+        modeSwitch[(size_t) k]->setVisible (source == srcLfo1 + k);
+    trigSwitch->setVisible (source != srcEnv);
     updateRateVisibility();
     repaint();
 }
@@ -729,6 +819,20 @@ void ModPanel::tick()
     tabs[0]->setLevel (processor.getLfoValue (0));
     tabs[1]->setLevel (processor.getLfoValue (1));
     tabs[2]->setLevel (processor.getEnvValue());
+    for (int k = 0; k < 2; ++k)
+    {
+        const auto count = processor.getTrigCount (k);
+        tabs[(size_t) k]->decayFlash();
+        if (count != lastTrig[(size_t) k])
+            tabs[(size_t) k]->flash();
+        lastTrig[(size_t) k] = count;
+    }
+    if (selected != srcEnv) // TRIG nur wichtig, wenn der gezeigte LFO nicht frei läuft
+    {
+        const float alpha = modeSwitch[(size_t) (selected - srcLfo1)]->getValue() == lfoFree ? 0.45f : 1.0f;
+        if (trigSwitch->getAlpha() != alpha)
+            trigSwitch->setAlpha (alpha);
+    }
     editor.tick();
     slots.repaint();
     updateRateVisibility();
@@ -743,6 +847,9 @@ void ModPanel::resized()
 
     const int cx = tabW + gap, cw = w - tabW - listW - 2 * gap;
     editor.setBounds (cx, 0, cw, 110);
+    for (auto& m : modeSwitch)
+        m->setBounds (cx + cw - 6 - 132, 3, 132, 17);
+    trigSwitch->setBounds (cx + cw - 6 - 132 - 6 - 84, 3, 84, 17);
     controlsRow = { cx, 116, cw, 58 };
     slots.setBounds (w - listW, 0, listW, 174);
 

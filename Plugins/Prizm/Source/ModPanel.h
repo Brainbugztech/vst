@@ -34,6 +34,27 @@ inline juce::String modSourceName (int source)
 }
 } // namespace prizm
 
+// Kleiner Umschalter in Holo-Optik, direkt an einen Parameter gebunden.
+// Segmente nebeneinander (z. B. FREE / RETRIG / ENV) oder als Taste, die bei jedem Klick weiterschaltet.
+class SegmentSwitch : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    SegmentSwitch (juce::RangedAudioParameter& param, juce::StringArray segmentLabels, bool cycles, juce::String prefixText = {});
+    int getValue() const noexcept { return value; }
+    void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+private:
+    int segmentAt (int x) const;
+    juce::StringArray labels;
+    bool cycle;
+    juce::String prefix;
+    int value = 0;
+    juce::ParameterAttachment attachment;
+};
+
 // Reiter einer Quelle: Klick = anzeigen, Ziehen auf einen Regler = zuweisen
 class ModSourceTab : public juce::Component, public juce::SettableTooltipClient
 {
@@ -42,6 +63,8 @@ public:
     std::function<void (int)> onSelect;
     void setSelected (bool s) { if (s != selected) { selected = s; repaint(); } }
     void setLevel (float v) { level = v; repaint(); }
+    void flash() { flashAmount = 1.0f; }      // Retrig/Envelope wurde ausgelöst
+    void decayFlash() { flashAmount *= 0.8f; if (flashAmount < 0.02f) flashAmount = 0.0f; }
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent& e) override;
@@ -51,6 +74,7 @@ private:
     int source;
     bool selected = false;
     float level = 0.0f; // LFO -1..1, ENV 0..1
+    float flashAmount = 0.0f;
 };
 
 // Großer Editor: zeigt die LFO-Kurve (bearbeitbar) oder den Verlauf des Envelope Followers
@@ -80,6 +104,7 @@ private:
     juce::Point<float> toScreen (float x, float y) const;
     juce::Point<float> toCurve (juce::Point<float> screen) const;
     std::vector<Point> editablePoints(); // wandelt eine Standardform beim ersten Bearbeiten in Punkte um
+    std::vector<Point> shownPoints() const; // Griffe: Custom-Kurve oder Punkte der Standardform (leer bei S&H/Random)
     void commit (std::vector<Point> pts);
     int pointAt (juce::Point<float> pos) const;
     int segmentAt (juce::Point<float> pos) const;
@@ -152,6 +177,9 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rateAtt, divAtt;
     };
     std::array<LfoControls, 2> lfo;
+    std::array<std::unique_ptr<SegmentSwitch>, 2> modeSwitch; // FREE / RETRIG / ENV je LFO
+    std::unique_ptr<SegmentSwitch> trigSwitch;                 // gilt für beide LFOs
+    std::array<uint32_t, 2> lastTrig {};
 
     juce::Slider envAttack, envRelease, envSens;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> envAttackAtt, envReleaseAtt, envSensAtt;
