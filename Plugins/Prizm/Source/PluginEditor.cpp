@@ -8,7 +8,7 @@ using namespace prizm;
 namespace
 {
     constexpr int kWidth = 800;
-    constexpr int kHeight = 560;
+    constexpr int kHeight = 740;
     constexpr float kTitleSize = 48.0f;
 
     juce::Font display (float size, bool bold = false) { return bb::fonts::display (size, bold); }
@@ -286,12 +286,16 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
     addAndMakeVisible (keyStrip);
 
     struct Def { const char* id; const char* title; const char* hint; };
-    const std::array<Def, 5> defs {{
+    const std::array<Def, 9> defs {{
         { ParamIDs::strength, "STRENGTH", "How hard the sound is pulled into the key." },
         { ParamIDs::color,    "COLOR",    "More tonal. Above 100 % (pink) a coloured decay tail is added." },
         { ParamIDs::clear,    "CLEAR",    "Keeps transients dry and damps old ringing on new hits." },
         { ParamIDs::mix,      "MIX",      "Dry / wet. In High Quality the dry signal is latency-aligned." },
         { ParamIDs::output,   "OUTPUT",   "Output level. A soft limiter prevents hard clipping." },
+        { ParamIDs::rangeLow, "RANGE LOW",  "Below this frequency the signal stays untouched (keeps kick and sub clean). OFF = full range." },
+        { ParamIDs::rangeHigh,"RANGE HIGH", "Above this frequency the signal stays untouched (keeps cymbals and air). OFF = full range." },
+        { ParamIDs::gate,     "GATE",     "Pushes quiet notes down relative to the loudest one. Cleans up noise between the tones." },
+        { ParamIDs::shift,    "SHIFT",    "High Quality only: moves out-of-key partials onto the nearest note instead of just filtering them." },
     }};
 
     for (size_t i = 0; i < knobs.size(); ++i)
@@ -304,6 +308,8 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
         k.slider.setTooltip (defs[i].hint);
         addAndMakeVisible (k.slider);
         k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (apvts, defs[i].id, k.slider);
+        if (juce::String (defs[i].id) == ParamIDs::color)
+            k.slider.getProperties().set ("overdrive", true); // über 100 % pink
         if (auto* param = apvts.getParameter (defs[i].id))
             k.slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
     }
@@ -373,6 +379,13 @@ void PrizmAudioProcessorEditor::timerCallback()
     const int mode = (int) apvts.getRawParameterValue (ParamIDs::mode)->load();
     modeSwitch.setMode (mode);
     modeSwitch.advance();
+
+    auto& shiftSlider = knobs[kShiftKnob].slider;
+    if (shiftSlider.isEnabled() != (mode == highQuality))
+    {
+        shiftSlider.setEnabled (mode == highQuality);
+        shiftSlider.setAlpha (mode == highQuality ? 1.0f : 0.35f);
+    }
 
     animPhase += 1.0f / 30.0f;
     prism.setPhase (animPhase);
@@ -537,6 +550,7 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
     // panels
     drawHoloPanel (g, keyPanel.toFloat(), "// KEY MATRIX", "SCALE LOCK  //  PRZ-01");
     drawHoloPanel (g, knobPanel.toFloat(), "// SIGNAL", "SPECTRAL CORE  //  PRZ-02");
+    drawHoloPanel (g, extraPanel.toFloat(), "// RANGE + SPECTRAL", "FILTER BAND  //  PRZ-03");
 
     // section labels
     g.setFont (display (12.5f, true).withExtraKerningFactor (0.1f));
@@ -550,14 +564,15 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
     {
         const auto& k = knobs[i];
         g.setColour (Col::ink.withAlpha (0.85f));
-        g.drawText (k.title, k.slider.getX(), knobPanel.getY() + 32, k.slider.getWidth(), 18, Justification::centred);
-        if (i > 0)
+        const auto& panel = i < 5 ? knobPanel : extraPanel;
+        g.drawText (k.title, k.slider.getX(), panel.getY() + 32, k.slider.getWidth(), 18, Justification::centred);
+        if (i != 0 && i != 5)
         {
             const float x = (float) k.slider.getX() - 6.0f;
-            ColourGradient div (Col::holo.withAlpha (0.0f), x, (float) knobPanel.getY() + 30.0f, Col::holo.withAlpha (0.0f), x, (float) knobPanel.getBottom() - 14.0f, false);
+            ColourGradient div (Col::holo.withAlpha (0.0f), x, (float) panel.getY() + 30.0f, Col::holo.withAlpha (0.0f), x, (float) panel.getBottom() - 14.0f, false);
             div.addColour (0.5, Col::holo.withAlpha (0.35f));
             g.setGradientFill (div);
-            g.fillRect (x, (float) knobPanel.getY() + 30.0f, 1.0f, (float) knobPanel.getHeight() - 44.0f);
+            g.fillRect (x, (float) panel.getY() + 30.0f, 1.0f, (float) panel.getHeight() - 44.0f);
         }
     }
 
@@ -643,9 +658,17 @@ void PrizmAudioProcessorEditor::resized()
     auto knobArea = knobPanel.reduced (14, 0);
     knobArea.removeFromTop (54);
     knobArea.removeFromBottom (14);
-    const int w = knobArea.getWidth() / (int) knobs.size();
-    for (auto& k : knobs)
-        k.slider.setBounds (knobArea.removeFromLeft (w).reduced (12, 0));
+    const int w = knobArea.getWidth() / 5;
+    for (size_t i = 0; i < 5; ++i)
+        knobs[i].slider.setBounds (knobArea.removeFromLeft (w).reduced (12, 0));
+
+    extraPanel = { 20, knobPanel.getBottom() + 12, getWidth() - 40, 172 };
+    auto extraArea = extraPanel.reduced (14, 0);
+    extraArea.removeFromTop (52);
+    extraArea.removeFromBottom (10);
+    const int w2 = extraArea.getWidth() / 4;
+    for (size_t i = 5; i < 9; ++i)
+        knobs[i].slider.setBounds (extraArea.removeFromLeft (w2).reduced (24, 0));
 
     footerArea = { 24, getHeight() - 30, getWidth() - 48, 20 };
 }

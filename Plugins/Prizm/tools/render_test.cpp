@@ -202,6 +202,81 @@ void writeWav (const juce::AudioBuffer<float>& b, const juce::String& name)
     }
 }
 
+
+// Magnitude spectrum (32k FFT, Hann) of channel 0 from startSample.
+std::vector<float> spectrum (const juce::AudioBuffer<float>& b, int startSample)
+{
+    constexpr int order = 15;
+    const int n = 1 << order;
+    juce::dsp::FFT fft (order);
+    std::vector<float> data ((size_t) n * 2, 0.0f);
+    for (int i = 0; i < n && startSample + i < b.getNumSamples(); ++i)
+    {
+        const float w = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) n);
+        data[(size_t) i] = b.getSample (0, startSample + i) * w;
+    }
+    fft.performFrequencyOnlyForwardTransform (data.data(), true);
+    data.resize ((size_t) n / 2);
+    return data;
+}
+
+float binHz() { return (float) kSampleRate / 32768.0f; }
+
+// Energy per pitch class (40 Hz .. 5 kHz), normalised to unit length.
+std::array<double, 12> pitchClassVector (const std::vector<float>& spec)
+{
+    std::array<double, 12> v {};
+    for (size_t k = 1; k < spec.size(); ++k)
+    {
+        const float hz = (float) k * binHz();
+        if (hz < 40.0f || hz > 5000.0f)
+            continue;
+        const int pc = (((int) std::lround (hzToMidi (hz))) % 12 + 12) % 12;
+        v[(size_t) pc] += (double) spec[k] * spec[k];
+    }
+    double norm = 0.0;
+    for (auto x : v) norm += x * x;
+    norm = std::sqrt (norm) + 1e-30;
+    for (auto& x : v) x /= norm;
+    return v;
+}
+
+double cosine (const std::array<double, 12>& a, const std::array<double, 12>& b)
+{
+    double d = 0.0;
+    for (size_t i = 0; i < 12; ++i) d += a[i] * b[i];
+    return d;
+}
+
+// Levels in third-octave bands 63 Hz .. 8 kHz (dB).
+std::vector<double> thirdOctaves (const std::vector<float>& spec)
+{
+    std::vector<double> out;
+    for (double fc = 63.0; fc <= 8000.0; fc *= std::pow (2.0, 1.0 / 3.0))
+    {
+        const double lo = fc / std::pow (2.0, 1.0 / 6.0), hi = fc * std::pow (2.0, 1.0 / 6.0);
+        double e = 1e-20;
+        for (size_t k = 1; k < spec.size(); ++k)
+        {
+            const double hz = (double) k * binHz();
+            if (hz >= lo && hz < hi)
+                e += (double) spec[k] * spec[k];
+        }
+        out.push_back (10.0 * std::log10 (e));
+    }
+    return out;
+}
+
+// Energy around one frequency (+- width Hz), in dB.
+double toneLevel (const std::vector<float>& spec, float hz, float width = 6.0f)
+{
+    double e = 1e-20;
+    for (size_t k = 1; k < spec.size(); ++k)
+        if (std::abs ((float) k * binHz() - hz) <= width)
+            e += (double) spec[k] * spec[k];
+    return 10.0 * std::log10 (e);
+}
+
 std::unique_ptr<PrizmAudioProcessor> makeProcessor (int mode, float strength, float color, float clear)
 {
     auto p = std::make_unique<PrizmAudioProcessor>();
@@ -242,22 +317,25 @@ int main()
         check (snr > 30.0, "HQ neutral settings reproduce the input (SNR " + juce::String (snr, 1) + " dB)");
     }
 
-    // 2) HQ mode snaps an out-of-key sine (450 Hz, between A and A#) to A = 440 Hz.
+    // 2) HQ + SHIFT moves an out-of-key sine (450 Hz, between A and A#) to A = 440 Hz.
     {
         auto p = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+        setParam (*p, ParamIDs::shift, 100.0f);
         auto out = render (*p, makeTone ({ 450.0f }, 2.0, 0.3f));
         const float f = peakFrequency (out, 16000);
         check (std::abs (f - 440.0f) < 3.0f, "HQ snaps 450 Hz sine to " + juce::String (f, 1) + " Hz (target 440)");
 
         auto p2 = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+        setParam (*p2, ParamIDs::shift, 100.0f);
         auto out2 = render (*p2, makeTone ({ 285.0f }, 2.0, 0.3f)); // between C# and D, C# not in C major -> D 293.7
         const float f2 = peakFrequency (out2, 16000);
         check (std::abs (f2 - 293.66f) < 3.0f, "HQ snaps 285 Hz sine to " + juce::String (f2, 1) + " Hz (target D 293.7)");
 
-        auto p3 = makeProcessor (highQuality, 50.0f, 0.0f, 0.0f);
+        auto p3 = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+        setParam (*p3, ParamIDs::shift, 50.0f);
         auto out3 = render (*p3, makeTone ({ 450.0f }, 2.0, 0.3f));
         const float f3 = peakFrequency (out3, 16000);
-        check (f3 > 441.0f && f3 < 449.0f, "HQ Strength 50 % pulls halfway: " + juce::String (f3, 1) + " Hz");
+        check (f3 > 441.0f && f3 < 449.0f, "HQ Shift 50 % pulls halfway: " + juce::String (f3, 1) + " Hz");
     }
 
     // 3) Both modes raise the share of in-key energy on noise and on a dissonant saw pad.
@@ -298,6 +376,106 @@ int main()
             (isAllowed (cMajor, pc) ? inKey : outKey) += p->getPitchEnergy (pc);
         check (inKey > outKey * 5.0f, juce::String (mode == zeroLatency ? "ZeroLatency" : "HighQuality")
                                           + ": key display energy in key " + juce::String (100.0f * inKey / (inKey + outKey + 1e-20f), 1) + " %");
+    }
+
+    // 3c) Both modes must sound the same at the same settings (same filter curve).
+    {
+        struct Case { const char* name; juce::AudioBuffer<float> in; float color; };
+        std::vector<Case> cases;
+        cases.push_back ({ "noise", makeNoise (4.0, 0.2f), 60.0f });
+        cases.push_back ({ "pad", makeSawPad ({ 146.0f, 185.0f, 207.0f, 311.0f }, 4.0, 0.12f), 60.0f });
+        cases.push_back ({ "pad soft (Color 0)", makeSawPad ({ 146.0f, 185.0f, 207.0f, 311.0f }, 4.0, 0.12f), 0.0f });
+        cases.push_back ({ "pad tonal (Color 120)", makeSawPad ({ 146.0f, 185.0f, 207.0f, 311.0f }, 4.0, 0.12f), 120.0f });
+        cases.push_back ({ "hits", makeHits (4.0), 60.0f });
+
+        for (auto& c : cases)
+        {
+            auto pz = makeProcessor (zeroLatency, 100.0f, c.color, 30.0f);
+            auto ph = makeProcessor (highQuality, 100.0f, c.color, 30.0f);
+            auto oz = render (*pz, c.in);
+            auto oh = render (*ph, c.in);
+            const int lat = ph->getLatencySamples();
+            const auto sz = spectrum (oz, 48000), sh = spectrum (oh, 48000 + lat);
+            const double cs = cosine (pitchClassVector (sz), pitchClassVector (sh));
+            const auto tz = thirdOctaves (sz), th = thirdOctaves (sh);
+            double envDiff = 0.0;
+            int bands = 0;
+            for (size_t i = 0; i < tz.size(); ++i)
+                if (tz[i] > -60.0 || th[i] > -60.0) { envDiff += std::abs (tz[i] - th[i]); ++bands; }
+            envDiff /= std::max (1, bands);
+            const float lz = stats (oz, 48000).rms, lh = stats (oh, 48000 + lat).rms;
+            const double levelDiff = 20.0 * std::log10 (lh / lz);
+            // Drums haben keine feste Tonhöhe (Kick-Glide), dort zählen nur Klangkurve und Pegel.
+            const bool pitched = juce::String (c.name) != "hits";
+            check ((! pitched || cs > 0.97) && envDiff < 3.0 && std::abs (levelDiff) < 1.5,
+                   juce::String ("Modes agree on ") + c.name + ": note match " + juce::String (cs * 100.0, 1)
+                       + " %, tone curve diff " + juce::String (envDiff, 2) + " dB, level diff " + juce::String (levelDiff, 2) + " dB");
+            writeWav (oz, juce::String ("compare_") + juce::String (c.name).retainCharacters ("abcdefghijklmnopqrstuvwxyz0123456789") + "_zl");
+            writeWav (oh, juce::String ("compare_") + juce::String (c.name).retainCharacters ("abcdefghijklmnopqrstuvwxyz0123456789") + "_hq");
+        }
+    }
+
+    // 3c2) SHIFT keeps a snapped tone clean (phase locking): energy at 440 Hz vs everything else.
+    {
+        auto p = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+        setParam (*p, ParamIDs::shift, 100.0f);
+        auto out = render (*p, makeTone ({ 450.0f }, 3.0, 0.3f));
+        const auto sp = spectrum (out, 48000 + p->getLatencySamples());
+        double tone = 0.0, rest = 1e-20;
+        for (size_t k = 1; k < sp.size(); ++k)
+        {
+            const float hz = (float) k * binHz();
+            (std::abs (hz - 440.0f) < 10.0f ? tone : rest) += (double) sp[k] * sp[k];
+        }
+        const double purity = 10.0 * std::log10 (tone / rest);
+        check (purity > 30.0, "SHIFT output stays clean: tone " + juce::String (purity, 1) + " dB above artefacts");
+    }
+
+    // 3d) Range: below RANGE LOW the signal stays untouched (an out-of-key 104 Hz bass survives).
+    for (int mode : { zeroLatency, highQuality })
+    {
+        const juce::String name = mode == zeroLatency ? "ZeroLatency" : "HighQuality";
+        auto in = makeTone ({ 104.0f, 450.0f }, 3.0, 0.25f); // both out of C major
+        auto pFull = makeProcessor (mode, 100.0f, 60.0f, 0.0f);
+        auto pCut = makeProcessor (mode, 100.0f, 60.0f, 0.0f);
+        setParam (*pCut, ParamIDs::rangeLow, 300.0f);
+        auto oFull = render (*pFull, in);
+        auto oCut = render (*pCut, in);
+        const int lat = pFull->getLatencySamples();
+        const auto sIn = spectrum (in, 48000), sFull = spectrum (oFull, 48000 + lat), sCut = spectrum (oCut, 48000 + lat);
+        const double bassIn = toneLevel (sIn, 104.0f), bassFull = toneLevel (sFull, 104.0f), bassCut = toneLevel (sCut, 104.0f);
+        check (std::abs (bassCut - bassIn) < 1.0 && bassFull < bassIn - 6.0,
+               name + ": Range Low 300 Hz keeps the 104 Hz bass (" + juce::String (bassCut - bassIn, 2) + " dB, full range: "
+                   + juce::String (bassFull - bassIn, 1) + " dB)");
+    }
+
+    // 3e) Gate: quiet noise around a loud in-key tone gets pushed down.
+    for (int mode : { zeroLatency, highQuality })
+    {
+        const juce::String name = mode == zeroLatency ? "ZeroLatency" : "HighQuality";
+        auto in = makeTone ({ 261.63f }, 3.0, 0.3f); // C4
+        auto noise = makeNoise (3.0, 0.02f);
+        for (int ch = 0; ch < 2; ++ch)
+            in.addFrom (ch, 0, noise, ch, 0, in.getNumSamples());
+        auto p0 = makeProcessor (mode, 100.0f, 60.0f, 0.0f);
+        auto p1 = makeProcessor (mode, 100.0f, 60.0f, 0.0f);
+        setParam (*p1, ParamIDs::gate, 100.0f);
+        auto o0 = render (*p0, in);
+        auto o1 = render (*p1, in);
+        const int lat = p0->getLatencySamples();
+        auto ratio = [] (const std::vector<float>& sp)
+        {
+            double tone = 0.0, rest = 1e-20;
+            for (size_t k = 1; k < sp.size(); ++k)
+            {
+                const float hz = (float) k * binHz();
+                if (hz < 40.0f || hz > 8000.0f) continue;
+                (std::abs (hz - 261.63f) < 8.0f ? tone : rest) += (double) sp[k] * sp[k];
+            }
+            return 10.0 * std::log10 (tone / rest);
+        };
+        const double r0 = ratio (spectrum (o0, 48000 + lat)), r1 = ratio (spectrum (o1, 48000 + lat));
+        check (r1 > r0 + 6.0, name + ": Gate 100 % lifts the tone above the noise by " + juce::String (r1 - r0, 1) + " dB");
     }
 
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
@@ -352,6 +530,7 @@ int main()
     //    the nearest chord tone is E4 (64, 1.6 semitones away) rather than C4 (2.4 away).
     {
         auto p = makeProcessor (highQuality, 100.0f, 0.0f, 0.0f);
+        setParam (*p, ParamIDs::shift, 100.0f);
         setParam (*p, ParamIDs::midiKey, 1.0f);
         juce::MidiBuffer midi;
         midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0); // A3
@@ -375,6 +554,10 @@ int main()
             setParam (*p, ParamIDs::key, (float) (run % 12));
             setParam (*p, ParamIDs::scale, (float) (run % (int) kScales.size()));
             setParam (*p, ParamIDs::output, 12.0f);
+            setParam (*p, ParamIDs::shift, u (rng) * 100.0f);
+            setParam (*p, ParamIDs::gate, u (rng) * 100.0f);
+            setParam (*p, ParamIDs::rangeLow, 20.0f + u (rng) * 600.0f);
+            setParam (*p, ParamIDs::rangeHigh, 2000.0f + u (rng) * 18000.0f);
             juce::AudioBuffer<float> in = makeNoise (1.0, 1.0f);
             in.applyGain (0, 12000, 3.0f); // clipping-level burst
             for (int ch = 0; ch < 2; ++ch)

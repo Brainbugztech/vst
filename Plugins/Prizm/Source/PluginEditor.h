@@ -94,7 +94,8 @@ private:
     juce::TextButton midiButton { "MIDI KEY" };
     juce::ComboBox keyBox, scaleBox;
     KeyStrip keyStrip;
-    std::array<Knob, 5> knobs;
+    std::array<Knob, 9> knobs; // 0-4 SIGNAL, 5-8 RANGE + SPECTRAL
+    static constexpr size_t kShiftKnob = 8;
     juce::TooltipWindow tooltips { this, 600 };
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> keyAttachment, scaleAttachment;
@@ -108,7 +109,7 @@ private:
     uint32_t lastCounter = 0;
     int idleTicks = 0;
 
-    juce::Rectangle<int> logoArea, titleArea, keyPanel, keyLabelArea, scaleLabelArea, stripLabelArea, readoutArea, knobPanel, footerArea;
+    juce::Rectangle<int> logoArea, titleArea, keyPanel, keyLabelArea, scaleLabelArea, stripLabelArea, readoutArea, knobPanel, extraPanel, footerArea;
     juce::Rectangle<int> lastScanA, lastScanB;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PrizmAudioProcessorEditor)

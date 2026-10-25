@@ -35,6 +35,10 @@ PrizmAudioProcessor::PrizmAudioProcessor()
     clearParam      = apvts.getRawParameterValue (ParamIDs::clear);
     mixParam        = apvts.getRawParameterValue (ParamIDs::mix);
     outputParam     = apvts.getRawParameterValue (ParamIDs::output);
+    shiftParam      = apvts.getRawParameterValue (ParamIDs::shift);
+    gateParam       = apvts.getRawParameterValue (ParamIDs::gate);
+    rangeLowParam   = apvts.getRawParameterValue (ParamIDs::rangeLow);
+    rangeHighParam  = apvts.getRawParameterValue (ParamIDs::rangeHigh);
 
     jassert (keyParam && scaleParam && customMaskParam && midiKeyParam && modeParam);
 }
@@ -71,6 +75,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
                                                        NormalisableRange<float> (-24.0f, 12.0f, 0.1f), 0.0f,
                                                        AudioParameterFloatAttributes().withLabel ("dB").withStringFromValueFunction (
                                                            [] (float v, int) { return String (v, 1) + " dB"; })));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::shift, 1 }, "Shift",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f, percent));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::gate, 1 }, "Gate",
+                                                       NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f, percent));
+
+    auto hzText = [] (float off) {
+        return AudioParameterFloatAttributes().withLabel ("Hz").withStringFromValueFunction ([off] (float v, int) {
+            if (std::abs (v - off) < 0.5f)
+                return String ("OFF");
+            return v >= 1000.0f ? String (v / 1000.0f, 1) + " kHz" : String (roundToInt (v)) + " Hz";
+        });
+    };
+    NormalisableRange<float> lowRange (20.0f, 2000.0f, 1.0f);
+    lowRange.setSkewForCentre (200.0f);
+    NormalisableRange<float> highRange (1000.0f, 20000.0f, 1.0f);
+    highRange.setSkewForCentre (5000.0f);
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeLow, 1 }, "Range Low", lowRange, 20.0f, hzText (20.0f)));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::rangeHigh, 1 }, "Range High", highRange, 20000.0f, hzText (20000.0f)));
     return layout;
 }
 
@@ -85,20 +107,46 @@ bool PrizmAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) co
 void PrizmAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int block = juce::jmax (1, samplesPerBlock);
+    sampleRateHz = sampleRate;
     filterBank.prepare (sampleRate, block);
     spectral.prepare (sampleRate);
 
-    dryBuffer.setSize (2, block, false, false, true);
-    for (auto& d : dryDelay)
-        d.assign ((size_t) spectral.getLatencySamples(), 0.0f);
-    dryDelayPos = 0;
+    for (auto* b : { &midBuffer, &dryMidBuffer, &outerBuffer })
+        b->setSize (2, block, false, false, true);
+    dryMidDelay.prepare (spectral.getLatencySamples());
+    outerDelay.prepare (spectral.getLatencySamples());
+
+    const juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) block, 2 };
+    for (auto* f : { &lowSplit, &highSplit, &lowAllpass })
+        f->prepare (spec);
+    lowAllpass.setType (juce::dsp::LinkwitzRileyFilterType::allpass);
+
+    auto coef = [sampleRate] (double s) { return (float) (1.0 - std::exp (-1.0 / (sampleRate * s))); };
+    fastAtt = coef (0.001);
+    fastRel = coef (0.020);
+    slowAtt = coef (0.040);
+    slowRel = coef (0.250);
+    transientRel = coef (0.060);
 
     mixSmoothed.reset (sampleRate, 0.05);
     outputSmoothed.reset (sampleRate, 0.05);
     mixSmoothed.setCurrentAndTargetValue (mixParam->load() * 0.01f);
     outputSmoothed.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
 
-    currentMode = -1; // forces latency report + engine reset on the first block
+    currentMode = -1; // erzwingt Latenzmeldung + Reset im ersten Block
+}
+
+void PrizmAudioProcessor::resetSignalPath()
+{
+    filterBank.reset();
+    spectral.reset();
+    dryMidDelay.clear();
+    outerDelay.clear();
+    for (auto* f : { &lowSplit, &highSplit, &lowAllpass })
+        f->reset();
+    inMeanSquare = wetMeanSquare = 0.0f;
+    autoGain = 1.0f;
+    envFast = envSlow = transient = 0.0f;
 }
 
 void PrizmAudioProcessor::handleMidi (const juce::MidiBuffer& midi)
@@ -171,74 +219,142 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     EngineParams p;
     p.mask = computeMask();
-    p.strength = strengthParam->load() * 0.01f;
     p.color = colorParam->load() * 0.01f;
     p.clear = clearParam->load() * 0.01f;
+    p.gate = gateParam->load() * 0.01f;
+    p.shift = shiftParam->load() * 0.01f;
     displayMask.store ((int) p.mask);
+
+    const float strength = juce::jlimit (0.0f, 1.0f, strengthParam->load() * 0.01f);
+    const float clear = juce::jlimit (0.0f, 1.0f, p.clear);
 
     const int mode = modeParam->getIndex();
     if (mode != currentMode)
     {
         currentMode = mode;
-        filterBank.reset();
-        spectral.reset();
-        for (auto& d : dryDelay)
-            std::fill (d.begin(), d.end(), 0.0f);
-        dryDelayPos = 0;
+        resetSignalPath();
         setLatencySamples (mode == highQuality ? spectral.getLatencySamples() : 0);
+    }
+
+    // Frequenzbereich: Linkwitz-Riley-Weichen, außerhalb bleibt das Signal trocken
+    const float lowHz = rangeLowParam->load();
+    const float highHz = juce::jmax (rangeHighParam->load(), lowHz * 2.0f);
+    const bool wantSplit = lowHz > 20.5f || highHz < 19999.0f;
+    if (wantSplit != splitActive)
+    {
+        splitActive = wantSplit;
+        for (auto* f : { &lowSplit, &highSplit, &lowAllpass })
+            f->reset();
+    }
+    if (splitActive)
+    {
+        const float nyquistSafe = (float) (sampleRateHz * 0.45);
+        lowSplit.setCutoffFrequency (juce::jmin (lowHz, nyquistSafe));
+        highSplit.setCutoffFrequency (juce::jmin (highHz, nyquistSafe));
+        lowAllpass.setCutoffFrequency (juce::jmin (highHz, nyquistSafe));
     }
 
     mixSmoothed.setTargetValue (mixParam->load() * 0.01f);
     outputSmoothed.setTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
 
-    // Work in chunks no larger than the prepared block size.
-    const int maxChunk = dryBuffer.getNumSamples();
-    const int delayLength = (int) dryDelay[0].size();
+    const int maxChunk = midBuffer.getNumSamples();
+    const bool hq = (mode == highQuality);
 
     for (int start = 0; start < numSamples; start += maxChunk)
     {
         const int n = juce::jmin (maxChunk, numSamples - start);
         juce::AudioBuffer<float> chunk (buffer.getArrayOfWritePointers(), numCh, start, n);
 
+        // 1) Aufteilen: Mitte geht in die Engine, Bass/Höhen außerhalb des Bereichs bleiben trocken
         for (int ch = 0; ch < numCh; ++ch)
-            dryBuffer.copyFrom (ch, 0, chunk, ch, 0, n);
+            for (int i = 0; i < n; ++i)
+            {
+                const float x = chunk.getSample (ch, i);
+                float mid = x, outer = 0.0f;
+                if (splitActive)
+                {
+                    float lo = 0.0f, rest = 0.0f, hi = 0.0f;
+                    lowSplit.processSample (ch, x, lo, rest);
+                    highSplit.processSample (ch, rest, mid, hi);
+                    outer = lowAllpass.processSample (ch, lo) + hi;
+                }
+                midBuffer.setSample (ch, i, mid);
+                dryMidBuffer.setSample (ch, i, mid);
+                outerBuffer.setSample (ch, i, outer);
+            }
 
-        if (mode == highQuality)
-            spectral.process (chunk, n, p);
+        // 2) Engine (gleiche Filterkurve in beiden Modi)
+        juce::AudioBuffer<float> wet (midBuffer.getArrayOfWritePointers(), numCh, 0, n);
+        if (hq)
+            spectral.process (wet, n, p);
         else
-            filterBank.process (chunk, n, p);
+            filterBank.process (wet, n, p);
 
         std::array<float, 12> energy {};
-        const bool fresh = (mode == highQuality) ? spectral.takePitchEnergy (energy)
-                                                 : filterBank.takePitchEnergy (energy);
-        if (fresh)
+        if (hq ? spectral.takePitchEnergy (energy) : filterBank.takePitchEnergy (energy))
             for (size_t pc = 0; pc < 12; ++pc)
                 pitchEnergy[pc].store (energy[pc] / (float) n);
 
+        // 3) Trockene Signale auf die Latenz der Engine ausrichten
+        if (hq)
+            for (int i = 0; i < n; ++i)
+            {
+                for (int ch = 0; ch < numCh; ++ch)
+                {
+                    dryMidBuffer.setSample (ch, i, dryMidDelay.process (ch, dryMidBuffer.getSample (ch, i)));
+                    outerBuffer.setSample (ch, i, outerDelay.process (ch, outerBuffer.getSample (ch, i)));
+                }
+                dryMidDelay.advance();
+                outerDelay.advance();
+            }
+
+        // 4) Pegelausgleich: gefiltertes Signal etwa so laut wie das Original
+        double inSum = 0.0, wetSum = 0.0;
+        for (int ch = 0; ch < numCh; ++ch)
+            for (int i = 0; i < n; ++i)
+            {
+                const float d = dryMidBuffer.getSample (ch, i), w = midBuffer.getSample (ch, i);
+                inSum += (double) d * d;
+                wetSum += (double) w * w;
+            }
+        const float denom = (float) (n * numCh);
+        const float msCoef = (float) (1.0 - std::exp (-(double) n / (sampleRateHz * 0.25)));
+        inMeanSquare += ((float) inSum / denom - inMeanSquare) * msCoef;
+        wetMeanSquare += ((float) wetSum / denom - wetMeanSquare) * msCoef;
+        float newGain = autoGain;
+        if (inMeanSquare > 1.0e-8f && wetMeanSquare > 1.0e-12f)
+        {
+            const float target = juce::jlimit (0.25f, 40.0f, std::sqrt (inMeanSquare / wetMeanSquare));
+            newGain = autoGain + (target - autoGain) * (float) (1.0 - std::exp (-(double) n / (sampleRateHz * 0.15)));
+        }
+
+        // 5) Strength, Clear (Anschläge trocken durchlassen), Mix, Output
         for (int i = 0; i < n; ++i)
         {
+            float x = 0.0f;
+            for (int ch = 0; ch < numCh; ++ch)
+                x += std::abs (dryMidBuffer.getSample (ch, i));
+            x /= (float) numCh;
+            envFast += (x - envFast) * (x > envFast ? fastAtt : fastRel);
+            envSlow += (x - envSlow) * (x > envSlow ? slowAtt : slowRel);
+            const float raw = envFast > 1.0e-4f ? juce::jlimit (0.0f, 1.0f, (envFast / (envSlow + 1.0e-6f) - 1.3f) / 1.5f) : 0.0f;
+            transient = raw > transient ? raw : transient + (raw - transient) * transientRel;
+
+            const float s = strength * (1.0f - clear * transient);
+            const float g = autoGain + (newGain - autoGain) * ((float) i / (float) n);
             const float m = mixSmoothed.getNextValue();
-            const float g = outputSmoothed.getNextValue();
+            const float out = outputSmoothed.getNextValue();
 
             for (int ch = 0; ch < numCh; ++ch)
             {
-                float dry = dryBuffer.getSample (ch, i);
-
-                if (mode == highQuality && delayLength > 0)
-                {
-                    auto& d = dryDelay[(size_t) ch];
-                    const float delayed = d[(size_t) dryDelayPos];
-                    d[(size_t) dryDelayPos] = dry;
-                    dry = delayed;
-                }
-
-                const float wet = chunk.getSample (ch, i);
-                chunk.setSample (ch, i, softSafety ((dry * (1.0f - m) + wet * m) * g));
+                const float dryMid = dryMidBuffer.getSample (ch, i);
+                const float outer = outerBuffer.getSample (ch, i);
+                const float processed = outer + dryMid * (1.0f - s) + midBuffer.getSample (ch, i) * g * s;
+                const float dry = outer + dryMid;
+                chunk.setSample (ch, i, softSafety ((dry * (1.0f - m) + processed * m) * out));
             }
-
-            if (mode == highQuality && delayLength > 0)
-                dryDelayPos = (dryDelayPos + 1) % delayLength;
         }
+        autoGain = newGain;
     }
 }
 
