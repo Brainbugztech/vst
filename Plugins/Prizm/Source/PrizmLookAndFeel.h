@@ -336,6 +336,49 @@ public:
         g.drawText (b.getButtonText(), b.getLocalBounds(), juce::Justification::centred);
     }
 
+    // Tooltips: erste Zeile = Titel (grün), Rest = Erklärung. Breite max. 320 px.
+    static juce::TextLayout tooltipLayout (const juce::String& text)
+    {
+        juce::AttributedString a;
+        a.setWordWrap (juce::AttributedString::byWord);
+        a.setLineSpacing (2.0f);
+        const auto title = text.upToFirstOccurrenceOf ("\n", false, false);
+        const auto body = text.fromFirstOccurrenceOf ("\n", false, false);
+        a.append (title, bb::fonts::display (14.5f, true).withExtraKerningFactor (0.04f), Col::tox);
+        if (body.isNotEmpty())
+            a.append ("\n" + body, bb::fonts::display (14.0f), Col::ink);
+        juce::TextLayout layout;
+        layout.createLayout (a, 320.0f);
+        return layout;
+    }
+
+    static float layoutWidth (const juce::TextLayout& layout)
+    {
+        float w = 0.0f;
+        for (int i = 0; i < layout.getNumLines(); ++i)
+            w = juce::jmax (w, layout.getLine (i).getLineBoundsX().getEnd());
+        return w;
+    }
+
+    juce::Rectangle<int> getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override
+    {
+        const auto layout = tooltipLayout (tipText);
+        const int w = (int) std::ceil (layoutWidth (layout)) + 26;
+        const int h = (int) std::ceil (layout.getHeight()) + 20;
+        const int x = screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 14) : screenPos.x + 18;
+        const int y = screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 10) : screenPos.y + 20;
+        return juce::Rectangle<int> (x, y, w, h).constrainedWithin (parentArea);
+    }
+
+    void drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height) override
+    {
+        const auto r = juce::Rectangle<int> (0, 0, width, height).toFloat();
+        g.fillAll (Col::glassDeep);
+        holo::box (g, r, 1.0f, true);
+        auto layout = tooltipLayout (text);
+        layout.draw (g, r.reduced (13.0f, 10.0f));
+    }
+
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override
     {
         return bb::fonts::display (juce::jmin (14.0f, (float) buttonHeight * 0.55f), true).withExtraKerningFactor (0.08f);

@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "../Source/PluginProcessor.h"
+#include "../Source/PluginEditor.h"
 
 #include <cmath>
 #include <cstdio>
@@ -962,25 +963,71 @@ int main()
                      mode == zeroLatency ? "Zero Latency" : "High Quality", ms, ms / 100.0);
     }
 
-    // 9) Optional: render the editor to a PNG (set PRIZM_UI_SNAPSHOT=1).
+    // 9) Optional: render the editor to PNGs (set PRIZM_UI_SNAPSHOT=1).
+    //    Fenster ist offen, während Audio läuft, damit die Pitch Matrix echte Pegel zeigt.
     if (juce::SystemStats::getEnvironmentVariable ("PRIZM_UI_SNAPSHOT", {}) == "1")
     {
-        auto p = makeProcessor (zeroLatency, 85.0f, 140.0f, 30.0f);
-        setParam (*p, ParamIDs::key, 9.0f);   // A
-        setParam (*p, ParamIDs::scale, 1.0f); // Minor
-        setParam (*p, ParamIDs::mode, (float) highQuality);
-        setParam (*p, ParamIDs::mapId (0).toRawUTF8(), 2.0f);  // C -> C#
-        setParam (*p, ParamIDs::mapId (7).toRawUTF8(), 13.0f); // G off
-        setParam (*p, ParamIDs::weightId (4).toRawUTF8(), 45.0f); // E auf 45 %
-        auto noise = makeNoise (1.0, 0.2f);
-        render (*p, noise); // so the key strip shows live energy
-        std::unique_ptr<juce::AudioProcessorEditor> editor (p->createEditor());
-        auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f);
-        auto file = juce::File::getCurrentWorkingDirectory().getChildFile ("renders/ui.png");
-        file.deleteFile();
-        juce::FileOutputStream os (file);
-        juce::PNGImageFormat().writeImageToStream (image, os);
-        std::printf ("[INFO] UI snapshot written\n");
+        auto snapshot = [] (int mode, float shift, const char* fileName)
+        {
+            auto p = makeProcessor (mode, 85.0f, 120.0f, 30.0f);
+            setParam (*p, ParamIDs::key, 9.0f);   // A
+            setParam (*p, ParamIDs::scale, 1.0f); // Minor (A B C D E F G)
+            setParam (*p, ParamIDs::shift, shift);
+            setParam (*p, ParamIDs::mapId (0).toRawUTF8(), 2.0f);  // C -> C#
+            setParam (*p, ParamIDs::mapId (7).toRawUTF8(), 13.0f); // G off
+            setParam (*p, ParamIDs::weightId (4).toRawUTF8(), 45.0f); // E auf 45 %
+            std::unique_ptr<juce::AudioProcessorEditor> editor (p->createEditor());
+            // Akkord A C E + schiefe Töne F# und G# + etwas Rauschen
+            auto in = makeHarmonic ({ 220.0f, 261.63f, 329.63f, 369.99f, 415.3f, 392.0f }, 5, 1.5, [] (float, int h) { return 0.04f / (float) h; });
+            auto noise = makeNoise (1.5, 0.01f);
+            for (int ch = 0; ch < 2; ++ch)
+                in.addFrom (ch, 0, noise, ch, 0, in.getNumSamples());
+            for (int start = 0; start < in.getNumSamples(); start += kBlock)
+            {
+                const int n = std::min (kBlock, in.getNumSamples() - start);
+                juce::AudioBuffer<float> block (in.getArrayOfWritePointers(), 2, start, n);
+                juce::MidiBuffer midi;
+                p->processBlock (block, midi);
+                if ((start / kBlock) % 3 == 0)
+                    dynamic_cast<PrizmAudioProcessorEditor*> (editor.get())->tickForTest (1);
+            }
+            dynamic_cast<PrizmAudioProcessorEditor*> (editor.get())->tickForTest (1);
+            auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f);
+            auto file = juce::File::getCurrentWorkingDirectory().getChildFile (juce::String ("renders/") + fileName);
+            file.deleteFile();
+            juce::FileOutputStream os (file);
+            juce::PNGImageFormat().writeImageToStream (image, os);
+        };
+        // Beispiel-Tooltips, um Schrift, Umlaute und Zeilenumbruch zu prüfen
+        {
+            prizm::PrizmLookAndFeel lnf;
+            const juce::StringArray tips {
+                juce::String::fromUTF8 ("COLOR\nWie tonal es klingt. Wenig = weich und natürlich, 100 % = deutlich gestimmt. Über 100 % (pink) klingen die Töne lange nach."),
+                juce::String::fromUTF8 ("E → Eb  (MAP)\nDie gespielte Note E landet auf Eb. Ihre Obertöne wandern mit, Obertöne anderer Noten bleiben stehen.\nZiehen zu einer Note unten: umleiten. Rechtsklick: Menü. Doppelklick: normal."),
+            };
+            juce::Image out (juce::Image::ARGB, 760, 260, true);
+            {
+                juce::Graphics g (out);
+                g.fillAll (juce::Colour (0xff05080d));
+                int y = 10;
+                for (const auto& t : tips)
+                {
+                    const auto b = lnf.getTooltipBounds (t, { 20, y }, { 0, 0, 760, 260 });
+                    juce::Graphics::ScopedSaveState s (g);
+                    g.setOrigin (10, y);
+                    g.reduceClipRegion (0, 0, b.getWidth(), b.getHeight());
+                    lnf.drawTooltip (g, t, b.getWidth(), b.getHeight());
+                    y += b.getHeight() + 14;
+                }
+            }
+            auto file = juce::File::getCurrentWorkingDirectory().getChildFile ("renders/tooltips.png");
+            file.deleteFile();
+            juce::FileOutputStream os (file);
+            juce::PNGImageFormat().writeImageToStream (out, os);
+        }
+        snapshot (highQuality, 100.0f, "ui.png");
+        snapshot (zeroLatency, 0.0f, "ui_zl.png");
+        std::printf ("[INFO] UI snapshots written\n");
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL TESTS PASSED" : "TESTS FAILED", failures, failures == 1 ? "" : "s");

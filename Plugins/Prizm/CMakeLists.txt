@@ -28,7 +28,8 @@ set(PRIZM_SOURCES
     Source/FilterBankEngine.cpp
     Source/SpectralEngine.cpp
     Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
+    Source/PluginEditor.cpp
+    Source/PitchMatrix.cpp)
 
 target_sources(BrainbugzPrizm PRIVATE ${PRIZM_SOURCES})
 

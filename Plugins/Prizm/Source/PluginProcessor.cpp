@@ -153,6 +153,7 @@ void PrizmAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     spectral.prepare (sampleRate);
     keyAnalyzer.prepare (sampleRate);
     chordTracker.prepare (sampleRate);
+    inputMeter.prepare (sampleRate);
     learnActive.store (false);
     for (auto* b : { &midBuffer, &dryMidBuffer, &outerBuffer })
         b->setSize (2, block, false, false, true);
@@ -303,6 +304,7 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     EngineParams p;
     p.mask = computeMask();
+    scaleMask.store ((int) p.mask);
 
     // Noten-Map: 0 = Keep, 1..12 = Ziel C..B, 13 = Mute
     const int modeNow = modeParam->getIndex();
@@ -396,6 +398,21 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
                 dryMidBuffer.setSample (ch, i, mid);
                 outerBuffer.setSample (ch, i, outer);
             }
+
+        // Anzeige: was kommt rein (nur der bearbeitete Anteil, nur bei offenem Fenster)
+        if (editorOpen.load (std::memory_order_relaxed))
+        {
+            const float* chans[2] { dryMidBuffer.getReadPointer (0), numCh > 1 ? dryMidBuffer.getReadPointer (1) : nullptr };
+            if (untouched == 1)
+                inputMeter.process (chans, 1, n);          // nur Mitte
+            else if (untouched == 0)
+                inputMeter.process (chans + 1, 1, n);      // nur Seite
+            else
+                inputMeter.process (chans, numCh, n);
+            const auto& chroma = inputMeter.getChroma();
+            for (size_t pc = 0; pc < 12; ++pc)
+                inputEnergy[pc].store (chroma[pc], std::memory_order_relaxed);
+        }
 
         // 2) Engine (gleiche Filterkurve in beiden Modi)
         juce::AudioBuffer<float> wet (midBuffer.getArrayOfWritePointers(), numCh, 0, n);
@@ -644,6 +661,16 @@ void PrizmAudioProcessor::applyMapPreset (MapPreset preset)
         *param = idx[(size_t) pc];
         param->endChangeGesture();
     }
+}
+
+void PrizmAudioProcessor::setMap (int pc, int index)
+{
+    if (pc < 0 || pc > 11)
+        return;
+    auto* param = mapParams[(size_t) pc];
+    param->beginChangeGesture();
+    *param = juce::jlimit (0, 13, index);
+    param->endChangeGesture();
 }
 
 void PrizmAudioProcessor::setWeight (int pc, float weight01, bool gestureStart, bool gestureEnd)

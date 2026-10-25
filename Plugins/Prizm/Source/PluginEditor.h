@@ -6,6 +6,7 @@
 
 #include "PluginProcessor.h"
 #include "PrizmLookAndFeel.h"
+#include "PitchMatrix.h"
 
 // Small animated prism: a white beam enters, a spectrum fans out.
 class PrismGlyph : public juce::Component
@@ -36,8 +37,8 @@ private:
     float thumb = 0.0f; // 0 = left, 1 = right
 };
 
-// The 12 pitch classes: lit = in key, glow = live output energy of that note.
-class KeyStrip : public juce::Component
+// Die 12 Noten: grün = in der Tonart, Leuchten = was gerade reinkommt (Eingang der Pitch Matrix).
+class KeyStrip : public juce::Component, public juce::TooltipClient
 {
 public:
     std::function<void (int)> onToggle;
@@ -53,6 +54,7 @@ public:
     void mouseDoubleClick (const juce::MouseEvent& e) override;
     void mouseMove (const juce::MouseEvent& e) override;
     void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
+    juce::String getTooltip() override;
 
 private:
     int cellAt (int x) const;
@@ -73,6 +75,9 @@ class PrizmAudioProcessorEditor : public juce::AudioProcessorEditor, private juc
 public:
     explicit PrizmAudioProcessorEditor (PrizmAudioProcessor&);
     ~PrizmAudioProcessorEditor() override;
+#if PRIZM_HEADLESS_TEST
+    void tickForTest (int ticks) { for (int i = 0; i < ticks; ++i) timerCallback(); }
+#endif
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -109,10 +114,12 @@ private:
     void refreshPresetBox();
     void askPresetName();
     int shownPreset = -1;
-    std::array<juce::ComboBox, 12> mapBoxes;
-    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>, 12> mapAttachments;
+    PitchMatrix pitchMatrix;
+    void updateMatrix (int mode);
+    std::array<float, 12> shownInput {};
+    float inputRef = 0.0f;
     juce::TextButton majToMinButton { "MAJ > MIN" }, minToMajButton { "MIN > MAJ" }, resetMapButton { "RESET MAP" };
-    juce::Rectangle<int> mapLabelArea;
+    juce::Rectangle<int> legendArea;
     juce::String learnMessage;
     int learnMessageTicks = 0;
     juce::ComboBox keyBox, scaleBox;
@@ -120,7 +127,7 @@ private:
     std::array<Knob, 11> knobs; // 0-4 SIGNAL, 5-10 RANGE + SPECTRAL
     static constexpr size_t kFormantKnob = 9;
     static constexpr size_t kShiftKnob = 8;
-    juce::TooltipWindow tooltips { this, 600 };
+    juce::TooltipWindow tooltips { this, 700 };
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> keyAttachment, scaleAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> midiAttachment;
