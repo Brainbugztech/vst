@@ -37,7 +37,7 @@ private:
         int note = 0;
         float g = 0.0f;           // tan(pi * f / fs)
         float fade = 0.0f;        // Ein-/Ausblenden bei Tonartwechsel
-        float target = 0.0f;      // 1 = Note in der Tonart
+        float target = 0.0f;      // Gewicht der Note (0 = nicht in der Tonart)
         float gateGain = 1.0f;
         float level = 0.0f;       // Hüllkurve für das Gate
         float a1 = 0, a2 = 0, a3 = 0;
@@ -51,6 +51,7 @@ private:
     std::vector<float> dampCurve;
 
     PitchMask lastMask = 0xFFFF;
+    std::array<float, 12> lastWeights { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
     float currentA4 = 440.0f;
     void retune (float a4);
     float qSmoothed = 40.0f;

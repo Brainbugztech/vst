@@ -41,11 +41,16 @@ class KeyStrip : public juce::Component
 {
 public:
     std::function<void (int)> onToggle;
+    std::function<void (int, float, bool, bool)> onWeight; // Note, 0..1, Geste Start, Geste Ende
+    std::function<float (int)> getWeight;
 
     void setState (prizm::PitchMask newMask, int newRoot, bool newMidi);
     void setEnergy (const std::array<float, 12>& e) { energy = e; repaint(); }
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
+    void mouseDrag (const juce::MouseEvent& e) override;
+    void mouseUp (const juce::MouseEvent& e) override;
+    void mouseDoubleClick (const juce::MouseEvent& e) override;
     void mouseMove (const juce::MouseEvent& e) override;
     void mouseExit (const juce::MouseEvent&) override { hover = -1; repaint(); }
 
@@ -57,6 +62,9 @@ private:
     int root = -1;
     int hover = -1;
     bool midi = false;
+    int dragNote = -1;
+    float dragStartWeight = 1.0f;
+    bool dragging = false;
     std::array<float, 12> energy {};
 };
 

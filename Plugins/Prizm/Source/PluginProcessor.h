@@ -30,6 +30,7 @@ namespace ParamIDs
     inline constexpr const char* tune       = "tune";
     inline constexpr const char* formant    = "formant";
     inline juce::String mapId (int pc) { return "map" + juce::String (pc); } // map0 (C) .. map11 (B)
+    inline juce::String weightId (int pc) { return "weight" + juce::String (pc); } // weight0 (C) .. weight11 (B)
 }
 
 enum Mode { zeroLatency = 0, highQuality = 1 };
@@ -77,6 +78,9 @@ public:
     // Noten-Map, Message-Thread: Vorlagen relativ zur Tonart
     enum class MapPreset { reset, majorToMinor, minorToMajor };
     void applyMapPreset (MapPreset preset);
+    // Gewichtung pro Note, Message-Thread (0..1)
+    float getWeight (int pc) const noexcept { return weightParams[(size_t) pc]->load() * 0.01f; }
+    void setWeight (int pc, float weight01, bool gestureStart, bool gestureEnd);
 
     // Learn: Tonart und Stimmton aus dem Eingang erkennen
     void startLearn() noexcept { learnCommand.store (1); }
@@ -158,6 +162,7 @@ private:
     std::atomic<float>* tuneParam = nullptr;
     std::atomic<float>* formantParam = nullptr;
     std::array<juce::AudioParameterChoice*, 12> mapParams {};
+    std::array<std::atomic<float>*, 12> weightParams {};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PrizmAudioProcessor)
 };

@@ -683,6 +683,25 @@ int main()
                                                               + juce::String (peaks[0], 0) + " Hz with Formant, " + juce::String (peaks[1], 0) + " Hz without, source 1000 Hz)");
     }
 
+    // 3i) Gewichtung: E auf 25 % -> E deutlich leiser als C, in beiden Modi gleich.
+    {
+        double drops[2] {};
+        for (int mi = 0; mi < 2; ++mi)
+        {
+            const int mode = mi == 0 ? zeroLatency : highQuality;
+            auto noise = makeNoise (4.0, 0.2f);
+            auto pFull = makeProcessor (mode, 100.0f, 100.0f, 0.0f);
+            auto pW = makeProcessor (mode, 100.0f, 100.0f, 0.0f);
+            setParam (*pW, ParamIDs::weightId (4).toRawUTF8(), 25.0f);
+            const int lat = pFull->getLatencySamples();
+            const auto sF = spectrum (render (*pFull, noise), 48000 + lat), sW = spectrum (render (*pW, noise), 48000 + lat);
+            auto rel = [] (const std::vector<float>& sp) { return toneLevel (sp, 329.63f, 3.0f) - toneLevel (sp, 261.63f, 3.0f); };
+            drops[mi] = rel (sF) - rel (sW);
+        }
+        check (drops[0] > 8.0 && drops[1] > 8.0 && std::abs (drops[0] - drops[1]) < 3.0,
+               "Weight E 25 %: E " + juce::String (drops[0], 1) + " dB quieter (Zero Latency), " + juce::String (drops[1], 1) + " dB (High Quality)");
+    }
+
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
     for (int mode : { zeroLatency, highQuality })
     {

@@ -192,9 +192,20 @@ void KeyStrip::paint (juce::Graphics& g)
 
         if (on)
         {
+            // Gewichtung: Füllhöhe der Taste (darüber dunkles Glas)
+            const float wgt = getWeight ? jlimit (0.0f, 1.0f, getWeight (pc)) : 1.0f;
+            if (wgt < 0.999f)
+                holo::box (g, cell, 1.0f, false);
+            const auto filled = cell.withTop (cell.getBottom() - cell.getHeight() * jmax (0.08f, wgt));
             ColourGradient fill (onColour.brighter (0.15f + 0.3f * e), 0.0f, cell.getY(), onColour.darker (0.45f), 0.0f, cell.getBottom(), false);
             g.setGradientFill (fill);
-            g.fillRoundedRectangle (cell, corner);
+            g.fillRoundedRectangle (filled, corner);
+            if (wgt < 0.999f)
+            {
+                g.setFont (mono (10.0f));
+                g.setColour (Col::ink);
+                g.drawText (String (roundToInt (wgt * 100.0f)) + "%", cell.withHeight (14.0f).translated (0.0f, 3.0f), Justification::centred);
+            }
             g.setColour (juce::Colours::white.withAlpha (0.45f)); // wet highlight
             g.fillRoundedRectangle (cell.reduced (3.0f, 0.0f).withHeight (1.5f).translated (0.0f, 2.0f), 0.75f);
             g.setColour (onColour.darker (0.2f));
@@ -236,9 +247,49 @@ void KeyStrip::paint (juce::Graphics& g)
 
 void KeyStrip::mouseDown (const juce::MouseEvent& e)
 {
+    // Klick = Note an/aus (beim Loslassen), Ziehen hoch/runter = Gewichtung
+    dragNote = cellAt (e.x);
+    dragging = false;
+    dragStartWeight = (dragNote >= 0 && getWeight) ? getWeight (dragNote) : 1.0f;
+}
+
+void KeyStrip::mouseDrag (const juce::MouseEvent& e)
+{
+    if (dragNote < 0 || ! ((mask >> dragNote) & 1u) || ! onWeight)
+        return;
+    const int dy = e.getDistanceFromDragStartY();
+    if (! dragging && std::abs (dy) < 4)
+        return;
+    const bool start = ! dragging;
+    dragging = true;
+    const float fine = e.mods.isShiftDown() ? 0.25f : 1.0f;
+    onWeight (dragNote, juce::jlimit (0.0f, 1.0f, dragStartWeight - (float) dy / 80.0f * fine), start, false);
+}
+
+void KeyStrip::mouseUp (const juce::MouseEvent& e)
+{
+    if (dragging)
+    {
+        if (onWeight && getWeight)
+            onWeight (dragNote, getWeight (dragNote), false, true);
+    }
+    else if (dragNote >= 0 && dragNote == cellAt (e.x) && onToggle && e.getNumberOfClicks() < 2)
+    {
+        onToggle (dragNote);
+    }
+    dragNote = -1;
+    dragging = false;
+}
+
+void KeyStrip::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    // Doppelklick: Gewichtung zurück auf 100 % (und Note wieder an, falls der erste Klick sie ausgeschaltet hat)
     const int pc = cellAt (e.x);
-    if (pc >= 0 && onToggle)
+    if (pc < 0 || ! onWeight)
+        return;
+    if (! ((mask >> pc) & 1u) && onToggle)
         onToggle (pc);
+    onWeight (pc, 1.0f, true, true);
 }
 
 void KeyStrip::mouseMove (const juce::MouseEvent& e)
@@ -314,6 +365,8 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
         addAndMakeVisible (*b);
 
     keyStrip.onToggle = [this] (int pc) { processor.togglePitchClass (pc); };
+    keyStrip.onWeight = [this] (int pc, float w, bool start, bool end) { processor.setWeight (pc, w, start, end); keyStrip.repaint(); };
+    keyStrip.getWeight = [this] (int pc) { return processor.getWeight (pc); };
     addAndMakeVisible (keyStrip);
 
     struct Def { const char* id; const char* title; const char* hint; };
@@ -715,7 +768,7 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
     else
     {
         g.setColour (midiShown ? Col::pink : Col::muted);
-        g.drawText (midiShown ? "KEY SET BY MIDI  -  LAST CHORD" : "NOTES  -  CLICK TO EDIT, GLOW = WHAT YOU HEAR", stripLabelArea, Justification::centredLeft);
+        g.drawText (midiShown ? "KEY SET BY MIDI  -  LAST CHORD" : "NOTES  -  CLICK = ON/OFF, DRAG UP/DOWN = WEIGHT, GLOW = WHAT YOU HEAR", stripLabelArea, Justification::centredLeft);
     }
 }
 

@@ -42,7 +42,10 @@ PrizmAudioProcessor::PrizmAudioProcessor()
     tuneParam       = apvts.getRawParameterValue (ParamIDs::tune);
     formantParam    = apvts.getRawParameterValue (ParamIDs::formant);
     for (int pc = 0; pc < 12; ++pc)
+    {
         mapParams[(size_t) pc] = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::mapId (pc)));
+        weightParams[(size_t) pc] = apvts.getRawParameterValue (ParamIDs::weightId (pc));
+    }
 
     jassert (keyParam && scaleParam && customMaskParam && midiKeyParam && modeParam);
 }
@@ -107,6 +110,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createP
         for (int pc = 0; pc < 12; ++pc)
             layout.add (std::make_unique<AudioParameterChoice> (ParameterID { ParamIDs::mapId (pc), 1 },
                                                                 String ("Map ") + kNoteNames[(size_t) pc], targets, 0));
+        for (int pc = 0; pc < 12; ++pc)
+            layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::weightId (pc), 1 },
+                                                               String ("Weight ") + kNoteNames[(size_t) pc],
+                                                               NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f, percent));
     }
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { ParamIDs::tune, 1 }, "Tune (A4)",
                                                        NormalisableRange<float> (415.0f, 466.0f, 0.1f), 440.0f,
@@ -277,6 +284,8 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     if (p.mask == 0)
         p.mask = kAllPitches;
     p.formant = formantParam->load() * 0.01f;
+    for (int pc = 0; pc < 12; ++pc)
+        p.weight[(size_t) pc] = juce::jlimit (0.0f, 1.0f, weightParams[(size_t) pc]->load() * 0.01f);
     p.color = colorParam->load() * 0.01f;
     p.clear = clearParam->load() * 0.01f;
     p.gate = gateParam->load() * 0.01f;
@@ -466,6 +475,18 @@ void PrizmAudioProcessor::applyMapPreset (MapPreset preset)
         *param = idx[(size_t) pc];
         param->endChangeGesture();
     }
+}
+
+void PrizmAudioProcessor::setWeight (int pc, float weight01, bool gestureStart, bool gestureEnd)
+{
+    if (pc < 0 || pc > 11)
+        return;
+    auto* param = apvts.getParameter (ParamIDs::weightId (pc));
+    if (gestureStart)
+        param->beginChangeGesture();
+    param->setValueNotifyingHost (param->convertTo0to1 (juce::jlimit (0.0f, 100.0f, weight01 * 100.0f)));
+    if (gestureEnd)
+        param->endChangeGesture();
 }
 
 void PrizmAudioProcessor::togglePitchClass (int pitchClass)

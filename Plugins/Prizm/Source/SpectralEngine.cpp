@@ -115,7 +115,7 @@ void SpectralEngine::processFrame (const EngineParams& p)
     refScale = 440.0f / juce::jlimit (400.0f, 480.0f, p.a4);
     const float qTarget = ResponseModel::qFromColor (p.color);
     qSmoothed += (qTarget - qSmoothed) * (float) (1.0 - std::exp (-(double) hop / (fs * 0.05)));
-    model.update (p.mask, qSmoothed);
+    model.update (p.mask, qSmoothed, p.weight);
 
     // Tonhöhen verschieben (SHIFT / Noten-Map): Noten gemeinsam für beide Kanäle erkennen
     const bool moving = p.shift > 0.001f || p.mapActive() || std::any_of (p.map.begin(), p.map.end(), [] (int8_t m) { return m == kMapMute; });
