@@ -24,6 +24,7 @@
   // Hauptordner: Farbe, Symbol, Beschreibung
   const HAUPT = [
     { m: /^_inbox/i, c: '#9aa8a1', ico: 'inbox', d: 'Neues erstmal hier rein, später einsortieren' },
+    { m: /^_hq-app/i, c: '#5f6b66', ico: 'plugin', d: 'Updates für die HQ-App, kommen automatisch' },
     { m: /^01_/, c: '#ff2f8e', ico: 'proj', d: 'Ableton-Projekte, ein Ordner pro Track' },
     { m: /^02_/, c: '#ffaa28', ico: 'preset', d: 'Racks, Synth-Presets und Presetpacks' },
     { m: /^03_/, c: '#b6ff1f', ico: 'sample', d: 'Drums, Bass, Melodie, Vocals, FX' },
@@ -31,7 +32,9 @@
     { m: /^05_/, c: '#a77bff', ico: 'track', d: 'Master, Stems, Demos, Releases' }
   ];
   const haupt = name => HAUPT.find(h => h.m.test(name)) || { c: '#8c9a93', ico: 'folder', d: '' };
-  const pretty = name => name.replace(/^\d+_/, '').replace(/^_(inbox)\b.*$/i, 'Inbox').replace(/^_/, '');
+  const pretty = name => name.replace(/^\d+_/, '').replace(/^_(inbox)\b.*$/i, 'Inbox').replace(/^_hq-app$/i, 'HQ-App Updates').replace(/^_/, '');
+  // Update-Ordner immer ans Ende
+  const lastHq = list => [...list.filter(e => !/^_hq-app$/i.test(e.name)), ...list.filter(e => /^_hq-app$/i.test(e.name))];
   const colorOf = rel => haupt((rel || '').split('/')[0] || '').c;
 
   const TYP = [
@@ -85,7 +88,7 @@
   async function renderTree() {
     const nav = $('#cTree'); const r = await api.list('');
     if (!r.ok) { nav.textContent = r.error; return; }
-    top = r.data.filter(e => e.dir);
+    top = lastHq(r.data.filter(e => e.dir));
     nav.replaceChildren();
     const home = node({ name: 'Übersicht', rel: '', top: true, ico: 'folder', c: '#e7efe4' });
     nav.append(home);
@@ -149,7 +152,7 @@
 
   function renderTiles(body, list) {
     const grid = document.createElement('div'); grid.className = 'tiles';
-    const dirs = list.filter(e => e.dir);
+    const dirs = lastHq(list.filter(e => e.dir));
     if (!dirs.length) { body.innerHTML = '<div class="empty"><b>Cloud ist leer</b>Klick oben auf „Struktur anlegen“.</div>'; return; }
     for (const e of dirs) {
       const h = haupt(e.name);

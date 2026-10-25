@@ -21,8 +21,8 @@
     "appId": "tech.brainbugz.hq",
     "productName": "Bugz HQ",
     "icon": "icon.ico",
-    "files": ["main.js", "preload.js", "discord.js", "store.js", "cloud.js", "renderer/**/*", "icon.png", "package.json"],
+    "files": ["main.js", "preload.js", "discord.js", "store.js", "cloud.js", "updater.js", "renderer/**/*", "icon.png", "package.json"],
     "win": { "target": "portable" },
-    "portable": { "artifactName": "BugzHQ.exe" }
+    "portable": { "artifactName": "BugzHQ-${version}.exe" }
   }
 }

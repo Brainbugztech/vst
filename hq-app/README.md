@@ -6,7 +6,16 @@ Ein Fenster mit zwei Ansichten (oben umschalten oder Strg+1 / Strg+2):
 
 ## Exe holen
 GitHub → Actions → "Build Bugz HQ" → neuester Lauf → Artifact **BugzHQ** herunterladen,
-entpacken, `BugzHQ.exe` auf den Desktop legen. Keine Installation nötig.
+entpacken, `BugzHQ-x.y.z.exe` auf den Desktop legen. Keine Installation nötig.
+
+## Updates (automatisch über die Cloud)
+Neue Versionen liegen als `BugzHQ-x.y.z.exe` im Cloud-Ordner **_HQ-App**. Google Drive verteilt sie an beide PCs.
+Sobald eine neuere Version da ist, zeigt die App oben „Update bereit“ → **Jetzt neu starten**:
+die App ersetzt ihre eigene Exe und startet neu. Einstellungen bleiben erhalten.
+
+Neue Version veröffentlichen: die Exe aus GitHub Actions in `Brain Bugz Cloud/_HQ-App` legen
+(per Drag & Drop in der Cloud-Ansicht oder im Explorer). Claude kann das auch direkt über die Verbindung zum PC machen.
+In `_HQ-App` dürfen nur Exes aus GitHub Actions liegen, denn die App startet sie.
 
 ## Beim ersten Start
 1. **Einstellungen** → Link zum Board eintragen (`https://claude.ai/artifact/…`), speichern.

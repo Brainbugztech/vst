@@ -24,7 +24,12 @@ jobs:
       - name: Code prüfen
         shell: bash
         run: |
-          for f in main.js preload.js discord.js store.js cloud.js renderer/app.js renderer/cloud-ui.js; do node --check "$f"; done
+          for f in main.js preload.js discord.js store.js cloud.js updater.js renderer/app.js renderer/cloud-ui.js; do node --check "$f"; done
+
+      # Jede Exe bekommt eine eigene, steigende Versionsnummer, damit das Selbst-Update sie erkennt
+      - name: Version setzen
+        shell: bash
+        run: npm version "0.2.${{ github.run_number }}" --no-git-tag-version --allow-same-version
 
       - name: Exe bauen
         run: npm run dist
@@ -33,5 +38,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BugzHQ
-          path: hq-app/dist/BugzHQ.exe
+          path: hq-app/dist/BugzHQ-*.exe
           if-no-files-found: error

@@ -4,6 +4,7 @@ const path = require('path');
 const store = require('./store');
 const dc = require('./discord');
 const cloud = require('./cloud');
+const updater = require('./updater');
 
 let win;
 function createWindow() {
@@ -39,19 +40,37 @@ async function connectFromSettings() {
 }
 
 // Cloud-Ordner: gespeicherten Pfad nehmen, sonst automatisch suchen
+// Updates aus der Cloud (Ordner _HQ-App) prüfen und dem Fenster melden
+let upd = null;
+function updState() { return { current: app.getVersion(), available: upd ? { version: upd.version } : null, canApply: updater.canApply() }; }
+function checkUpdate() {
+  try { upd = updater.find(cloud.getRoot(), app.getVersion()); } catch { upd = null; }
+  if (win && !win.isDestroyed()) win.webContents.send('update:state', updState());
+}
+
 function cloudStart() {
   let p = store.load().cloudPath;
   if (!p || !require('fs').existsSync(p)) { const d = cloud.detect(); if (d) { p = d; store.patch({ cloudPath: d }); } }
   cloud.setRoot(p || '');
-  cloud.watch(() => { if (win && !win.isDestroyed()) win.webContents.send('cloud:changed'); });
+  cloud.watch(() => { if (win && !win.isDestroyed()) win.webContents.send('cloud:changed'); checkUpdate(); });
+  checkUpdate();
   return cloud.status();
 }
-const safe = fn => async (...a) => { try { return { ok: true, data: await fn(...a) } } catch (e) { return { ok: false, error: String(e && e.message || e) } } };
+// ipcMain.handle übergibt zuerst das Event, das wird hier weggelassen
+const safe = fn => async (_e, ...a) => { try { return { ok: true, data: await fn(...a) } } catch (e) { return { ok: false, error: String(e && e.message || e) } } };
 let dragIcon = null;
 
 app.whenReady().then(() => {
   createWindow();
   cloudStart();
+  ipcMain.handle('update:get', () => { checkUpdate(); return updState(); });
+  ipcMain.handle('update:apply', () => {
+    checkUpdate();
+    if (!upd) return { ok: false, error: 'Kein Update gefunden.' };
+    try { updater.apply(upd, () => setTimeout(() => app.quit(), 300)); return { ok: true }; }
+    catch (e) { return { ok: false, error: String(e && e.message || e) }; }
+  });
+  setInterval(checkUpdate, 15 * 60e3);
   ipcMain.handle('cloud:status', () => cloud.status());
   ipcMain.handle('cloud:detect', () => { store.patch({ cloudPath: '' }); return cloudStart(); });
   ipcMain.handle('cloud:choose', async () => {
