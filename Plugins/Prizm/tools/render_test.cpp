@@ -431,6 +431,25 @@ int main()
         check (purity > 30.0, "SHIFT output stays clean: tone " + juce::String (purity, 1) + " dB above artefacts");
     }
 
+    // 3c3) Mode switch ZL -> HQ -> ZL, with the host re-preparing on the latency change
+    //      (many DAWs do that), must still filter right away without touching the notes.
+    {
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 0.0f);
+        auto pad = makeSawPad ({ 146.0f, 185.0f, 207.0f, 311.0f }, 3.0, 0.12f);
+        render (*p, pad);
+        setParam (*p, ParamIDs::mode, (float) highQuality);
+        render (*p, pad);
+        p->prepareToPlay (kSampleRate, kBlock); // Host startet neu wegen geänderter Latenz
+        setParam (*p, ParamIDs::mode, (float) zeroLatency);
+        p->prepareToPlay (kSampleRate, kBlock);
+        auto out = render (*p, pad);
+        const float ratio = inKeyEnergyRatio (out, 48000, cMajor);
+        const float fresh = inKeyEnergyRatio (render (*makeProcessor (zeroLatency, 100.0f, 60.0f, 0.0f), pad), 48000, cMajor);
+        check (std::abs (ratio - fresh) < 0.03f && stats (out, 48000).rms > 0.01f,
+               "Switching back to Zero Latency works immediately (in key " + juce::String (ratio * 100.0f, 1) + " %, fresh instance "
+                   + juce::String (fresh * 100.0f, 1) + " %)");
+    }
+
     // 3d) Range: below RANGE LOW the signal stays untouched (an out-of-key 104 Hz bass survives).
     for (int mode : { zeroLatency, highQuality })
     {

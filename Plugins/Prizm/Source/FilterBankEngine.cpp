@@ -15,6 +15,7 @@ void FilterBankEngine::prepare (double sampleRate, int maxBlockSize)
 {
     fs = sampleRate;
     model.prepare (fs);
+    lastMask = 0xFFFF; // Bänder werden neu angelegt: Tonart beim nächsten Block neu setzen
 
     bands.clear();
     const auto& notes = model.getNotes();
