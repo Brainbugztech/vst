@@ -51,6 +51,7 @@ PrizmAudioProcessor::PrizmAudioProcessor()
     }
 
     jassert (keyParam && scaleParam && customMaskParam && midiKeyParam && modeParam);
+    refreshUserPresets();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout PrizmAudioProcessor::createParameterLayout()
@@ -484,6 +485,114 @@ void PrizmAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         }
         autoGain = newGain;
     }
+}
+
+// --- Presets -------------------------------------------------------------------------------------
+
+bool PrizmAudioProcessor::isKeyContextParam (const juce::String& id)
+{
+    return id == ParamIDs::key || id == ParamIDs::scale || id == ParamIDs::customMask || id == ParamIDs::tune
+           || id == ParamIDs::midiKey || id == ParamIDs::scKey;
+}
+
+juce::File PrizmAudioProcessor::getPresetFolder() const
+{
+    if (presetFolderOverride != juce::File())
+        return presetFolderOverride;
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+        .getChildFile ("Brain Bugz").getChildFile ("Prizm").getChildFile ("Presets");
+}
+
+void PrizmAudioProcessor::refreshUserPresets()
+{
+    userPresets = getPresetFolder().findChildFiles (juce::File::findFiles, false, "*.przm");
+    userPresets.sort();
+}
+
+juce::StringArray PrizmAudioProcessor::getPresetNames() const
+{
+    juce::StringArray names;
+    for (const auto& f : factoryPresets())
+        names.add (f.name);
+    for (const auto& f : userPresets)
+        names.add (f.getFileNameWithoutExtension());
+    return names;
+}
+
+void PrizmAudioProcessor::setParamPlain (const juce::String& id, float value)
+{
+    if (auto* param = apvts.getParameter (id))
+    {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost (param->convertTo0to1 (value));
+        param->endChangeGesture();
+    }
+}
+
+void PrizmAudioProcessor::loadPreset (int index)
+{
+    const auto& factory = factoryPresets();
+    if (index < 0 || index >= (int) factory.size() + userPresets.size())
+        return;
+
+    // erst alles außer der Tonart auf Standard
+    for (auto* p : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! isKeyContextParam (ranged->getParameterID()))
+            {
+                ranged->beginChangeGesture();
+                ranged->setValueNotifyingHost (ranged->getDefaultValue());
+                ranged->endChangeGesture();
+            }
+
+    if (index < (int) factory.size())
+    {
+        const auto& preset = factory[(size_t) index];
+        for (const auto& [id, value] : preset.values)
+            setParamPlain (id, value);
+        if (preset.map == FactoryPreset::Map::majorToMinor)
+            applyMapPreset (MapPreset::majorToMinor);
+        else if (preset.map == FactoryPreset::Map::minorToMajor)
+            applyMapPreset (MapPreset::minorToMajor);
+    }
+    else if (auto xml = juce::XmlDocument::parse (userPresets[index - (int) factory.size()]))
+    {
+        for (auto* e : xml->getChildWithTagNameIterator ("Param"))
+        {
+            const auto id = e->getStringAttribute ("id");
+            if (! isKeyContextParam (id))
+                setParamPlain (id, (float) e->getDoubleAttribute ("value"));
+        }
+    }
+    currentPreset = index;
+}
+
+bool PrizmAudioProcessor::saveUserPreset (const juce::String& name)
+{
+    const auto clean = juce::File::createLegalFileName (name.trim());
+    if (clean.isEmpty())
+        return false;
+    auto folder = getPresetFolder();
+    if (! folder.createDirectory())
+        return false;
+
+    juce::XmlElement xml ("PrizmPreset");
+    xml.setAttribute ("name", clean);
+    xml.setAttribute ("version", 1);
+    for (auto* p : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (p))
+            if (! isKeyContextParam (ranged->getParameterID()))
+            {
+                auto* e = xml.createNewChildElement ("Param");
+                e->setAttribute ("id", ranged->getParameterID());
+                e->setAttribute ("value", (double) ranged->convertFrom0to1 (ranged->getValue()));
+            }
+    const auto file = folder.getChildFile (clean + ".przm");
+    if (! xml.writeTo (file))
+        return false;
+    refreshUserPresets();
+    currentPreset = getNumFactoryPresets() + userPresets.indexOf (file);
+    return true;
 }
 
 bool PrizmAudioProcessor::applyLearnResult (KeyAnalyzer::Result& out)

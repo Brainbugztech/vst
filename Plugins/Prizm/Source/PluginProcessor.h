@@ -9,6 +9,7 @@
 #include "SpectralEngine.h"
 #include "KeyAnalyzer.h"
 #include "ChordTracker.h"
+#include "Presets.h"
 
 namespace prizm
 {
@@ -83,6 +84,17 @@ public:
     // Noten-Map, Message-Thread: Vorlagen relativ zur Tonart
     enum class MapPreset { reset, majorToMinor, minorToMajor };
     void applyMapPreset (MapPreset preset);
+    // Presets, Message-Thread. Werkspresets zuerst, dann eigene (Dokumente/Brain Bugz/Prizm/Presets/*.przm)
+    juce::StringArray getPresetNames() const;
+    int getNumFactoryPresets() const { return (int) prizm::factoryPresets().size(); }
+    void loadPreset (int index);
+    bool saveUserPreset (const juce::String& name);
+    void refreshUserPresets();
+    juce::File getPresetFolder() const;
+    void setPresetFolder (const juce::File& folder) { presetFolderOverride = folder; refreshUserPresets(); } // für Tests
+    int getCurrentPreset() const noexcept { return currentPreset; }
+    static bool isKeyContextParam (const juce::String& id); // bleibt beim Preset-Wechsel stehen
+
     // Gewichtung pro Note, Message-Thread (0..1)
     float getWeight (int pc) const noexcept { return weightParams[(size_t) pc]->load() * 0.01f; }
     void setWeight (int pc, float weight01, bool gestureStart, bool gestureEnd);
@@ -143,6 +155,11 @@ private:
     juce::AudioParameterBool* scKeyParam = nullptr;
     std::array<std::atomic<float>, 12> pitchEnergy {};
     std::atomic<uint32_t> blockCounter { 0 };
+
+    juce::Array<juce::File> userPresets;
+    juce::File presetFolderOverride;
+    int currentPreset = 0;
+    void setParamPlain (const juce::String& id, float value);
 
     prizm::KeyAnalyzer keyAnalyzer;
     std::atomic<int> learnCommand { 0 }; // 1 = starten, 2 = abbrechen

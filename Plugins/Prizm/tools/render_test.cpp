@@ -792,6 +792,50 @@ int main()
                    + juce::String (inKeyAm * 100.0f, 1) + " %, chord change to F major followed (" + juce::String (maskF == bits (5, 9, 0) ? "yes" : "no") + ")");
     }
 
+    // 3l) Presets: Werkspreset setzt Werte, Tonart bleibt; eigenes Preset speichern und laden.
+    {
+        auto p = makeProcessor (zeroLatency, 100.0f, 60.0f, 30.0f);
+        setParam (*p, ParamIDs::key, 2.0f);   // D
+        setParam (*p, ParamIDs::scale, 1.0f); // Minor
+        setParam (*p, ParamIDs::tune, 443.0f);
+        auto raw = [&p] (const char* id) { return p->apvts.getRawParameterValue (id)->load(); };
+        const auto names = p->getPresetNames();
+        bool allLoad = true;
+        for (int i = 0; i < p->getNumFactoryPresets(); ++i)
+        {
+            p->loadPreset (i);
+            render (*p, makeNoise (0.3, 0.2f)); // jedes Preset einmal durchlaufen lassen
+            allLoad = allLoad && raw (ParamIDs::key) == 2.0f && raw (ParamIDs::scale) == 1.0f && std::abs (raw (ParamIDs::tune) - 443.0f) < 0.05f;
+        }
+        const int choir = names.indexOf ("Vocal Choir");
+        p->loadPreset (choir);
+        const bool choirOk = raw (ParamIDs::shift) == 60.0f && raw (ParamIDs::mode) == 1.0f && raw (ParamIDs::mix) == 70.0f;
+        p->loadPreset (names.indexOf ("Major to Minor"));
+        // D-Dur -> d-Moll: F# (6) -> F (5), B (11) -> A# (10), C# (1) -> C (0); Index = Ziel + 1
+        const bool mapOk = raw (ParamIDs::mapId (6).toRawUTF8()) == 6.0f && raw (ParamIDs::mapId (11).toRawUTF8()) == 11.0f
+                           && raw (ParamIDs::mapId (1).toRawUTF8()) == 1.0f;
+
+        auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("prizm_preset_test");
+        folder.deleteRecursively();
+        p->setPresetFolder (folder);
+        p->loadPreset (0);
+        setParam (*p, ParamIDs::color, 133.0f);
+        setParam (*p, ParamIDs::weightId (4).toRawUTF8(), 40.0f);
+        const bool saved = p->saveUserPreset ("Mein Test");
+        setParam (*p, ParamIDs::color, 10.0f);
+        setParam (*p, ParamIDs::weightId (4).toRawUTF8(), 100.0f);
+        setParam (*p, ParamIDs::key, 7.0f);
+        const int userIdx = p->getPresetNames().indexOf ("Mein Test");
+        p->loadPreset (userIdx);
+        const bool userOk = saved && userIdx >= p->getNumFactoryPresets() && std::abs (raw (ParamIDs::color) - 133.0f) < 0.05f
+                            && std::abs (raw (ParamIDs::weightId (4).toRawUTF8()) - 40.0f) < 0.05f && raw (ParamIDs::key) == 7.0f;
+        folder.deleteRecursively();
+        check (allLoad && choirOk && mapOk && userOk,
+               juce::String ("Presets: ") + juce::String (p->getNumFactoryPresets()) + " factory presets load and keep the key (" + (allLoad ? "yes" : "no")
+                   + "), Vocal Choir " + (choirOk ? "ok" : "wrong") + ", Major to Minor map " + (mapOk ? "ok" : "wrong")
+                   + ", own preset save/load " + (userOk ? "ok" : "wrong"));
+    }
+
     // 4) Clear keeps transients: compare attack peaks on the hit loop with Clear 0 vs 100.
     for (int mode : { zeroLatency, highQuality })
     {
@@ -927,6 +971,7 @@ int main()
         setParam (*p, ParamIDs::mode, (float) highQuality);
         setParam (*p, ParamIDs::mapId (0).toRawUTF8(), 2.0f);  // C -> C#
         setParam (*p, ParamIDs::mapId (7).toRawUTF8(), 13.0f); // G off
+        setParam (*p, ParamIDs::weightId (4).toRawUTF8(), 45.0f); // E auf 45 %
         auto noise = makeNoise (1.0, 0.2f);
         render (*p, noise); // so the key strip shows live energy
         std::unique_ptr<juce::AudioProcessorEditor> editor (p->createEditor());

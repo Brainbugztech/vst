@@ -144,13 +144,13 @@ void ModeSwitch::mouseDown (const juce::MouseEvent& e)
 }
 
 //==============================================================================
-void KeyStrip::setState (PitchMask newMask, int newRoot, bool newMidi)
+void KeyStrip::setState (PitchMask newMask, int newRoot, int newSource)
 {
-    if (newMask != mask || newRoot != root || newMidi != midi)
+    if (newMask != mask || newRoot != root || newSource != source)
     {
         mask = newMask;
         root = newRoot;
-        midi = newMidi;
+        source = newSource;
         repaint();
     }
 }
@@ -177,8 +177,8 @@ int KeyStrip::cellAt (int x) const
 void KeyStrip::paint (juce::Graphics& g)
 {
     using namespace juce;
-    const auto onColour = midi ? Col::pink : Col::tox;
-    const auto onInk = midi ? juce::Colours::white : Col::toxInk;
+    const auto onColour = source == 1 ? Col::pink : (source == 2 ? Col::cyan : Col::tox);
+    const auto onInk = source == 1 ? juce::Colours::white : Col::toxInk;
 
     for (int pc = 0; pc < 12; ++pc)
     {
@@ -224,7 +224,9 @@ void KeyStrip::paint (juce::Graphics& g)
             g.drawRoundedRectangle (cell.reduced (0.5f), corner, 1.6f);
         }
 
-        g.setColour (on ? onInk : (isSharp (pc) ? Col::dim : Col::muted));
+        // Notenname: auf teilweise gefüllten Tasten hell, damit er auf dem dunklen Teil lesbar bleibt
+        const float nameWeight = (on && getWeight) ? getWeight (pc) : 1.0f;
+        g.setColour (on ? (nameWeight > 0.6f ? onInk : Col::ink) : (isSharp (pc) ? Col::dim : Col::muted));
         g.setFont (display (18.0f, true));
         g.drawText (kNoteNames[(size_t) pc], cell.withTrimmedBottom (8.0f), Justification::centred);
 
@@ -364,6 +366,37 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
     for (auto* b : { &majToMinButton, &minToMajButton, &resetMapButton })
         addAndMakeVisible (*b);
 
+    // Sidechain-Tonart
+    scButton.setClickingTogglesState (true);
+    scButton.setTooltip ("Key follows the notes of another track: route it to Prizm's sidechain input in your DAW.");
+    addAndMakeVisible (scButton);
+    scAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (apvts, ParamIDs::scKey, scButton);
+
+    // Presets
+    presetBox.setTooltip ("Factory and own presets. Key, scale, tune, MIDI and sidechain stay as they are.");
+    presetBox.onChange = [this]
+    {
+        const int idx = presetBox.getSelectedItemIndex();
+        if (idx >= 0 && idx != processor.getCurrentPreset())
+            processor.loadPreset (idx);
+        else if (idx >= 0)
+            processor.loadPreset (idx); // gleiches Preset nochmal = zurücksetzen
+        shownPreset = processor.getCurrentPreset();
+    };
+    addAndMakeVisible (presetBox);
+    savePresetButton.setTooltip ("Save the current settings as your own preset (Documents/Brain Bugz/Prizm/Presets).");
+    savePresetButton.onClick = [this] { askPresetName(); };
+    addAndMakeVisible (savePresetButton);
+    refreshPresetBox();
+
+    // Mitte/Seite
+    stereoBox.addItem ("STEREO", 1);
+    stereoBox.addItem ("MID ONLY", 2);
+    stereoBox.addItem ("SIDE ONLY", 3);
+    stereoBox.setTooltip ("Process both channels, only the centre (mid) or only the stereo sides. The rest stays untouched.");
+    addAndMakeVisible (stereoBox);
+    stereoAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (apvts, ParamIDs::stereo, stereoBox);
+
     keyStrip.onToggle = [this] (int pc) { processor.togglePitchClass (pc); };
     keyStrip.onWeight = [this] (int pc, float w, bool start, bool end) { processor.setWeight (pc, w, start, end); keyStrip.repaint(); };
     keyStrip.getWeight = [this] (int pc) { return processor.getWeight (pc); };
@@ -409,6 +442,40 @@ PrizmAudioProcessorEditor::~PrizmAudioProcessorEditor()
 {
     stopTimer();
     setLookAndFeel (nullptr);
+}
+
+void PrizmAudioProcessorEditor::refreshPresetBox()
+{
+    processor.refreshUserPresets();
+    presetBox.clear (juce::dontSendNotification);
+    const auto names = processor.getPresetNames();
+    const int numFactory = processor.getNumFactoryPresets();
+    for (int i = 0; i < names.size(); ++i)
+    {
+        if (i == numFactory)
+            presetBox.addSeparator();
+        presetBox.addItem (names[i], i + 1);
+    }
+    shownPreset = processor.getCurrentPreset();
+    presetBox.setSelectedItemIndex (shownPreset, juce::dontSendNotification);
+}
+
+void PrizmAudioProcessorEditor::askPresetName()
+{
+    auto* w = new juce::AlertWindow ("Save preset", "Name for your preset:", juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", {}, {});
+    w->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<PrizmAudioProcessorEditor> safe (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int result)
+    {
+        if (result == 1 && safe != nullptr)
+        {
+            const auto name = w->getTextEditorContents ("name");
+            if (safe->processor.saveUserPreset (name))
+                safe->refreshPresetBox();
+        }
+    }), true);
 }
 
 void PrizmAudioProcessorEditor::setMode (int mode)
@@ -523,11 +590,12 @@ void PrizmAudioProcessorEditor::timerCallback()
     lastScanB = b;
 
     const bool midi = processor.isMidiControllingKey();
+    const int source = midi ? 1 : (processor.isSidechainControllingKey() ? 2 : 0);
     const int scaleIndex = (int) apvts.getRawParameterValue (ParamIDs::scale)->load();
     const int key = (int) apvts.getRawParameterValue (ParamIDs::key)->load();
     const bool chromatic = scaleIndex >= 0 && scaleIndex < (int) kScales.size() && kScales[(size_t) scaleIndex].mask == kAllPitches;
-    const int root = (midi || scaleIndex == kCustomScaleIndex || chromatic) ? -1 : key;
-    keyStrip.setState (processor.getDisplayMask(), root, midi);
+    const int root = (source != 0 || scaleIndex == kCustomScaleIndex || chromatic) ? -1 : key;
+    keyStrip.setState (processor.getDisplayMask(), root, source);
     updateEnergy();
 
     juce::String text = "LATENCY 0 SMP";
@@ -540,11 +608,20 @@ void PrizmAudioProcessorEditor::timerCallback()
             text << " / " << juce::String (juce::roundToInt (1000.0 * latency / sr)) << " MS";
     }
 
-    if (text != latencyText || midi != midiShown)
+    if (text != latencyText || source != sourceShown)
     {
         latencyText = text;
-        midiShown = midi;
+        sourceShown = source;
         repaint();
+    }
+
+    // Sidechain-Knopf nur aktiv, wenn der Host den Sidechain-Eingang verbunden hat
+    scButton.setAlpha (processor.isSidechainConnected() ? 1.0f : 0.45f);
+
+    if (processor.getCurrentPreset() != shownPreset)
+    {
+        shownPreset = processor.getCurrentPreset();
+        presetBox.setSelectedItemIndex (shownPreset, juce::dontSendNotification);
     }
 }
 
@@ -606,6 +683,8 @@ void PrizmAudioProcessorEditor::drawHoloPanel (juce::Graphics& g, juce::Rectangl
     g.setFont (mono (12.0f));
     g.setColour (Col::holoBright);
     g.drawText (tag, (int) r.getX() + 20, (int) r.getY() + 9, 300, 14, Justification::centredLeft);
+    if (code.isEmpty())
+        return;
     g.setColour (Col::dim);
     g.drawText (code, (int) r.getRight() - 20 - 300 - 48, (int) r.getY() + 9, 300, 14, Justification::centredRight);
     for (int i = 0; i < 4; ++i)
@@ -672,9 +751,13 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
     }
 
     // panels
-    drawHoloPanel (g, keyPanel.toFloat(), "// KEY MATRIX", "SCALE LOCK  //  PRZ-01");
+    drawHoloPanel (g, keyPanel.toFloat(), "// KEY MATRIX", {});
     drawHoloPanel (g, knobPanel.toFloat(), "// SIGNAL", "SPECTRAL CORE  //  PRZ-02");
-    drawHoloPanel (g, extraPanel.toFloat(), "// RANGE + SPECTRAL", "FILTER BAND  //  PRZ-03");
+    drawHoloPanel (g, extraPanel.toFloat(), "// RANGE + SPECTRAL", {});
+    g.setFont (mono (12.0f));
+    g.setColour (Col::dim);
+    g.drawText ("PRESET", presetBox.getX() - 62, presetBox.getY(), 56, presetBox.getHeight(), Justification::centredRight);
+    g.drawText ("PROCESS", stereoBox.getX() - 70, stereoBox.getY(), 64, stereoBox.getHeight(), Justification::centredRight);
 
     // section labels
     g.setFont (display (12.5f, true).withExtraKerningFactor (0.1f));
@@ -745,7 +828,7 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
         const auto box = r.withTrimmedTop (2).removeFromRight (62).withHeight (34).toFloat();
         holo::box (g, box);
         g.setFont (mono (18.0f));
-        g.setColour (midiShown ? Col::pink : Col::ink);
+        g.setColour (sourceShown == 1 ? Col::pink : (sourceShown == 2 ? Col::cyan : Col::ink));
         g.drawText (String (count) + "/12", box, Justification::centred);
     }
 
@@ -767,8 +850,11 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
     }
     else
     {
-        g.setColour (midiShown ? Col::pink : Col::muted);
-        g.drawText (midiShown ? "KEY SET BY MIDI  -  LAST CHORD" : "NOTES  -  CLICK = ON/OFF, DRAG UP/DOWN = WEIGHT, GLOW = WHAT YOU HEAR", stripLabelArea, Justification::centredLeft);
+        g.setColour (sourceShown == 1 ? Col::pink : (sourceShown == 2 ? Col::cyan : Col::muted));
+        g.drawText (sourceShown == 1 ? "KEY SET BY MIDI  -  LAST CHORD"
+                    : sourceShown == 2 ? "KEY SET BY SIDECHAIN  -  NOTES OF THE OTHER TRACK"
+                                       : "NOTES  -  CLICK = ON/OFF, DRAG UP/DOWN = WEIGHT, GLOW = WHAT YOU HEAR",
+                    stripLabelArea, Justification::centredLeft);
     }
 }
 
@@ -786,12 +872,15 @@ void PrizmAudioProcessorEditor::resized()
 
     keyPanel = { 20, 104, getWidth() - 40, 268 };
     const int rowY = keyPanel.getY() + 34;
-    keyLabelArea = { keyPanel.getX() + 20, rowY, 110, 16 };
-    keyBox.setBounds (keyPanel.getX() + 20, rowY + 18, 110, 34);
-    scaleLabelArea = { keyPanel.getX() + 144, rowY, 236, 16 };
-    scaleBox.setBounds (keyPanel.getX() + 144, rowY + 18, 236, 34);
-    midiButton.setBounds (keyPanel.getX() + 394, rowY + 18, 132, 34);
-    learnButton.setBounds (keyPanel.getX() + 538, rowY + 18, 132, 34);
+    keyLabelArea = { keyPanel.getX() + 20, rowY, 100, 16 };
+    keyBox.setBounds (keyPanel.getX() + 20, rowY + 18, 100, 34);
+    scaleLabelArea = { keyPanel.getX() + 132, rowY, 200, 16 };
+    scaleBox.setBounds (keyPanel.getX() + 132, rowY + 18, 200, 34);
+    midiButton.setBounds (keyPanel.getX() + 344, rowY + 18, 104, 34);
+    scButton.setBounds (keyPanel.getX() + 456, rowY + 18, 104, 34);
+    learnButton.setBounds (keyPanel.getX() + 568, rowY + 18, 104, 34);
+    presetBox.setBounds (keyPanel.getRight() - 20 - 64 - 6 - 220, keyPanel.getY() + 6, 220, 24);
+    savePresetButton.setBounds (keyPanel.getRight() - 20 - 64, keyPanel.getY() + 6, 64, 24);
     readoutArea = { keyPanel.getX() + 680, rowY, keyPanel.getRight() - 20 - (keyPanel.getX() + 680), 52 };
 
     stripLabelArea = { keyPanel.getX() + 20, keyPanel.getY() + 96, keyPanel.getWidth() - 40, 16 };
@@ -824,6 +913,7 @@ void PrizmAudioProcessorEditor::resized()
         knobs[i].slider.setBounds (knobArea.removeFromLeft (w).reduced (12, 0));
 
     extraPanel = { 20, knobPanel.getBottom() + 12, getWidth() - 40, 172 };
+    stereoBox.setBounds (extraPanel.getRight() - 20 - 150, extraPanel.getY() + 6, 150, 24);
     auto extraArea = extraPanel.reduced (14, 0);
     extraArea.removeFromTop (52);
     extraArea.removeFromBottom (10);
