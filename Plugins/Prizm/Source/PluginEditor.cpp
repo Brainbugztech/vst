@@ -652,7 +652,7 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
     setLookAndFeel (&lnf);
     auto& apvts = processor.apvts;
 
-    logo = juce::ImageCache::getFromMemory (BBAssets::logo_text_png, BBAssets::logo_text_pngSize);
+    logo = juce::ImageCache::getFromMemory (PrizmAssets::prizm_logo_png, PrizmAssets::prizm_logo_pngSize);
     texture = juce::ImageCache::getFromMemory (PrizmAssets::prizm_backdrop_jpg, PrizmAssets::prizm_backdrop_jpgSize);
 
     // Bereiche: Reihenfolge = Reihenfolge im Fenster
@@ -1738,8 +1738,12 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
 
     // logo
     if (logo.isValid())
-        g.drawImageWithin (logo, logoArea.getX(), logoArea.getY(), logoArea.getWidth(), logoArea.getHeight(),
+    {
+        // das Logo hat einen transparenten Glow-Rand: etwas größer zeichnen, damit die Schrift die Fläche füllt
+        const auto la = logoArea.expanded (20, 10);
+        g.drawImageWithin (logo, la.getX(), la.getY(), la.getWidth(), la.getHeight(),
                            RectanglePlacement::centred | RectanglePlacement::onlyReduceInSize);
+    }
 
     ColourGradient vline (Col::holo.withAlpha (0.0f), 0.0f, 20.0f, Col::holo.withAlpha (0.0f), 0.0f, 84.0f, false);
     vline.addColour (0.5, Col::holo.withAlpha (0.7f));
