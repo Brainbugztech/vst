@@ -9,6 +9,7 @@ Aufruf: python3 tools/make_logo.py
 """
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -18,8 +19,9 @@ from scipy import ndimage as ndi
 HERE = Path(__file__).resolve().parent
 OUT = HERE.parent / "Assets" / "prizm_logo.png"
 
-OUT_W = 1280        # Breite der fertigen Datei
-SS = 3              # Supersampling
+OUT_W = int(os.environ.get("PRIZM_LOGO_W", 1280))   # Breite der fertigen Datei
+SS = int(os.environ.get("PRIZM_LOGO_SS", 3))         # Supersampling
+UNIT = SS * OUT_W / 1280.0                           # Pixel-Einheit, damit der Look bei jeder Groesse gleich bleibt
 YAW, PITCH = -16.0, 9.0   # leichte Schraegsicht (Grad)
 DEPTH = 0.80        # Tiefe der Extrusion (Einheiten = Schriftkoordinaten / 1000)
 CAM = 13.0          # Kameraabstand (Perspektive)
@@ -187,7 +189,7 @@ def front_cap(mask, pal):
     col = ramp(pal["face"], vd)
 
     dist = ndi.distance_transform_edt(bin_).astype(np.float32)
-    px = SS * 1.0
+    px = UNIT * 1.0
     rim = np.exp(-dist / (px * 2.2))
     rim2 = np.exp(-dist / (px * 7.0))
 
@@ -213,7 +215,7 @@ def front_cap(mask, pal):
             g = np.clip(1.0 - ly / 0.55, 0, 1) ** 1.4
             gloss[sl] = np.maximum(gloss[sl], g * sub)
     col = col + gloss[..., None] * 0.20 * pal["white"]
-    diag = (xx * 0.84 + yy * 0.54) / (SS * 100.0)
+    diag = (xx * 0.84 + yy * 0.54) / (UNIT * 100.0)
     band = lambda c, w: np.clip(1 - np.abs(diag - c) / w, 0, 1) ** 2
     sheen = band(np.mean(diag[bin_]) - 1.9, 0.22) * 0.9 + band(np.mean(diag[bin_]) - 0.3, 0.10) * 0.55
     col = col + (sheen * 0.16)[..., None] * pal["white"]
@@ -275,19 +277,19 @@ def main():
 
     # dezenter Schein: kuehles Cyan/Violett, kein Gruen, keine Splitter
     glow = np.zeros((H, W, 3), np.float32)
-    for s, k, c in ((SS * 22, 0.42, hexc(0x5fd0ff)), (SS * 9, 0.40, hexc(0x8f7bff))):
+    for s, k, c in ((UNIT * 22, 0.42, hexc(0x5fd0ff)), (UNIT * 9, 0.40, hexc(0x8f7bff))):
         g = ndi.gaussian_filter(a, s) * k
         glow += c * g[..., None]
-    glow_a = np.clip(ndi.gaussian_filter(a, SS * 14) * 0.55, 0, 0.5)
+    glow_a = np.clip(ndi.gaussian_filter(a, UNIT * 14) * 0.55, 0, 0.5)
     out_rgb, out_a = over(np.clip(glow / np.maximum(glow.max(), 1e-6) * 1.0, 0, 1) * 0 + hexc(0x6fb8ff) * 0.9 + 0 * glow, glow_a * 0.55,
                           rgb, a)
 
     img = np.dstack([np.clip(out_rgb, 0, 1), np.clip(out_a, 0, 1)])
     im = Image.fromarray((img * 255 + 0.5).astype(np.uint8), "RGBA")
     im = im.resize((OUT_W, round(OUT_W * H / W)), Image.LANCZOS)
-    # Ränder der Alpha-Ebene abschneiden: nur so viel transparenter Rand, wie der Schein braucht
-    im.save(OUT, optimize=True)
-    print(f"{OUT} {im.size}")
+    out = Path(os.environ.get("PRIZM_LOGO_OUT", OUT))
+    im.save(out, optimize=True)
+    print(f"{out} {im.size}")
 
 
 if __name__ == "__main__":
