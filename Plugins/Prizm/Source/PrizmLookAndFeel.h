@@ -277,26 +277,33 @@ public:
 
             const float amt = jlimit (0.0f, 1.0f, 0.20f + 0.80f * pos);
             const float neon = jlimit (0.0f, 1.0f, (pos - 0.55f) / 0.45f); // voll aufgedreht: greller, neonartiger
-            const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001);
-            // Lichter driften langsam im Glas (wabern), Phase pro Regler leicht verschoben
-            auto light = [&] (float angleOffset, float dist, Colour col, float alpha, float size)
-            {
-                if (alpha <= 0.003f)
-                    return;
-                const float drift = tm * (0.35f + 0.13f * angleOffset) + angleOffset * 2.0f;
-                const auto p = c.getPointOnCircumference (capR * (dist + 0.12f * std::sin (drift * 1.3f)), valueAngle + angleOffset + 0.55f * std::sin (drift));
-                ColourGradient glow (col.withAlpha (alpha), p.x, p.y, col.withAlpha (0.0f), p.x + capR * size, p.y, true);
-                g.setGradientFill (glow);
-                g.fillEllipse (Rectangle<float> (capR * size * 2.0f, capR * size * 2.0f).withCentre (p));
-            };
+            const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001) + (float) (reinterpret_cast<std::uintptr_t> (&slider) % 97) * 0.37f;
+            // Das Licht im Glas dreht sich nicht mit dem Poti: die Lichter wabern unabhängig und die Farben mischen
+            // sich dynamisch durcheinander. Die Stellung ändert nur die Lichtintensität.
+            const Colour pal[] { Colour (0xff10e8ff), Colour (0xffa060ff), Colour (0xff30ffc0), Colour (0xffff50d0), Colour (0xffffc040) };
             const float k = 1.0f + 0.6f * neon;
-            light (0.0f, 0.45f, Colour (0xff10e8ff), 0.70f * amt * k, 1.0f);                       // in Zeigerrichtung
-            light (2.3f, 0.40f, Colour (0xffa060ff), 0.65f * amt * k, 0.95f);
-            light (-2.3f, 0.40f, Colour (0xff30ffc0), 0.50f * amt * k, 0.90f);
-            light (1.2f, 0.35f, Colour (0xffff50d0), 0.50f * amt * amt * k, 0.85f);
-            light (-1.2f, 0.35f, Colour (0xffffc040), 0.40f * amt * amt * k, 0.80f);
-            if (neon > 0.0f) // heller Neonkern
-                light (0.0f, 0.15f, Colour (0xffd0f8ff), 0.35f * neon, 0.7f);
+            for (int i = 0; i < 5; ++i)
+            {
+                const float fi = (float) i;
+                const float ax = tm * (0.21f + 0.06f * fi) + fi * 1.9f;
+                const float ay = tm * (0.17f + 0.05f * fi) + fi * 2.7f;
+                const auto pt = Point<float> (c.x + capR * 0.50f * std::sin (ax) * std::cos (ay * 0.7f),
+                                              c.y + capR * 0.50f * std::sin (ay));
+                const float mixAmt = 0.5f + 0.5f * std::sin (tm * 0.45f + fi * 1.3f);
+                const auto col = pal[i].interpolatedWith (pal[(i + 2) % 5], mixAmt);
+                const float alpha = (0.55f - 0.04f * fi) * amt * k;
+                const float size = 1.0f - 0.03f * fi;
+                ColourGradient glow (col.withAlpha (alpha), pt.x, pt.y, col.withAlpha (0.0f), pt.x + capR * size, pt.y, true);
+                g.setGradientFill (glow);
+                g.fillEllipse (Rectangle<float> (capR * size * 2.0f, capR * size * 2.0f).withCentre (pt));
+            }
+            if (neon > 0.0f) // heller Neonkern, wabert leicht in der Mitte
+            {
+                const auto pt = Point<float> (c.x + capR * 0.10f * std::sin (tm * 0.6f), c.y + capR * 0.10f * std::cos (tm * 0.5f));
+                ColourGradient core (Colour (0xffd0f8ff).withAlpha (0.35f * neon), pt.x, pt.y, Colour (0xffd0f8ff).withAlpha (0.0f), pt.x + capR * 0.7f, pt.y, true);
+                g.setGradientFill (core);
+                g.fillEllipse (Rectangle<float> (capR * 1.4f, capR * 1.4f).withCentre (pt));
+            }
 
             // Spiegelung oben links und feine Lichtkante
             ColourGradient gloss (juce::Colours::white.withAlpha (0.20f), c.x - capR * 0.35f, c.y - capR * 0.6f,
