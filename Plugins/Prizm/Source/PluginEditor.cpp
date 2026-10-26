@@ -1756,23 +1756,36 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
         ga.addLineOfText (titleFont(), "PRIZM", (float) titleArea.getX(), (float) titleArea.getY() + kTitleSize * 0.80f);
         Path text;
         ga.createPath (text);
-        g.setColour (Col::holo.withAlpha (0.10f));
-        g.strokePath (text, PathStrokeType (9.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        g.setColour (Col::holo.withAlpha (0.20f));
-        g.strokePath (text, PathStrokeType (4.0f, PathStrokeType::curved, PathStrokeType::rounded));
+        // gleicher Glas-Verlauf wie im Brain-Bugz-Logo: Eisblau -> Cyan -> Blau -> Violett
         const auto tb = text.getBounds();
-        ColourGradient fill (juce::Colours::white, 0.0f, tb.getY(), Col::holoBright.withMultipliedSaturation (1.2f), 0.0f, tb.getBottom(), false);
-        g.setGradientFill (fill);
+        auto glass = [&] (float alpha)
+        {
+            ColourGradient gr (Colour (0xffc9f1ff).withAlpha (alpha), 0.0f, tb.getY(), Colour (0xffa046ff).withAlpha (alpha), 0.0f, tb.getBottom(), false);
+            gr.addColour (0.28, Colour (0xff62cbff).withAlpha (alpha));
+            gr.addColour (0.62, Colour (0xff5a6cff).withAlpha (alpha));
+            return gr;
+        };
+        g.setGradientFill (glass (0.12f));
+        g.strokePath (text, PathStrokeType (9.0f, PathStrokeType::curved, PathStrokeType::rounded));
+        g.setGradientFill (glass (0.24f));
+        g.strokePath (text, PathStrokeType (4.0f, PathStrokeType::curved, PathStrokeType::rounded));
+        g.setGradientFill (glass (1.0f));
         g.fillPath (text);
         {
             Graphics::ScopedSaveState s (g);
             g.reduceClipRegion (text);
-            g.setColour (Col::holo.withAlpha (0.28f));
+            // weicher Glanz oben, feine Scanlinien
+            ColourGradient gloss (Colours::white.withAlpha (0.30f), 0.0f, tb.getY(), Colours::white.withAlpha (0.0f), 0.0f, tb.getY() + tb.getHeight() * 0.5f, false);
+            g.setGradientFill (gloss);
+            g.fillRect (tb);
+            g.setColour (Colour (0xff62cbff).withAlpha (0.14f));
             for (float y = tb.getY(); y < tb.getBottom(); y += 3.0f)
                 g.fillRect (tb.getX(), y, tb.getWidth(), 1.0f);
         }
-        g.setColour (Col::holo.withAlpha (0.8f));
-        g.strokePath (text, PathStrokeType (0.8f));
+        // Prisma-Rand: oben kalt (cyan), unten warm (magenta)
+        ColourGradient rim (Colour (0xff8ff2ff).withAlpha (0.9f), 0.0f, tb.getY(), Colour (0xffff7ae6).withAlpha (0.8f), 0.0f, tb.getBottom(), false);
+        g.setGradientFill (rim);
+        g.strokePath (text, PathStrokeType (0.9f));
 
         const float ulY = tb.getBottom() + 6.0f;
         g.setGradientFill (Col::spectrum (tb.getX(), ulY, tb.getRight(), 0.95f));
