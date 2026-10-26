@@ -1740,7 +1740,7 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
     if (logo.isValid())
     {
         // das Logo hat einen transparenten Glow-Rand: etwas größer zeichnen, damit die Schrift die Fläche füllt
-        const auto la = logoArea.expanded (20, 10);
+        const auto la = logoArea.expanded (10, 8);
         g.drawImageWithin (logo, la.getX(), la.getY(), la.getWidth(), la.getHeight(),
                            RectanglePlacement::centred | RectanglePlacement::onlyReduceInSize);
     }
