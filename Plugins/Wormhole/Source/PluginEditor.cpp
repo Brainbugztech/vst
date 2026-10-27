@@ -7,8 +7,18 @@ static juce::String u8 (const char* t) { return juce::String::fromUTF8 (t); }
 
 static juce::String fmtTime (double sec)
 {
+    if (sec >= 3600.0)
+    {
+        const int t = juce::roundToInt (sec), h = t / 3600, m = (t / 60) % 60, s2 = t % 60;
+        return juce::String (h) + ":" + juce::String (m).paddedLeft ('0', 2) + ":" + juce::String (s2).paddedLeft ('0', 2);
+    }
     const int m = (int) (sec / 60.0);
     return juce::String (m) + ":" + juce::String (sec - m * 60.0, 1).paddedLeft ('0', 4);
+}
+
+static juce::String fmtTempo (double pct)
+{
+    return juce::String (pct, pct < 1.0 ? 3 : pct < 10.0 ? 2 : 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -51,15 +61,28 @@ void PillButton::paintButton (juce::Graphics& g, bool hover, bool down)
         g.fillRoundedRectangle (r, rad);
         g.setColour (juce::Colours::white.withAlpha ((hover && isEnabled() ? 0.24f : 0.12f) * al));
         g.drawRoundedRectangle (r, rad, 1.0f);
-        // Pfeil-Symbol
         const float ix = r.getX() + 18.0f, iy = r.getCentreY();
-        juce::Path arrow;
-        arrow.startNewSubPath (ix + 7, iy + 5); arrow.lineTo (ix, iy - 2);
-        arrow.startNewSubPath (ix, iy - 2); arrow.lineTo (ix + 5, iy - 2);
-        arrow.startNewSubPath (ix, iy - 2); arrow.lineTo (ix, iy + 3);
-        g.setColour (col::ink.withAlpha (al));
-        g.strokePath (arrow, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        caps (g, getButtonText(), r.withTrimmedLeft (22.0f), 10.5f, col::ink.withAlpha (al), juce::Justification::centred, 0.24f);
+        if (icon == Icon::dragOut)
+        {
+            juce::Path arrow;
+            arrow.startNewSubPath (ix + 7, iy + 5); arrow.lineTo (ix, iy - 2);
+            arrow.startNewSubPath (ix, iy - 2); arrow.lineTo (ix + 5, iy - 2);
+            arrow.startNewSubPath (ix, iy - 2); arrow.lineTo (ix, iy + 3);
+            g.setColour (col::ink.withAlpha (al));
+            g.strokePath (arrow, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else if (icon == Icon::play)
+        {
+            juce::Path tri; tri.addTriangle (ix, iy - 5, ix, iy + 5, ix + 8, iy);
+            { auto gr = accent (ix, 0, ix + 8, 0); gr.multiplyOpacity (al); g.setGradientFill (gr); }
+            g.fillPath (tri);
+        }
+        else if (icon == Icon::stop)
+        {
+            g.setGradientFill (accent (ix, 0, ix + 8, 0));
+            g.fillRoundedRectangle (ix, iy - 4.5f, 9.0f, 9.0f, 1.5f);
+        }
+        caps (g, getButtonText(), r.withTrimmedLeft (icon == Icon::none ? 0.0f : 22.0f), 10.5f, col::ink.withAlpha (al), juce::Justification::centred, 0.24f);
     }
     else
     {
@@ -166,12 +189,22 @@ void WaveView::update()
     const float pr = proc.worker.getStatus() == wh::Worker::Status::rendering ? proc.worker.getProgress() : -1.0f;
     const bool changed = c != clip || r != result || st != stale || lv != live || cap != capturing
                       || std::abs (s.timeRatio - predictedRatio) > 1e-6 || std::abs (pr - progress) > 0.004f || cap;
-    clip = c; result = r; stale = st; live = lv; capturing = cap; predictedRatio = s.timeRatio; progress = pr;
+    const double pp = proc.preview.isPlaying() ? proc.preview.getPositionFraction() : -1.0;
+    const bool moved = std::abs (pp - playPos) > 1e-5;
+    clip = c; result = r; stale = st; live = lv; capturing = cap; predictedRatio = s.timeRatio; progress = pr; playPos = pp;
     canDragOut = result != nullptr && ! stale && result->file.existsAsFile() && ! live;
     loadBtn.setVisible (! live && ! capturing);
     captureBtn.setVisible (! live);
     captureBtn.setButtonText (capturing ? "STOP" : "AUFNEHMEN");
-    if (changed) repaint();
+    if (changed || moved) repaint();
+}
+
+void WaveView::mouseUp (const juce::MouseEvent& e)
+{
+    if (dragDone || live || capturing || clip == nullptr || ! onSeek) return;
+    if (e.getDistanceFromDragStart() > 6) return;
+    if (loadBtn.getBounds().contains (e.getPosition()) || captureBtn.getBounds().contains (e.getPosition())) return;
+    onSeek (juce::jlimit (0.0, 0.999, (double) (e.position.x - waveX0) / juce::jmax (1.0f, waveW)));
 }
 
 void WaveView::mouseMove (const juce::MouseEvent&)
@@ -230,7 +263,10 @@ void WaveView::paint (juce::Graphics& g)
     const double ratio = haveRes && ! stale ? result->settings.timeRatio : predictedRatio;
     const double outLen = inLen * ratio;
     const double span = juce::jmax (inLen, outLen);
-    const float wIn = (float) ((x1 - x0) * inLen / span), wOut = (float) ((x1 - x0) * outLen / span);
+    float wIn = (float) ((x1 - x0) * inLen / span), wOut = (float) ((x1 - x0) * outLen / span);
+    const bool farOut = ratio > 4.0 || ratio < 0.25;   // Extrem: beide über die volle Breite, Faktor als Text
+    if (farOut) { wIn = x1 - x0; wOut = x1 - x0; }
+    waveX0 = x0; waveW = wOut;
     const float amp = r.getHeight() * 0.36f;
 
     // Original
@@ -264,11 +300,26 @@ void WaveView::paint (juce::Graphics& g)
     // Ende-Markierung
     g.setColour (juce::Colours::white.withAlpha (0.35f));
     g.fillRect (x0 + wOut, 10.0f, 1.0f, r.getHeight() - 34.0f);
-    caps (g, haveRes && ! stale ? "ENDE NEU" : "VORSCHAU", { x0 + wOut + 6.0f, 6.0f, 90.0f, 14.0f }, 8.5f,
-          juce::Colours::white.withAlpha (0.35f), juce::Justification::centredLeft, 0.1f);
+    if (! farOut)
+        caps (g, haveRes && ! stale ? "ENDE NEU" : "VORSCHAU", { x0 + wOut + 6.0f, 6.0f, 90.0f, 14.0f }, 8.5f,
+              juce::Colours::white.withAlpha (0.35f), juce::Justification::centredLeft, 0.1f);
     if (stale) caps (g, u8 ("EINSTELLUNG GE\xc3\x84NDERT  \xc2\xb7  NEU RENDERN"), { x0, 6.0f, 300.0f, 14.0f }, 8.5f, col::cyan.withAlpha (0.7f), juce::Justification::centredLeft, 0.14f);
     caps (g, canDragOut ? u8 ("CLIP  \xc2\xb7  ZUM ZIEHEN ANFASSEN") : "CLIP", { x0, r.getHeight() - 20.0f, 300.0f, 14.0f }, 8.5f,
           col::dim, juce::Justification::centredLeft, 0.1f);
+
+    if (farOut)
+        caps (g, u8 ("\xc3\x97") + juce::String (ratio, ratio >= 100 ? 0 : 1) + u8 ("  \xc2\xb7  ") + fmtTime (outLen), { x1 - 226.0f, 6.0f, 220.0f, 14.0f }, 8.5f,
+              col::cyan.withAlpha (0.7f), juce::Justification::centredRight, 0.14f);
+    // Vorhör-Position
+    if (playPos >= 0.0)
+    {
+        const float px = x0 + wOut * (float) playPos;
+        g.setColour (col::cyan.withAlpha (0.18f)); g.fillRect (px - 2.0f, 6.0f, 5.0f, r.getHeight() - 12.0f);
+        g.setColour (col::ice); g.fillRect (px, 6.0f, 1.0f, r.getHeight() - 12.0f);
+    }
+    else if (clip != nullptr)
+        caps (g, u8 ("KLICK = AB HIER VORH\xc3\x96REN"), { x0, r.getHeight() - 20.0f, x1 - x0 - 190.0f, 14.0f }, 8.5f,
+              col::faint, juce::Justification::centred, 0.14f);
 
     if (progress >= 0.0f)
     {
@@ -295,14 +346,21 @@ Panel::Panel (WormholeProcessor& p) : proc (p), wave (p)
         s.setDoubleClickReturnValue (true, resetValue);
         s.setMouseDragSensitivity (300);
         s.setVelocityModeParameters (0.6, 1, 0.05, true, juce::ModifierKeys::ctrlModifier);
-        s.onValueChange = [this] { refreshTexts(); repaint(); };
+        s.onValueChange = [this, &s]
+        {
+            refreshTexts(); repaint();
+            tunnel.kick (&s == &tempo ? 0.5f : 0.35f);
+        };
         addAndMakeVisible (s);
     };
-    knob (tempo, false, 100.0); knob (pitch, true, 0.0); knob (fine, true, 0.0); knob (formant, true, 0.0);
+    knob (tempo, false, 100.0); knob (pitch, true, 0.0); knob (fine, true, 0.0); knob (formant, true, 0.0); knob (texture, false, 0.0);
     aTempo = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, "tempo", tempo);
     aPitch = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, "pitch", pitch);
     aFine = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, "fine", fine);
     aFormant = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, "formant", formant);
+    aTexture = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, "texture", texture);
+    texture.setTooltip (u8 ("Fensterl\xc3\xa4nge im Extrem-Modus: kurz = k\xc3\xb6rniger, lang = weicher. Ganz links = automatisch."));
+    tempo.setTooltip (u8 ("Unter 25 % arbeitet der Extrem-Modus (bis 0,1 %). Strg + Ziehen = fein."));
     addAndMakeVisible (formantLock); addAndMakeVisible (attackLock);
     aFormantLock = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "formantLock", formantLock);
     aAttackLock = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "attackLock", attackLock);
@@ -326,14 +384,27 @@ Panel::Panel (WormholeProcessor& p) : proc (p), wave (p)
     wave.onLoad = [this] { chooseFile(); };
     wave.onCapture = [this] { toggleCapture(); };
     wave.onDragOut = [this] { dragResultOut(); };
+    wave.onSeek = [this] (double fr)
+    {
+        if (auto c = proc.worker.getClip())
+        {
+            lastPreviewSettings = proc.currentRenderSettings();
+            proc.preview.play (c, lastPreviewSettings, fr);
+            tunnel.kick (0.6f);
+        }
+    };
+    addAndMakeVisible (previewBtn);
+    previewBtn.onClick = [this] { togglePreview(); };
+    previewBtn.setTooltip (u8 ("Ergebnis vorh\xc3\xb6ren, ohne zu rendern. Regler wirken sofort. Klick in die Wellenform startet an der Stelle."));
 
     addAndMakeVisible (dragBtn);
     dragBtn.onDragOut = [this] { dragResultOut(); };
-    dragBtn.onClick = [this] { if (auto r = proc.worker.getResult()) r->file.revealToUser(); };
+    dragBtn.onClick = [this] { if (auto r = proc.worker.getResult()) { proc.worker.markExported (r->file); r->file.revealToUser(); } };
     dragBtn.setTooltip ("Anfassen und in eine Ableton-Spur ziehen. Klick zeigt die Datei im Explorer.");
 
     addAndMakeVisible (renderBtn);
     renderBtn.onClick = [this] { startOrCancelRender(); };
+    lastRenderCount = proc.worker.getRenderCount();
 
     setSize ((int) W, (int) H);
     timerCallback();
@@ -352,6 +423,7 @@ void Panel::resized()
     pitch.setBounds (710, 107, 170, 170);
     fine.setBounds (723, 336, 46, 46);
     formant.setBounds (812, 336, 46, 46);
+    texture.setBounds (300, 336, 46, 46);
 
     srcBpm.setBounds (70, 333, 78, 30);
     dstBpm.setBounds (180, 333, 78, 30);
@@ -361,7 +433,8 @@ void Panel::resized()
     formantLock.setBounds (28, 541, 160, 32);
     attackLock.setBounds (194, 541, 150, 32);
     renderBtn.setBounds (839, 540, 93, 34);
-    dragBtn.setBounds (621, 540, 206, 34);
+    dragBtn.setBounds (644, 540, 186, 34);
+    previewBtn.setBounds (540, 540, 96, 34);
 }
 
 void Panel::paint (juce::Graphics& g)
@@ -392,10 +465,21 @@ void Panel::paintOverChildren (juce::Graphics& g)
     const float liveAlpha = live ? 0.35f : 1.0f;
 
     // TEMPO
-    caps (g, "TEMPO", { 40, 82, 250, 14 }, 9.5f, col::dim.withMultipliedAlpha (liveAlpha));
+    if (extreme && ! live)
     {
-        juce::GlyphArrangement ga;
-        const juce::String v (proc.getTempoPercent(), 1);
+        // TEMPO · EXTREM (EXTREM im Akzentverlauf)
+        g.setFont (fonts::semi (9.5f, 0.34f));
+        const float w1 = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), u8 ("TEMPO  \xc2\xb7  ")),
+                    w2 = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), "EXTREM");
+        const float x = 165.0f - (w1 + w2) * 0.5f;
+        g.setColour (col::dim); g.drawText (u8 ("TEMPO  \xc2\xb7  "), juce::Rectangle<float> (x, 82, w1 + 2, 14), juce::Justification::centredLeft, false);
+        g.setGradientFill (accent (x + w1, 0, x + w1 + w2, 0));
+        g.drawText ("EXTREM", juce::Rectangle<float> (x + w1, 82, w2 + 4, 14), juce::Justification::centredLeft, false);
+    }
+    else
+        caps (g, "TEMPO", { 40, 82, 250, 14 }, 9.5f, col::dim.withMultipliedAlpha (liveAlpha));
+    {
+        const juce::String v = fmtTempo (proc.getTempoPercent());
         auto big = fonts::display (34.0f, 0.01f), small = fonts::light (15.0f);
         const float wv = juce::GlyphArrangement::getStringWidth (big, v), ws = juce::GlyphArrangement::getStringWidth (small, "%");
         const float x = 165.0f - (wv + 6.0f + ws) * 0.5f;
@@ -439,20 +523,32 @@ void Panel::paintOverChildren (juce::Graphics& g)
               { 795, 399, 80, 12 }, 8.5f, col::faint, juce::Justification::centred, 0.1f);
     }
 
+    if (extreme && ! live)
+    {
+        caps (g, "TEXTUR", { 283, 386, 80, 12 }, 8.5f);
+        const double tv = texture.getValue();
+        caps (g, tv < 0.04 ? juce::String ("AUTO") : juce::String (tv, 2) + " S", { 283, 399, 80, 12 }, 8.5f, col::faint, juce::Justification::centred, 0.1f);
+    }
+
     // Länge
     if (! live)
     {
-        juce::String t = u8 ("L\xc3\x84NGE  \xc3\x97") + juce::String (s.timeRatio, 3);
+        juce::String t = u8 ("L\xc3\x84NGE  \xc3\x97") + juce::String (s.timeRatio, s.timeRatio >= 100.0 ? 0 : s.timeRatio >= 10.0 ? 1 : 3);
+        bool tooLong = false;
         if (auto c = proc.worker.getClip())
-            t << u8 ("  \xc2\xb7  ") << fmtTime (c->lengthSeconds())
-              << u8 (" \xe2\x86\x92 ") << fmtTime (c->lengthSeconds() * s.timeRatio);
-        caps (g, t, { 280, 402, 400, 14 }, 9.5f, col::dim, juce::Justification::centred, 0.3f);
+        {
+            const double outS = c->lengthSeconds() * s.timeRatio;
+            tooLong = outS > wh::maxRenderSeconds;
+            t << u8 ("  \xc2\xb7  ") << fmtTime (c->lengthSeconds()) << u8 (" \xe2\x86\x92 ") << fmtTime (outS);
+            if (tooLong) t << u8 ("  \xc2\xb7  RENDER MAX. 2 H, H\xc3\x96REN GEHT");
+        }
+        caps (g, t, { 230, 410, 500, 14 }, 9.5f, tooLong ? col::cyan.withAlpha (0.8f) : col::dim, juce::Justification::centred, 0.3f);
     }
 
     // Statuszeile
     g.setFont (fonts::medium (11.0f, 0.06f));
     g.setColour (col::dim);
-    g.drawText (metaText, juce::Rectangle<float> (352, 540, live ? 560.0f : 262.0f, 34), juce::Justification::centredLeft, true);
+    g.drawText (metaText, juce::Rectangle<float> (352, 540, live ? 560.0f : 182.0f, 34), juce::Justification::centredLeft, true);
 
     // Rahmen
     g.setColour (juce::Colours::white.withAlpha (0.07f));
@@ -479,8 +575,7 @@ void Panel::refreshTexts()
     auto c = proc.worker.getClip();
     bpmNote = src > 0.0 ? (c != nullptr && std::abs (c->detectedBpm - src) < 0.01 ? u8 ("BPM  \xc2\xb7  erkannt") : "BPM")
                         : "BPM eingeben";
-    bpmNote = juce::String (juce::CharPointer_UTF8 (bpmNote.toRawUTF8()));
-    tunnel.setTargets (live ? 1.0 : proc.currentRenderSettings().timeRatio, pitch.getValue() + fine.getValue() * 0.01);
+    tunnel.setTargets (live ? 1.0 : proc.currentRenderSettings().timeRatio, pitch.getValue() + fine.getValue() * 0.01, formant.getValue());
 }
 
 void Panel::setMode (bool render)
@@ -537,13 +632,45 @@ void Panel::timerCallback()
         metaText = clip->name + u8 ("  \xc2\xb7  ") + fmtTime (clip->lengthSeconds()) + u8 ("  \xc2\xb7  ") + juce::String (clip->sampleRate / 1000.0, 1) + " kHz";
     else
         metaText = "Kein Clip geladen";
-    metaText = juce::String (juce::CharPointer_UTF8 (metaText.toRawUTF8()));
 
+    // Extrem-Bereich: Textur-Regler einblenden
+    extreme = ! live && proc.currentRenderSettings().isExtreme();
+    texture.setVisible (extreme);
+    attackLock.setEnabled (! live && ! extreme);
+
+    // Vorhören
+    const bool playingNow = proc.preview.isPlaying();
+    if (live && playingNow) proc.preview.stop();
+    previewBtn.setVisible (! live);
+    previewBtn.setEnabled (clip != nullptr && ! proc.isCapturing());
+    previewBtn.icon = playingNow ? PillButton::Icon::stop : PillButton::Icon::play;
+    previewBtn.setButtonText (playingNow ? "STOP" : juce::String::fromUTF8 ("H\xc3\x96REN"));
+    if (playingNow)
+    {
+        // Regler geändert: kurz warten, dann an der aktuellen Stelle neu starten
+        const auto cur = proc.currentRenderSettings();
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        if (cur != lastPreviewSettings)
+        {
+            if (previewDirtySince < 0.0) previewDirtySince = now;
+            if (now - previewDirtySince > 120.0)
+            {
+                lastPreviewSettings = cur; previewDirtySince = -1.0;
+                proc.preview.update (cur);
+            }
+        }
+    }
+    previewBtn.repaint();
+
+    // Wurmloch füttern
     tunnel.setRendering (rendering, proc.worker.getProgress());
+    tunnel.setPreview (playingNow, proc.preview.getLevel(), (float) (live ? 1.0 : proc.currentRenderSettings().timeRatio));
+    if (proc.worker.getRenderCount() != lastRenderCount) { lastRenderCount = proc.worker.getRenderCount(); tunnel.flash(); }
     wave.update();
     refreshTexts();
     repaint (0, 280, (int) W, 140);
-    repaint (340, 536, 280, 40);
+    repaint (0, 76, 340, 24);
+    repaint (340, 536, 200, 40);
 }
 
 bool Panel::isInterestedInFileDrag (const juce::StringArray& files)
@@ -561,6 +688,7 @@ void Panel::filesDropped (const juce::StringArray& files, int, int)
         if (juce::File (f).hasFileExtension ("wav;aif;aiff;flac;mp3;ogg"))
         {
             userLoadPending = true;
+            proc.preview.stop();
             proc.worker.loadFile (juce::File (f));
             break;
         }
@@ -574,14 +702,14 @@ void Panel::chooseFile()
                           [this] (const juce::FileChooser& fc)
                           {
                               auto f = fc.getResult();
-                              if (f.existsAsFile()) { userLoadPending = true; proc.worker.loadFile (f); }
+                              if (f.existsAsFile()) { userLoadPending = true; proc.preview.stop(); proc.worker.loadFile (f); }
                           });
 }
 
 void Panel::toggleCapture()
 {
     if (proc.isCapturing()) { userLoadPending = true; proc.stopCapture(); }
-    else proc.startCapture();
+    else { proc.preview.stop(); proc.startCapture(); }
 }
 
 void Panel::startOrCancelRender()
@@ -590,10 +718,22 @@ void Panel::startOrCancelRender()
     proc.worker.render (proc.currentRenderSettings());
 }
 
+void Panel::togglePreview()
+{
+    if (proc.preview.isPlaying()) { proc.preview.stop(); return; }
+    if (auto c = proc.worker.getClip())
+    {
+        lastPreviewSettings = proc.currentRenderSettings();
+        proc.preview.play (c, lastPreviewSettings, 0.0);
+        tunnel.kick (0.6f);
+    }
+}
+
 void Panel::dragResultOut()
 {
     auto r = proc.worker.getResult();
     if (r == nullptr || ! r->file.existsAsFile() || r->settings != proc.currentRenderSettings()) return;
+    proc.worker.markExported (r->file);
     juce::DragAndDropContainer::performExternalDragDropOfFiles ({ r->file.getFullPathName() }, false, this);
 }
 } // namespace whl

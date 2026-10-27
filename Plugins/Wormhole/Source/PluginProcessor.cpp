@@ -30,10 +30,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout WormholeProcessor::createLay
         AudioParameterFloatAttributes().withLabel ("st")));
     p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "formantLock", 1 }, "Formant Lock", true));
     p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "attackLock", 1 }, "Attack Lock", true));
-    NormalisableRange<float> tempoRange (25.0f, 400.0f, 0.1f);
-    tempoRange.setSkewForCentre (100.0f);
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "tempo", 1 }, "Tempo", tempoRange, 100.0f,
+    // Tempo 0,1 % .. 400 %: untere 35 % des Reglers für den Extrembereich (0,1..25 %), Rest 25..400 %
+    NormalisableRange<float> tempoRange (0.1f, 400.0f,
+        [] (float, float, float x)
+        {
+            if (x < 0.35f) return 0.1f * std::pow (250.0f, x / 0.35f);
+            return 25.0f * std::pow (16.0f, (x - 0.35f) / 0.65f);
+        },
+        [] (float, float, float v)
+        {
+            v = juce::jlimit (0.1f, 400.0f, v);
+            if (v < 25.0f) return 0.35f * std::log (v / 0.1f) / std::log (250.0f);
+            return 0.35f + 0.65f * std::log (v / 25.0f) / std::log (16.0f);
+        },
+        [] (float, float, float v)
+        {
+            v = juce::jlimit (0.1f, 400.0f, v);
+            const float step = v < 1.0f ? 0.001f : v < 10.0f ? 0.01f : 0.1f;
+            return std::round (v / step) * step;
+        });
+    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "tempo", 2 }, "Tempo", tempoRange, 100.0f,
         AudioParameterFloatAttributes().withLabel ("%")));
+    // Extrem-Modus: Fensterlänge der Textur, 0 = automatisch
+    NormalisableRange<float> texRange (0.0f, 2.0f, 0.01f);
+    texRange.setSkewForCentre (0.4f);
+    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "texture", 1 }, "Textur", texRange, 0.0f,
+        AudioParameterFloatAttributes().withLabel ("s")
+            .withStringFromValueFunction ([] (float v, int) { return v < 0.04f ? juce::String ("Auto") : juce::String (v, 2) + " s"; })));
     return { p.begin(), p.end() };
 }
 
@@ -55,6 +78,7 @@ void WormholeProcessor::prepareToPlay (double sampleRate, int)
     delayPos = 0;
     lastSemis = 1e9f;
     captureRate = sampleRate;
+    preview.prepare (sampleRate, numCh);
 }
 
 void WormholeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -97,7 +121,9 @@ void WormholeProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     }
     else
     {
-        // Render-Modus: Spur läuft trocken durch, mit derselben Latenz
+        // Render-Modus: Vorschau ersetzt das Spursignal, solange sie läuft
+        if (preview.readAudio (buffer, ch)) return;
+        // sonst läuft die Spur trocken durch, mit derselben Latenz
         const int L = delayBuf.getNumSamples();
         for (int i = 0; i < n; ++i)
         {
@@ -123,6 +149,8 @@ wh::RenderSettings WormholeProcessor::currentRenderSettings() const
     s.formantSemitones = apvts.getRawParameterValue ("formant")->load();
     s.formantLock = apvts.getRawParameterValue ("formantLock")->load() > 0.5f;
     s.attackLock = apvts.getRawParameterValue ("attackLock")->load() > 0.5f;
+    const float tex = apvts.getRawParameterValue ("texture")->load();
+    s.textureSeconds = tex < 0.04f ? 0.0 : (double) tex;
     return s;
 }
 
@@ -133,7 +161,7 @@ void WormholeProcessor::setTempoPercent (double pct)
     if (auto* p = apvts.getParameter ("tempo"))
     {
         p->beginChangeGesture();
-        p->setValueNotifyingHost (p->convertTo0to1 ((float) juce::jlimit (25.0, 400.0, pct)));
+        p->setValueNotifyingHost (p->convertTo0to1 ((float) juce::jlimit (0.1, 400.0, pct)));
         p->endChangeGesture();
     }
 }

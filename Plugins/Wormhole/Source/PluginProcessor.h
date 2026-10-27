@@ -53,6 +53,7 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
     wh::Worker worker;
+    wh::Previewer preview;
 
     static constexpr double maxCaptureSeconds = 180.0;
 

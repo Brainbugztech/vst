@@ -11,7 +11,9 @@ class PillButton : public juce::Button
 {
 public:
     enum class Style { primary, outline, link };
-    PillButton (const juce::String& name, Style s) : juce::Button (name), style (s) {}
+    enum class Icon { none, dragOut, play, stop };
+    PillButton (const juce::String& name, Style s, Icon i = Icon::none) : juce::Button (name), icon (i), style (s) {}
+    Icon icon;
     float progress = -1.0f;    // >= 0: Fortschrittsanzeige (Render)
     std::function<void()> onDragOut;   // Ziehen aus der Schaltfläche heraus
 
@@ -76,9 +78,11 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseDown (const juce::MouseEvent&) override { dragDone = false; }
+    void mouseUp (const juce::MouseEvent&) override;
 
     void update();   // vom Editor-Timer
     std::function<void()> onDragOut;
+    std::function<void (double)> onSeek;   // Klick in die Wellenform: Vorhören ab dieser Stelle (0..1)
     std::function<void()> onLoad, onCapture;
     bool canDragOut = false;
 
@@ -92,6 +96,8 @@ private:
     bool stale = false, live = false, capturing = false, dragDone = false;
     double predictedRatio = 1.0;
     float progress = -1.0f;
+    float waveX0 = 14.0f, waveW = 1.0f;     // Lage des Ergebnisses für Klicks
+    double playPos = -1.0;                  // Vorhör-Position 0..1, < 0 = aus
 };
 
 // Gesamte Oberfläche in Design-Koordinaten 960 x 600 (wird vom Editor skaliert)
@@ -120,6 +126,7 @@ private:
     void startOrCancelRender();
     void refreshTexts();
     void setMode (bool render);
+    void togglePreview();
 
     WormholeProcessor& proc;
     LookAndFeel lnf;
@@ -128,19 +135,23 @@ private:
     Logo logo;
     ModeSwitch modeSwitch;
 
-    juce::Slider tempo, pitch, fine, formant;
+    juce::Slider tempo, pitch, fine, formant, texture;
     juce::ToggleButton formantLock { "FORMANT LOCK" }, attackLock { "ATTACK LOCK" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aTempo, aPitch, aFine, aFormant;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> aTempo, aPitch, aFine, aFormant, aTexture;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> aFormantLock, aAttackLock;
 
     BpmField srcBpm, dstBpm;
     PillButton hostBtn { "PROJEKT", PillButton::Style::link };
     WaveView wave;
-    PillButton dragBtn { "IN ABLETON ZIEHEN", PillButton::Style::outline };
+    PillButton previewBtn { juce::String::fromUTF8 ("H\xc3\x96REN"), PillButton::Style::outline, PillButton::Icon::play };
+    PillButton dragBtn { "IN ABLETON ZIEHEN", PillButton::Style::outline, PillButton::Icon::dragOut };
     PillButton renderBtn { "RENDER", PillButton::Style::primary };
 
     std::unique_ptr<juce::FileChooser> chooser;
-    int lastGeneration = -1;
+    int lastGeneration = -1, lastRenderCount = 0;
+    wh::RenderSettings lastPreviewSettings;
+    double previewDirtySince = -1.0;
+    bool extreme = false;
     bool userLoadPending = false, dropHover = false, live = true;
     juce::String metaText, bpmNote;
 };

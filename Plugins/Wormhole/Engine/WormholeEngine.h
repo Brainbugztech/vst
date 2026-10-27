@@ -109,7 +109,16 @@ struct Params {
     bool   formantPreserve  = true; // keep vocal character when pitching
     double formantSemitones = 0.0;  // extra formant shift (character)
     bool   transientLock    = true;
+    double textureSeconds   = 0.0;  // Extrem-Modus: Fensterlänge in s (0 = automatisch)
 };
+
+// Ab diesem Längenfaktor (Tempo unter 25 %) arbeitet der Extrem-Algorithmus
+static constexpr double kExtremeRatio = 4.0;
+static constexpr double kMaxRatio     = 1000.0; // 0,1 %
+
+inline double autoTextureSeconds(double ratio) {
+    return std::clamp(0.08 * std::pow(ratio, 0.45), 0.12, 0.5);
+}
 
 // -----------------------------------------------------------------------------
 //  One spectral band processor (single FFT size)
@@ -374,121 +383,383 @@ inline std::vector<float> crossoverWeights(int N, double sr, double fc, bool low
 }
 
 // -----------------------------------------------------------------------------
-//  Offline renderer (Render mode): dual resolution, transient locked
+//  StretchStream: liefert das Ergebnis stückweise (für Vorhören und Rendern).
+//
+//  Normalbereich (Tempo >= 25 %): Phase-Vocoder in zwei Auflösungen, mit
+//  Attack-Lock (Phasen-Reset, Zeit-Verriegelung, Vorecho-Maskierung).
+//  Extrembereich (Tempo < 25 %, bis 0,1 %): Spektral-Textur mit sehr langen
+//  Fenstern und zufälligen Phasen (Prinzip Paulstretch), aber stereo-kohärent:
+//  alle Kanäle teilen die Zufallsphase, die Phasenunterschiede zwischen den
+//  Kanälen bleiben erhalten, das Stereobild steht.
 // -----------------------------------------------------------------------------
-class OfflineStretcher {
+class StretchStream {
 public:
-    std::vector<long> transients; // detected attack positions (input samples)
+    // Eingang muss so lange leben wie der Stream. Erkennt die Attacks (einmalig pro Eingang).
+    void setInput(const std::vector<std::vector<float>>* in, double sampleRate,
+                  const std::vector<long>* knownTransients = nullptr) {
+        input = in; sr = sampleRate;
+        C = in ? (int)in->size() : 0;
+        inLen = C ? (long)(*in)[0].size() : 0;
+        scale = sr > 60000 ? 2 : 1;
+        transients.clear();
+        if (knownTransients) transients = *knownTransients;
+        else if (C && inLen) detectTransients(2048 * scale);
+    }
+    const std::vector<long>& getTransients() const { return transients; }
 
-    // input[ch][n]; progress(0..1) returns false to cancel
-    std::vector<std::vector<float>> process(const std::vector<std::vector<float>>& input,
-                                            double sampleRate, const Params& p,
-                                            std::function<bool(float)> progress = {}) {
-        const int C = (int)input.size();
-        const long inLen = C ? (long)input[0].size() : 0;
-        const long outLen = (long)std::llround(inLen * p.timeRatio);
-        std::vector<std::vector<float>> out(C, std::vector<float>(std::max(0L, outLen), 0.f));
-        if (!C || inLen == 0 || outLen == 0) return out;
+    // Startet die Ausgabe ab Ausgabe-Sample startOut mit neuen Parametern
+    void start(const Params& params, long startOut = 0) {
+        p = params;
+        p.timeRatio = std::clamp(p.timeRatio, 1.0 / 4.0, kMaxRatio);
+        outLen = (long)std::llround(inLen * p.timeRatio);
+        pos = std::clamp(startOut, 0L, std::max(0L, outLen));
+        pitch = std::pow(2.0, p.pitchSemitones / 12.0);
+        fform = std::pow(2.0, p.formantSemitones / 12.0);
+        extreme = p.timeRatio > kExtremeRatio;
+        if (!C || !inLen) return;
+        if (extreme) startExtreme();
+        else startPV();
+    }
 
-        const int scale = sampleRate > 60000 ? 2 : 1;
-        const int Nlo = 4096 * scale, Nhi = 2048 * scale;
-        const double xover = 300.0;
-        BandProcessor lo, hi;
-        lo.prepare(Nlo, C, sampleRate); hi.prepare(Nhi, C, sampleRate);
-        const double pitch = std::pow(2.0, p.pitchSemitones / 12.0);
-        const double fform = std::pow(2.0, p.formantSemitones / 12.0);
+    bool isExtreme() const { return extreme; }
+    long outputLength() const { return outLen; }
+    long position() const { return pos; }
+    int channels() const { return C; }
+    double textureUsed() const { return xN > 0 ? xN / sr : 0.0; }
+    static constexpr int maxPull = 16384;
 
-        // time map (output -> input) with transient locking, detection on full band
-        const int Hs = Nhi / 16;
-        detectTransients(input, inLen, sampleRate, Nhi);
-        std::vector<double> mapOut, mapIn; std::vector<char> trAt;
-        buildTimeMap(outLen, sampleRate, p, Hs, Nlo, mapOut, mapIn, trAt);
-
-        auto inTimeFor = [&](double tOut) -> double {
-            if (tOut <= mapOut.front()) return mapIn.front() + (tOut - mapOut.front()) / p.timeRatio;
-            if (tOut >= mapOut.back())  return mapIn.back() + (tOut - mapOut.back()) / p.timeRatio;
-            auto it = std::upper_bound(mapOut.begin(), mapOut.end(), tOut);
-            const size_t i = (size_t)(it - mapOut.begin()) - 1;
-            const double f = (tOut - mapOut[i]) / (mapOut[i + 1] - mapOut[i]);
-            return mapIn[i] + f * (mapIn[i + 1] - mapIn[i]);
-        };
-        auto transientNear = [&](double tOut, double radius) -> bool {
-            auto it = std::lower_bound(mapOut.begin(), mapOut.end(), tOut - radius);
-            for (; it != mapOut.end() && *it <= tOut + radius; ++it)
-                if (trAt[(size_t)(it - mapOut.begin())]) return true;
-            return false;
-        };
-
-        lo.setBandWeight(crossoverWeights(Nlo, sampleRate, xover, true));
-        hi.setBandWeight(crossoverWeights(Nhi, sampleRate, xover, false));
-        long total = 0, done = 0;
-        for (BandProcessor* bp : { &lo, &hi }) total += (outLen + 2 * bp->fftSize()) / bp->hop() + 1;
-        const float noiseAmt = (float)std::min(1.0, 1.5 * std::abs(std::log2(p.timeRatio)) + 1.5 * std::abs(std::log2(pitch)));
-
-        for (BandProcessor* bp : { &lo, &hi }) {
-            const int N = bp->fftSize(), H = bp->hop();
-            std::vector<std::vector<float>> bx(C, std::vector<float>(N)), by(C, std::vector<float>(N)), bo(C, std::vector<float>(N));
-            std::vector<const float*> px(C), py(C); std::vector<float*> po(C);
-            for (int c = 0; c < C; ++c) { px[c] = bx[c].data(); py[c] = by[c].data(); po[c] = bo[c].data(); }
-            std::vector<std::vector<float>> bandOut(C, std::vector<float>(outLen, 0.f));
-            std::vector<float> weight(outLen, 0.f), mask(N, 1.f), w2(N);
-            for (int i = 0; i < N; ++i) { const float w = 0.5f - 0.5f * (float)std::cos(kTau * i / N); w2[i] = w * w; }
-            float w2sum; { std::vector<double> acc(H, 0.0); for (int i = 0; i < N; ++i) acc[i % H] += w2[i]; w2sum = (float)acc[0]; }
-            const long fade = std::max(16L, (long)(0.0015 * sampleRate));
-            bp->reset(); bp->setPitch(pitch); bp->noiseAmount = noiseAmt;
-            bp->needFullSpectrum = p.formantPreserve || std::abs(p.formantSemitones) > 1e-6;
-            double lastResetOut = -1e18;
-            for (long tOut = -(long)N; tOut < outLen + N; tOut += H) {
-                const double tIn = inTimeFor((double)tOut);
-                const long cIn = (long)std::llround(tIn);
-                // pre-echo masking: attacks ahead of this frame centre are rendered by later frames
-                bool masked = false;
-                if (p.transientLock) {
-                    auto it = std::upper_bound(transients.begin(), transients.end(), cIn + H / 2);
-                    if (it != transients.end() && *it < cIn + N / 2) {
-                        const long T = *it; masked = true;
-                        for (int i = 0; i < N; ++i) {
-                            const long a = cIn - N / 2 + i;
-                            mask[i] = a >= T ? 0.f : (a > T - fade ? 0.5f + 0.5f * (float)std::cos(kPi * (a - (T - fade)) / (double)fade) : 1.f);
-                        }
-                    }
-                }
-                for (int c = 0; c < C; ++c) {
-                    const float* src = input[c].data();
-                    for (int i = 0; i < N; ++i) {
-                        const long a = cIn - N / 2 + i, b = a - H;
-                        const float m = masked ? mask[i] : 1.f;
-                        const float mb = masked ? (i >= H ? mask[i - H] : 1.f) : 1.f;
-                        bx[c][i] = (a >= 0 && a < inLen) ? src[a] * m : 0.f;
-                        by[c][i] = (b >= 0 && b < inLen) ? src[b] * mb : 0.f;
-                    }
-                }
-                bp->analyse(px, py);
-                bool reset = false;
-                if (p.transientLock && transientNear((double)tOut, H * 0.5) && tOut - lastResetOut > N / 4) {
-                    reset = true; lastResetOut = (double)tOut;
-                }
-                bp->synthesise(p.formantPreserve, fform, reset, po);
-                const long o0 = tOut - N / 2;
-                const int i0 = (int)std::max(0L, -o0), i1 = (int)std::min((long)N, outLen - o0);
-                for (int c = 0; c < C; ++c) { float* d = bandOut[c].data() + o0; const float* s = bo[c].data(); for (int i = i0; i < i1; ++i) d[i] += s[i]; }
-                { float* wd = weight.data() + o0; for (int i = i0; i < i1; ++i) wd[i] += w2[i] * (masked ? mask[i] : 1.f); }
-                if (progress && (++done % 32) == 0 && !progress(0.05f + 0.95f * (float)done / (float)total)) return out;
+    // Erzeugt bis zu n (<= maxPull) Samples je Kanal. Rückgabe: erzeugte Samples (0 = Ende).
+    int pull(float* const* out, int n) {
+        n = std::min<long>(std::min(n, maxPull), outLen - pos);
+        if (n <= 0 || !C) return 0;
+        const long target = pos + n;
+        if (extreme) {
+            while (xNext - xN / 2 < target) runExtremeFrame();
+            for (int i = 0; i < n; ++i) {
+                const size_t r = (size_t)((pos + i) & (R - 1));
+                for (int c = 0; c < C; ++c) { out[c][i] = xAcc[c][r] * xScale; xAcc[c][r] = 0.f; }
             }
-            // adaptive normalisation compensates the masked frame content
-            for (long o = 0; o < outLen; ++o) {
-                const float wn = weight[o] / w2sum;
-                const float g = wn > 0.999f ? 1.f : 1.f / std::max(wn, 0.35f);
-                for (int c = 0; c < C; ++c) out[c][o] += bandOut[c][o] * g;
+        } else {
+            for (auto& b : bands) while (b.next - b.N / 2 < target) runPVFrame(b);
+            for (int i = 0; i < n; ++i) {
+                const size_t r = (size_t)((pos + i) & (R - 1));
+                for (int c = 0; c < C; ++c) out[c][i] = 0.f;
+                for (auto& b : bands) {
+                    const float wn = b.weight[r] / b.w2sum;
+                    const float g = wn > 0.999f ? 1.f : 1.f / std::max(wn, 0.35f);
+                    for (int c = 0; c < C; ++c) { out[c][i] += b.acc[c][r] * g; b.acc[c][r] = 0.f; }
+                    b.weight[r] = 0.f;
+                }
             }
         }
-        if (progress) progress(1.f);
-        return out;
+        pos += n;
+        return n;
     }
 
 private:
-    void detectTransients(const std::vector<std::vector<float>>& input, long inLen, double sr, int N) {
-        const int C = (int)input.size();
+    static constexpr long R = 1L << 18; // Ring für die Überlappung (muss > maxPull + 2*N sein)
+
+    // ---------------- Phase-Vocoder ----------------
+    struct PVBand {
+        BandProcessor bp; int N = 0, H = 0; long next = 0; double lastReset = -1e18;
+        std::vector<std::vector<float>> bx, by, bo, acc; std::vector<const float*> px, py; std::vector<float*> po;
+        std::vector<float> mask, w2, weight; float w2sum = 1;
+    };
+    PVBand bands[2];
+    std::vector<double> mapOut, mapIn; std::vector<char> trAt;
+
+    void startPV() {
+        const int Ns[2] = { 4096 * scale, 2048 * scale };
+        const float noiseAmt = (float)std::min(1.0, 1.5 * std::abs(std::log2(p.timeRatio)) + 1.5 * std::abs(std::log2(pitch)));
+        for (int bi = 0; bi < 2; ++bi) {
+            PVBand& b = bands[bi];
+            const int N = Ns[bi];
+            if (b.N != N || (int)b.acc.size() != C) {
+                b.N = N; b.H = N / 8;
+                b.bp.prepare(N, C, sr);
+                b.bp.setBandWeight(crossoverWeights(N, sr, 300.0, bi == 0));
+                b.bx.assign(C, std::vector<float>(N)); b.by.assign(C, std::vector<float>(N)); b.bo.assign(C, std::vector<float>(N));
+                b.px.resize(C); b.py.resize(C); b.po.resize(C);
+                for (int c = 0; c < C; ++c) { b.px[c] = b.bx[c].data(); b.py[c] = b.by[c].data(); b.po[c] = b.bo[c].data(); }
+                b.acc.assign(C, std::vector<float>((size_t)R, 0.f));
+                b.weight.assign((size_t)R, 0.f);
+                b.mask.assign(N, 1.f); b.w2.resize(N);
+                for (int i = 0; i < N; ++i) { const float w = 0.5f - 0.5f * (float)std::cos(kTau * i / N); b.w2[i] = w * w; }
+                std::vector<double> a(b.H, 0.0); for (int i = 0; i < N; ++i) a[i % b.H] += b.w2[i];
+                b.w2sum = (float)a[0];
+            } else {
+                for (auto& ch : b.acc) std::fill(ch.begin(), ch.end(), 0.f);
+                std::fill(b.weight.begin(), b.weight.end(), 0.f);
+            }
+            b.bp.reset(); b.bp.setPitch(pitch); b.bp.noiseAmount = noiseAmt;
+            b.bp.needFullSpectrum = p.formantPreserve || std::abs(p.formantSemitones) > 1e-6;
+            b.next = pos - N;          // gleiches Raster wie beim Start bei 0
+            b.lastReset = -1e18;
+        }
+        buildTimeMap(2048 * scale / 16, 4096 * scale);
+    }
+
+    double inTimeFor(double tOut) const {
+        if (tOut <= mapOut.front()) return mapIn.front() + (tOut - mapOut.front()) / p.timeRatio;
+        if (tOut >= mapOut.back())  return mapIn.back() + (tOut - mapOut.back()) / p.timeRatio;
+        auto it = std::upper_bound(mapOut.begin(), mapOut.end(), tOut);
+        const size_t i = (size_t)(it - mapOut.begin()) - 1;
+        const double f = (tOut - mapOut[i]) / (mapOut[i + 1] - mapOut[i]);
+        return mapIn[i] + f * (mapIn[i + 1] - mapIn[i]);
+    }
+    bool transientNear(double tOut, double radius) const {
+        auto it = std::lower_bound(mapOut.begin(), mapOut.end(), tOut - radius);
+        for (; it != mapOut.end() && *it <= tOut + radius; ++it)
+            if (trAt[(size_t)(it - mapOut.begin())]) return true;
+        return false;
+    }
+
+    void runPVFrame(PVBand& b) {
+        const int N = b.N, H = b.H;
+        const long tOut = b.next; b.next += H;
+        const double tIn = inTimeFor((double)tOut);
+        const long cIn = (long)std::llround(tIn);
+        const long fade = std::max(16L, (long)(0.0015 * sr));
+        bool masked = false;
+        if (p.transientLock) {
+            auto it = std::upper_bound(transients.begin(), transients.end(), cIn + H / 2);
+            if (it != transients.end() && *it < cIn + N / 2) {
+                const long T = *it; masked = true;
+                for (int i = 0; i < N; ++i) {
+                    const long a = cIn - N / 2 + i;
+                    b.mask[i] = a >= T ? 0.f : (a > T - fade ? 0.5f + 0.5f * (float)std::cos(kPi * (a - (T - fade)) / (double)fade) : 1.f);
+                }
+            }
+        }
+        for (int c = 0; c < C; ++c) {
+            const float* src = (*input)[c].data();
+            for (int i = 0; i < N; ++i) {
+                const long a = cIn - N / 2 + i, bb = a - H;
+                const float m = masked ? b.mask[i] : 1.f;
+                const float mb = masked ? (i >= H ? b.mask[i - H] : 1.f) : 1.f;
+                b.bx[c][i] = (a >= 0 && a < inLen) ? src[a] * m : 0.f;
+                b.by[c][i] = (bb >= 0 && bb < inLen) ? src[bb] * mb : 0.f;
+            }
+        }
+        b.bp.analyse(b.px, b.py);
+        bool reset = false;
+        if (p.transientLock && transientNear((double)tOut, H * 0.5) && tOut - b.lastReset > N / 4) { reset = true; b.lastReset = (double)tOut; }
+        b.bp.synthesise(p.formantPreserve, fform, reset, b.po);
+        const long o0 = tOut - N / 2;
+        for (int i = 0; i < N; ++i) {
+            const long o = o0 + i;
+            if (o < pos || o >= outLen) continue;
+            const size_t r = (size_t)(o & (R - 1));
+            for (int c = 0; c < C; ++c) b.acc[c][r] += b.bo[c][i];
+            b.weight[r] += b.w2[i] * (masked ? b.mask[i] : 1.f);
+        }
+    }
+
+    // ---------------- Extrem (Spektral-Textur, hybrid) ----------------
+    // Klare Teiltöne: phasenrichtig fortgeführt (keine Schwebung, stehende Töne).
+    // Rauschen/Textur: zufällige Phasen (weich, ohne metallischen Klang).
+    RealFFT xfft;
+    int xN = 0, xH = 0, xB = 0, xD = 512; long xNext = 0; float xScale = 1.f, xCoherentGain = 1.f;
+    std::vector<float> xWin, xTime, xLogEnv, xMag, xOmega, xPrevPhase, xOutPhase, xSrcPhase, xMagOut, xPhRand;
+    std::vector<std::vector<cfloat>> xSpec; std::vector<cfloat> xMid, xMidPrev, xOutSpec, xRot;
+    std::vector<std::vector<float>> xAcc;
+    std::vector<int> xPeakOf, xPeaks; std::vector<char> xTonal;
+    bool xFirst = true;
+    uint32_t xRng = 0x2545F491u;
+
+    static int goodFFTSize(double want) {
+        // pffft: N = 2^a * 3^b * 5^c, Vielfaches von 32 -> nächstgelegene Größe nach oben
+        int best = 1 << 18;
+        for (int base : { 32, 96, 160 })
+            for (int n = base; n <= (1 << 18); n <<= 1)
+                if (n >= want) { best = std::min(best, n); break; }
+        return best;
+    }
+
+    void startExtreme() {
+        const double tex = p.textureSeconds > 0.0 ? std::clamp(p.textureSeconds, 0.04, 2.0) : autoTextureSeconds(p.timeRatio);
+        const int N = std::max(1024, goodFFTSize(tex * sr));
+        if (N != xN || (int)xAcc.size() != C) {
+            xN = N; xH = N / 4; xB = N / 2 + 1;
+            xfft.init(N);
+            xWin.resize(N);
+            for (int i = 0; i < N; ++i) xWin[i] = 0.5f - 0.5f * (float)std::cos(kTau * i / N);
+            xTime.assign(N, 0.f); outTime.assign(N, 0.f);
+            for (auto* v : { &xLogEnv, &xMag, &xOmega, &xPrevPhase, &xOutPhase, &xSrcPhase, &xMagOut, &xPhRand }) v->assign(xB, 0.f);
+            xSpec.assign(C, std::vector<cfloat>(xB)); xMid.assign(xB, {}); xMidPrev.assign(xB, {}); xOutSpec.assign(xB, {}); xRot.assign(xB, {});
+            xPeakOf.assign(xB, -1); xPeaks.reserve(xB); xTonal.assign(xB, 0);
+            xAcc.assign(C, std::vector<float>((size_t)R, 0.f));
+            // Normierung: zufällige Phasen addieren sich nach Leistung, kohärente nach Amplitude
+            double ma = 0; for (float w : xWin) ma += (double)w * w; ma /= N;
+            std::vector<double> a(xH, 0.0); for (int i = 0; i < N; ++i) a[i % xH] += (double)xWin[i] * xWin[i];
+            xScale = (float)(1.0 / std::sqrt(ma * a[0]));
+            xCoherentGain = (float)(1.0 / (a[0] * xScale));
+        } else for (auto& ch : xAcc) std::fill(ch.begin(), ch.end(), 0.f);
+        xD = std::max(64, (int)(0.012 * sr));   // Abstand der zweiten Analyse für die Momentanfrequenz
+        xNext = pos - xN;
+        xFirst = true;
+        xRng = 0x2545F491u ^ (uint32_t)(pos * 2654435761u);
+    }
+
+    float xRand() { xRng ^= xRng << 13; xRng ^= xRng >> 17; xRng ^= xRng << 5; return (xRng & 0xFFFFFF) / (float)0xFFFFFF; }
+
+    void runExtremeFrame() {
+        const int N = xN, B = xB;
+        const long tOut = xNext; xNext += xH;
+        const double tIn = (double)tOut / p.timeRatio;
+        long cIn = (long)std::llround(tIn);
+        // Fenster am Dateirand nach innen schieben, statt halb ins Leere zu greifen
+        if (inLen > N + xD) cIn = std::clamp(cIn, (long)(N / 2 + xD), inLen - N / 2);
+        const auto& in = *input;
+        // Analyse je Kanal und Mitte; zweite Analyse der Mitte xD Samples früher (Momentanfrequenz)
+        for (int c = 0; c < C; ++c) {
+            const float* src = in[c].data();
+            for (int i = 0; i < N; ++i) { const long a = cIn - N / 2 + i; xTime[i] = (a >= 0 && a < inLen) ? src[a] * xWin[i] : 0.f; }
+            xfft.forward(xTime.data(), xSpec[c].data());
+        }
+        for (int i = 0; i < N; ++i) {
+            const long a = cIn - xD - N / 2 + i; float v = 0.f;
+            if (a >= 0 && a < inLen) for (int c = 0; c < C; ++c) v += in[c][a];
+            xTime[i] = v * xWin[i];
+        }
+        xfft.forward(xTime.data(), xMidPrev.data());
+        for (int k = 0; k < B; ++k) {
+            cfloat m(0, 0); float sum = 0;
+            for (int c = 0; c < C; ++c) { m += xSpec[c][k]; sum += fastAbs(xSpec[c][k]); }
+            xMid[k] = m;
+            xMag[k] = std::max(fastAbs(m), 0.5f * sum);
+            const float wb = (float)(kTau * k / N);
+            xOmega[k] = wb + princarg(fastArg(m) - fastArg(xMidPrev[k]) - wb * xD) / xD;
+        }
+        // sehr kurze Dateien: fehlende Fensteranteile ausgleichen
+        float cover = 1.f;
+        if (inLen <= N + xD) {
+            double a = 0, t = 0;
+            for (int i = 0; i < N; ++i) { const long q = cIn - N / 2 + i; const double w2 = (double)xWin[i] * xWin[i]; t += w2; if (q >= 0 && q < inLen) a += w2; }
+            cover = (float)std::sqrt(t / std::max(a, t * 0.02));
+        }
+        const bool useEnv = p.formantPreserve || std::abs(fform - 1.0) > 1e-6;
+        if (useEnv) envelope();
+        const float P = (float)pitch, sMax = (float)(N / 2 - 1);
+
+        // gemappte Mitte, Spitzen und Regionen
+        float maxMag = 1e-12f;
+        for (int j = 0; j < B; ++j) {
+            const float s = j / P;
+            if (s > sMax) { xMagOut[j] = 0; xSrcPhase[j] = 0; continue; }
+            const int k0 = (int)s; const float f = s - k0;
+            xMagOut[j] = xMag[k0] * (1 - f) + xMag[k0 + 1] * f;
+            xSrcPhase[j] = fastArg(xMid[k0] * (1 - f) + xMid[k0 + 1] * f);
+            maxMag = std::max(maxMag, xMagOut[j]);
+        }
+        xPeaks.clear();
+        const float floorMag = maxMag * 1e-5f;
+        for (int j = 2; j < B - 2; ++j) {
+            const float m = xMagOut[j];
+            if (m > floorMag && m >= xMagOut[j - 1] && m > xMagOut[j + 1] && m >= xMagOut[j - 2] && m > xMagOut[j + 2]) xPeaks.push_back(j);
+        }
+        std::fill(xPeakOf.begin(), xPeakOf.end(), -1);
+        if (!xPeaks.empty()) {
+            int startJ = 0;
+            for (size_t pi = 0; pi < xPeaks.size(); ++pi) {
+                int endJ = B - 1;
+                if (pi + 1 < xPeaks.size()) { int a = xPeaks[pi], b2 = xPeaks[pi + 1], mn = a; for (int t = a + 1; t <= b2; ++t) if (xMagOut[t] < xMagOut[mn]) mn = t; endJ = mn; }
+                for (int j = startJ; j <= endJ; ++j) xPeakOf[j] = xPeaks[pi];
+                startJ = endJ + 1;
+            }
+        }
+        // Tonalität je Region: Momentanfrequenz über die Hauptkeule konstant -> Sinus
+        const float binW = (float)(kTau / N);
+        for (int pk : xPeaks) {
+            const int kp = std::min((int)(pk / P + 0.5f), B - 1);
+            float dev = 0, wsum = 1e-12f;
+            for (int d = -2; d <= 2; ++d) {
+                const int j = pk + d; if (j < 0 || j >= B) continue;
+                const int k = std::min((int)(j / P + 0.5f), B - 1);
+                dev += std::min(2.f, std::abs(xOmega[k] - xOmega[kp]) / binW) * xMagOut[j]; wsum += xMagOut[j];
+            }
+            // Spitze muss sich auch deutlich über ihre Nachbarschaft erheben
+            float nb = 0; int nn = 0;
+            for (int d = 6; d <= 14; ++d) { if (pk - d >= 0) { nb += xMagOut[pk - d]; ++nn; } if (pk + d < B) { nb += xMagOut[pk + d]; ++nn; } }
+            nb /= std::max(1, nn);
+            xTonal[pk] = (dev / wsum < 0.25f && xMagOut[pk] > 4.0f * nb) ? 1 : 0;
+        }
+        // Phasen: tonal = fortgeführt mit Momentanfrequenz, sonst zufällig; Nachbarbins an die Spitze gekoppelt
+        for (int pk : xPeaks) {
+            if (xTonal[pk] && !xFirst) {
+                const int k = std::min((int)(pk / P + 0.5f), B - 1);
+                xOutPhase[pk] = princarg(xPrevPhase[pk] + xOmega[k] * P * xH);
+            } else xOutPhase[pk] = xRand() * (float)kTau;
+        }
+        for (int j = 0; j < B; ++j) {
+            const int pk = xPeakOf[j];
+            if (pk < 0) { xOutPhase[j] = xRand() * (float)kTau; continue; }
+            if (pk == j) continue;
+            if (xTonal[pk]) xOutPhase[j] = princarg(xOutPhase[pk] + xSrcPhase[j] - xSrcPhase[pk]);
+            else xOutPhase[j] = xRand() * (float)kTau;
+        }
+        xFirst = false;
+        // Rotation je Bin (gemeinsam für alle Kanäle) inkl. Formant und Normierung
+        for (int j = 0; j < B; ++j) {
+            const float s = j / P;
+            if (s > sMax || j == 0) { xRot[j] = {}; continue; }
+            const int k0 = (int)s; const float f = s - k0;
+            float g = 1.f;
+            if (useEnv) {
+                const float st = (float)(j / fform);
+                float et;
+                if (st > sMax) et = xLogEnv[N / 2];
+                else { const int t0 = (int)st; const float tf = st - t0; et = xLogEnv[t0] * (1 - tf) + xLogEnv[t0 + 1] * tf; }
+                const float es = xLogEnv[k0] * (1 - f) + xLogEnv[k0 + 1] * f;
+                g = std::exp(std::clamp(et - es, -4.f, 3.f));
+            }
+            const int pk = xPeakOf[j];
+            if (pk >= 0 && xTonal[pk]) g *= xCoherentGain;
+            g *= cover;
+            xRot[j] = std::polar(g, xOutPhase[j] - xSrcPhase[j]);
+        }
+        for (int j = 0; j < B; ++j) xPrevPhase[j] = xOutPhase[j];
+        // Synthese je Kanal: Kanal-Spektrum * Rotation (Kanalversatz bleibt -> Stereobild steht)
+        for (int c = 0; c < C; ++c) {
+            for (int j = 0; j < B; ++j) {
+                if (xRot[j] == cfloat(0, 0)) { xOutSpec[j] = {}; continue; }
+                const float s = j / P; const int k0 = (int)s; const float f = s - k0;
+                const cfloat xv = xSpec[c][k0] * (1 - f) + xSpec[c][k0 + 1] * f;
+                xOutSpec[j] = cmul(xv, xRot[j]);
+            }
+            xOutSpec[0] = {}; xOutSpec[B - 1] = cfloat(xOutSpec[B - 1].real(), 0.f);
+            xfft.inverse(xOutSpec.data(), outTime.data());
+            const float g = 1.f / (float)N;
+            const long o0 = tOut - N / 2;
+            for (int i = 0; i < N; ++i) {
+                const long o = o0 + i;
+                if (o < pos || o >= outLen) continue;
+                xAcc[c][(size_t)(o & (R - 1))] += outTime[i] * xWin[i] * g;
+            }
+        }
+    }
+    std::vector<float> outTime;
+
+    void envelope() {
+        const int N = xN, B = xB;
+        envTime.resize(N); envSpec.resize(B);
+        for (int k = 0; k < B; ++k) {
+            const float l = std::log(xMag[k] + 1e-7f);
+            envTime[k] = l; if (k > 0 && k < N / 2) envTime[N - k] = l;
+        }
+        xfft.forward(envTime.data(), envSpec.data());
+        const int lifter = std::clamp((int)(0.0011 * sr), 8, N / 4);
+        for (int q = 0; q < B; ++q) {
+            const float w = q < lifter ? 1.f : (q < lifter + 4 ? 0.5f + 0.5f * (float)std::cos(kPi * (q - lifter) / 4.0) : 0.f);
+            envSpec[q] = cfloat(envSpec[q].real() * w / (float)N, 0.f);
+        }
+        xfft.inverse(envSpec.data(), envTime.data());
+        for (int k = 0; k < B; ++k) xLogEnv[k] = envTime[k];
+    }
+    std::vector<float> envTime; std::vector<cfloat> envSpec;
+
+    // ---------------- Attacks und Zeitkarte ----------------
+    void detectTransients(int N) {
         BandProcessor det; det.prepare(N, C, sr); det.setPitch(1.0);
         std::vector<float> w(N / 2 + 1);
         for (int k = 0; k <= N / 2; ++k) w[k] = (float)std::min(1.0, (k * sr / N) / 2000.0);
@@ -498,15 +769,15 @@ private:
         std::vector<std::vector<float>> bx(C, std::vector<float>(N)), by(C, std::vector<float>(N));
         std::vector<const float*> px(C), py(C);
         for (int c = 0; c < C; ++c) { px[c] = bx[c].data(); py[c] = by[c].data(); }
+        const auto& in = *input;
         for (long c0 = 0; c0 < inLen + N; c0 += H) {
             for (int c = 0; c < C; ++c) for (int i = 0; i < N; ++i) {
                 const long a = c0 - N / 2 + i, b = a - H;
-                bx[c][i] = (a >= 0 && a < inLen) ? input[c][a] : 0.f;
-                by[c][i] = (b >= 0 && b < inLen) ? input[c][b] : 0.f;
+                bx[c][i] = (a >= 0 && a < inLen) ? in[c][a] : 0.f;
+                by[c][i] = (b >= 0 && b < inLen) ? in[c][b] : 0.f;
             }
             flux.push_back(det.analyse(px, py));
         }
-        transients.clear();
         const int win = 12; long lastT = -100;
         const long F = (long)flux.size();
         for (long i = 0; i < F; ++i) {
@@ -516,14 +787,13 @@ private:
             const bool localMax = (i == 0 || flux[i] >= flux[i - 1]) && (i + 1 >= F || flux[i] > flux[i + 1]);
             if (!(localMax && flux[i] > 1.8 * m + 0.02 && flux[i] > 0.25 && i - lastT > 6)) continue;
             lastT = i;
-            // refine in time domain: strongest rise of high-passed short-time energy
             const long c0 = i * H, blk = 64;
             long best = c0; double bestRise = -1e9, prevE = -1;
             for (long a = c0 - N / 2; a + blk <= c0 + N / 2; a += blk / 2) {
                 double e = 1e-12;
                 for (long n2 = a; n2 < a + blk; ++n2) {
                     if (n2 < 1 || n2 >= inLen) continue;
-                    for (int c = 0; c < C; ++c) { const double d = input[c][n2] - input[c][n2 - 1]; e += d * d; }
+                    for (int c = 0; c < C; ++c) { const double d = in[c][n2] - in[c][n2 - 1]; e += d * d; }
                 }
                 if (prevE > 0) { const double r = std::log(e / prevE); if (r > bestRise) { bestRise = r; best = a; } }
                 prevE = e;
@@ -532,40 +802,70 @@ private:
         }
     }
 
-    void buildTimeMap(long outLen, double sr, const Params& p, int Hs, int Nmax,
-                      std::vector<double>& mapOut, std::vector<double>& mapIn, std::vector<char>& tr) {
-        mapOut.clear(); mapIn.clear(); tr.clear();
+    void buildTimeMap(int Hs, int Nmax) {
+        mapOut.clear(); mapIn.clear(); trAt.clear();
         const double ratio = p.timeRatio;
         const bool stretching = std::abs(ratio - 1.0) > 1e-6;
-        const double lockLen = std::max(2.0 * Hs, 0.012 * sr); // attacks keep original speed ~12 ms
+        const double lockLen = std::max(2.0 * Hs, 0.012 * sr);
         double tOut = -2.0 * Nmax, tIn = tOut / ratio, lockLeft = 0;
         size_t next = 0;
         while (next < transients.size() && transients[next] < tIn) ++next;
-        mapOut.push_back(tOut); mapIn.push_back(tIn); tr.push_back(0);
+        mapOut.push_back(tOut); mapIn.push_back(tIn); trAt.push_back(0);
         const double end = outLen + 2.0 * Nmax;
         while (tOut < end) {
             if (lockLeft > 0) {
                 const double st = std::min((double)Hs, lockLeft);
                 tOut += st; tIn += st; lockLeft -= st;
-                mapOut.push_back(tOut); mapIn.push_back(tIn); tr.push_back(0);
-                while (next < transients.size() && transients[next] <= tIn) ++next; // swallowed by lock
+                mapOut.push_back(tOut); mapIn.push_back(tIn); trAt.push_back(0);
+                while (next < transients.size() && transients[next] <= tIn) ++next;
                 continue;
             }
             const double target = tOut / ratio;
             double stepIn = Hs / ratio;
             if (tOut > 0) stepIn += std::clamp((target - tIn) * 0.15, -0.5 * Hs / ratio, 0.5 * Hs / ratio);
             if (p.transientLock && next < transients.size() && transients[next] > tIn && transients[next] <= tIn + stepIn) {
-                // knot exactly at the attack
                 const double T = (double)transients[next++];
                 const double frac = (T - tIn) / stepIn;
                 tOut += frac * Hs; tIn = T;
-                mapOut.push_back(tOut); mapIn.push_back(tIn); tr.push_back(1);
+                mapOut.push_back(tOut); mapIn.push_back(tIn); trAt.push_back(1);
                 if (stretching) lockLeft = lockLen;
                 continue;
             }
             tOut += Hs; tIn += stepIn;
-            mapOut.push_back(tOut); mapIn.push_back(tIn); tr.push_back(0);
+            mapOut.push_back(tOut); mapIn.push_back(tIn); trAt.push_back(0);
         }
+    }
+
+    const std::vector<std::vector<float>>* input = nullptr;
+    double sr = 44100; int C = 0, scale = 1; long inLen = 0, outLen = 0, pos = 0;
+    Params p; double pitch = 1, fform = 1; bool extreme = false;
+    std::vector<long> transients;
+};
+
+// -----------------------------------------------------------------------------
+//  Offline-Renderer auf Basis des Streams (komplettes Ergebnis im Speicher).
+// -----------------------------------------------------------------------------
+class OfflineStretcher {
+public:
+    std::vector<long> transients;
+    std::vector<std::vector<float>> process(const std::vector<std::vector<float>>& input,
+                                            double sampleRate, const Params& p,
+                                            std::function<bool(float)> progress = {}) {
+        StretchStream st; st.setInput(&input, sampleRate); st.start(p, 0);
+        transients = st.getTransients();
+        const int C = st.channels();
+        const long L = st.outputLength();
+        std::vector<std::vector<float>> out(C, std::vector<float>(std::max(0L, L), 0.f));
+        std::vector<float*> ptr(C);
+        long done = 0;
+        while (done < L) {
+            for (int c = 0; c < C; ++c) ptr[c] = out[c].data() + done;
+            const int got = st.pull(ptr.data(), StretchStream::maxPull);
+            if (got <= 0) break;
+            done += got;
+            if (progress && !progress((float)done / (float)L)) break;
+        }
+        return out;
     }
 };
 
