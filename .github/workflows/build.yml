@@ -44,6 +44,12 @@ jobs:
           set -o pipefail
           cmake --build build --config Release --parallel 2>&1 | tee build.log
 
+      - name: Build-Fehler anzeigen (Pull Requests)
+        if: failure() && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          grep -E "error|fatal" build.log | grep -v "warning" | sed 's/\r//' | sort -u | head -60 | while IFS= read -r l; do echo "::error::$l"; done
+
       - name: Build-Fehler auf Branch "build-log" ablegen
         if: failure() && github.ref == 'refs/heads/main'
         shell: bash
