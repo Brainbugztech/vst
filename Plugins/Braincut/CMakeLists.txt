@@ -14,6 +14,13 @@ juce_add_plugin(BrainbugzBraincut
     VST3_CATEGORIES Fx
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
+# Hintergrundbild nur für dieses Plugin (nicht in den gemeinsamen Assets)
+juce_add_binary_data(BraincutAssets
+    HEADER_NAME BraincutAssets.h
+    NAMESPACE BCAssets
+    SOURCES Assets/braincut_bg.jpg)
+set_target_properties(BraincutAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 target_sources(BrainbugzBraincut PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp)
@@ -28,6 +35,7 @@ target_compile_definitions(BrainbugzBraincut PUBLIC
 target_link_libraries(BrainbugzBraincut
     PRIVATE
         BrainBugzShared
+        BraincutAssets
         juce::juce_audio_processors
     PUBLIC
         juce::juce_recommended_config_flags

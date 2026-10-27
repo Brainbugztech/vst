@@ -89,7 +89,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        juce::ColourGradient bgGrad (juce::Colour (0xff130c1f).withAlpha (0.92f), 0, r.getY(), juce::Colour (0xff0a0612).withAlpha (0.92f), 0, r.getBottom(), false);
+        juce::ColourGradient bgGrad (juce::Colour (0xff130c1f).withAlpha (0.66f), 0, r.getY(), juce::Colour (0xff0a0612).withAlpha (0.74f), 0, r.getBottom(), false);
         g.setGradientFill (bgGrad);
         g.fillRoundedRectangle (r, 14.0f);
         g.setColour (juce::Colours::white.withAlpha (0.08f));

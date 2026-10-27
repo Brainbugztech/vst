@@ -4,6 +4,7 @@
 #include <functional>
 #include "PluginProcessor.h"
 #include "BrainBugzLook.h"
+#include "BraincutAssets.h"
 #include "ui/Look.h"
 #include "ui/Widgets.h"
 
@@ -16,7 +17,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    static constexpr int baseW = 960, baseH = 600;
+    static constexpr int baseW = 960, baseH = 640;
 
 private:
     // Alle Bedienelemente liegen in einer Fläche mit fester Größe, die beim Skalieren des Fensters mitgezoomt wird
@@ -36,7 +37,7 @@ private:
     BraincutProcessor& proc;
     bcui::Look lnf;
     Content content;
-    juce::Image logo, fx;
+    juce::Image bg, fx;
     double timeSec = 0.0, lastMs = 0.0;
 
     bcui::SliceView sliceView;
