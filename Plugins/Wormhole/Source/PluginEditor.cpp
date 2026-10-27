@@ -203,9 +203,9 @@ void WaveView::paint (juce::Graphics& g)
 
     if (live)
     {
-        caps (g, u8 ("LIVE  ·  PITCH UND FORMANT LAUFEN IN ECHTZEIT AUF DER SPUR"), r.withTrimmedBottom (14), 9.5f, col::dim);
+        caps (g, u8 ("LIVE  \xc2\xb7  PITCH UND FORMANT LAUFEN IN ECHTZEIT AUF DER SPUR"), r.withTrimmedBottom (14), 9.5f, col::dim);
         const double ms = proc.getLatencySamples() / juce::jmax (1.0, proc.getPreparedRate()) * 1000.0;
-        caps (g, "LATENZ " + juce::String (juce::roundToInt (ms)) + u8 (" MS  ·  TEMPO NUR IM RENDER-MODUS"), r.withTrimmedTop (26), 8.5f, col::faint);
+        caps (g, "LATENZ " + juce::String (juce::roundToInt (ms)) + u8 (" MS  \xc2\xb7  TEMPO NUR IM RENDER-MODUS"), r.withTrimmedTop (26), 8.5f, col::faint);
         return;
     }
     if (capturing)
@@ -215,13 +215,13 @@ void WaveView::paint (juce::Graphics& g)
         const float pulse = 0.6f + 0.4f * std::sin ((float) juce::Time::getMillisecondCounter() * 0.006f);
         g.setColour (juce::Colour (0xffff3d6e).withAlpha (pulse));
         g.fillEllipse (r.getCentreX() - 120.0f, mid - 4.0f, 8.0f, 8.0f);
-        caps (g, u8 ("AUFNAHME LÄUFT  ·  ") + fmtTime (t) + u8 ("  ·  PLAY IN ABLETON DRÜCKEN"), r.withTrimmedLeft (20), 9.5f, col::ink);
+        caps (g, u8 ("AUFNAHME L\xc3\x84UFT  \xc2\xb7  ") + fmtTime (t) + u8 ("  \xc2\xb7  PLAY IN ABLETON DR\xc3\x9c" "CKEN"), r.withTrimmedLeft (20), 9.5f, col::ink);
         return;
     }
     if (clip == nullptr)
     {
         caps (g, "AUDIO HIERHER ZIEHEN", r.withTrimmedBottom (16), 11.0f, col::ink.withAlpha (0.8f), juce::Justification::centred, 0.32f);
-        caps (g, u8 ("WAV · AIFF · FLAC · MP3   ODER DIREKT VON DER SPUR AUFNEHMEN"), r.withTrimmedTop (24), 8.5f, col::faint);
+        caps (g, u8 ("WAV \xc2\xb7 AIFF \xc2\xb7 FLAC \xc2\xb7 MP3   ODER DIREKT VON DER SPUR AUFNEHMEN"), r.withTrimmedTop (24), 8.5f, col::faint);
         return;
     }
 
@@ -266,8 +266,8 @@ void WaveView::paint (juce::Graphics& g)
     g.fillRect (x0 + wOut, 10.0f, 1.0f, r.getHeight() - 34.0f);
     caps (g, haveRes && ! stale ? "ENDE NEU" : "VORSCHAU", { x0 + wOut + 6.0f, 6.0f, 90.0f, 14.0f }, 8.5f,
           juce::Colours::white.withAlpha (0.35f), juce::Justification::centredLeft, 0.1f);
-    if (stale) caps (g, u8 ("EINSTELLUNG GEÄNDERT  ·  NEU RENDERN"), { x0, 6.0f, 300.0f, 14.0f }, 8.5f, col::cyan.withAlpha (0.7f), juce::Justification::centredLeft, 0.14f);
-    caps (g, canDragOut ? u8 ("CLIP  ·  ZUM ZIEHEN ANFASSEN") : "CLIP", { x0, r.getHeight() - 20.0f, 300.0f, 14.0f }, 8.5f,
+    if (stale) caps (g, u8 ("EINSTELLUNG GE\xc3\x84NDERT  \xc2\xb7  NEU RENDERN"), { x0, 6.0f, 300.0f, 14.0f }, 8.5f, col::cyan.withAlpha (0.7f), juce::Justification::centredLeft, 0.14f);
+    caps (g, canDragOut ? u8 ("CLIP  \xc2\xb7  ZUM ZIEHEN ANFASSEN") : "CLIP", { x0, r.getHeight() - 20.0f, 300.0f, 14.0f }, 8.5f,
           col::dim, juce::Justification::centredLeft, 0.1f);
 
     if (progress >= 0.0f)

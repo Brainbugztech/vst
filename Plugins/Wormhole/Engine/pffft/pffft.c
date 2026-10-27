@@ -72,6 +72,9 @@
 #include <stdio.h>
 #include <math.h>
 #include <assert.h>
+#if defined(_MSC_VER)
+#  include <malloc.h>
+#endif
 
 #if defined(COMPILER_GCC)
 #  define ALWAYS_INLINE(return_type) inline return_type __attribute__ ((always_inline))

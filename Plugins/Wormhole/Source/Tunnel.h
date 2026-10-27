@@ -6,6 +6,7 @@
 // Beim Rendern läuft der Scan schneller und der Schlund leuchtet mit dem Fortschritt.
 
 #include "WormholeLook.h"
+#include <array>
 
 namespace whl
 {
@@ -22,7 +23,7 @@ public:
 
     // Design-Koordinaten (960 x 600 Fläche)
     juce::Point<float> centre { 480.0f, 150.0f };
-    std::array<juce::Point<float>, 2> calmSpots { juce::Point<float> { 165.0f, 250.0f }, { 795.0f, 250.0f } };
+    std::array<juce::Point<float>, 2> calmSpots {{ juce::Point<float> (165.0f, 250.0f), juce::Point<float> (795.0f, 250.0f) }};
 
     void setTargets (double timeRatio, double pitchSemis)
     {
