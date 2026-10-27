@@ -1741,7 +1741,13 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
     {
         // das Logo hat einen transparenten Glow-Rand: etwas größer zeichnen, damit die Schrift die Fläche füllt
         const auto la = logoArea.expanded (10, 8);
-        g.drawImageWithin (logo, la.getX(), la.getY(), la.getWidth(), la.getHeight(),
+        // Schrittweise halbieren (Mip-Kette), damit die Kanten beim Verkleinern glatt bleiben und nicht pixeln
+        auto logoSmall = logo;
+        const int targetW = roundToInt ((float) la.getWidth() * scale);
+        while (logoSmall.getWidth() >= targetW * 2 && logoSmall.getWidth() > 64)
+            logoSmall = logoSmall.rescaled (logoSmall.getWidth() / 2, logoSmall.getHeight() / 2, Graphics::highResamplingQuality);
+        g.setImageResamplingQuality (Graphics::highResamplingQuality);
+        g.drawImageWithin (logoSmall, la.getX(), la.getY(), la.getWidth(), la.getHeight(),
                            RectanglePlacement::centred | RectanglePlacement::onlyReduceInSize);
     }
 
