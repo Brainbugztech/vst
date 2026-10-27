@@ -17,19 +17,31 @@ namespace Col
     inline const juce::Colour ink        { 0xffe2f5ff };
     inline const juce::Colour muted      { 0xff7ea6c6 };
     inline const juce::Colour dim        { 0xff4a6984 };
-    inline const juce::Colour tox        { 0xffb6ff1f };
-    inline const juce::Colour toxInk     { 0xff0b1200 };
-    inline const juce::Colour pink       { 0xffff2f8e };
+    inline const juce::Colour lit        { 0xffbfe8ff }; // beleuchtetes Glas: Note in der Tonart, Wert bleibt
+    inline const juce::Colour litInk     { 0xff061420 }; // Schrift auf beleuchtetem Glas
+    inline const juce::Colour pink       { 0xffe65ccf }; // Magenta (MAP, Hinweise)
     inline const juce::Colour amber      { 0xffffaa28 };
     inline const juce::Colour cyan       { 0xff2fe6ff };
     inline const juce::Colour violet     { 0xff9b5cff };
 
+    inline const juce::Colour crystal    { 0xffeaf7ff }; // eisweißes Licht
+    inline const juce::Colour fringeWarm { 0xffff6a5c }; // Farbsaum (Prisma) warm
+    inline const juce::Colour fringeCool { 0xff5c8dff }; // Farbsaum (Prisma) kalt
+
+    // Spektralfarbe 0..1 (rot -> violett), leuchtend aber nicht grell
+    inline juce::Colour prismHue (float t, float alpha = 1.0f)
+    {
+        const float hue = juce::jlimit (0.0f, 1.0f, t) * 0.78f; // rot bis violett
+        return juce::Colour::fromHSV (hue, 0.62f, 1.0f, alpha);
+    }
+    // jede der 12 Noten hat ihre Spektralfarbe (C = rot ... B = violett)
+    inline juce::Colour noteHue (int pc, float alpha = 1.0f) { return prismHue ((float) pc / 11.0f, alpha); }
+
     inline juce::ColourGradient spectrum (float x1, float y, float x2, float alpha = 1.0f)
     {
-        juce::ColourGradient g (pink.withAlpha (alpha), x1, y, violet.withAlpha (alpha), x2, y, false);
-        g.addColour (0.25, amber.withAlpha (alpha));
-        g.addColour (0.5, tox.withAlpha (alpha));
-        g.addColour (0.75, cyan.withAlpha (alpha));
+        juce::ColourGradient g (prismHue (0.0f, alpha), x1, y, prismHue (1.0f, alpha), x2, y, false);
+        for (int i = 1; i < 6; ++i)
+            g.addColour ((double) i / 6.0, prismHue ((float) i / 6.0f, alpha));
         return g;
     }
 }
@@ -58,6 +70,66 @@ namespace holo
         g.setColour (Col::holo.withAlpha ((hot ? 0.95f : 0.55f) * alpha));
         g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
         cornerBrackets (g, r.reduced (0.5f), 5.0f, Col::holoBright.withAlpha ((hot ? 1.0f : 0.75f) * alpha), 1.4f);
+    }
+}
+
+namespace holo
+{
+    // Glas-Kachel (Tasten oben, Ausgänge der Pitch Matrix).
+    // tint: Farbe des Lichts im Glas, lit 0..1: wie hell es leuchtet, fill 0..1: Füllhöhe (Gewichtung),
+    // glow 0..1 + glowColour: diffuses farbiges Aufleuchten (z. B. wenn die Note gerade reinkommt).
+    inline void glassTile (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour tint, float lit, float glow, juce::Colour glowColour,
+                           float fill = 1.0f, float corner = 4.0f)
+    {
+        using namespace juce;
+        // Rauchglas
+        ColourGradient base (Col::glass.withAlpha (0.55f), 0.0f, r.getY(), Col::glassDeep.withAlpha (0.80f), 0.0f, r.getBottom(), false);
+        g.setGradientFill (base);
+        g.fillRoundedRectangle (r, corner);
+
+        Graphics::ScopedSaveState s (g);
+        Path shape;
+        shape.addRoundedRectangle (r, corner);
+        g.reduceClipRegion (shape);
+
+        // Licht im Glas, von unten bis zur Füllhöhe
+        if (lit > 0.001f)
+        {
+            const auto light = r.withTop (r.getBottom() - r.getHeight() * jlimit (0.05f, 1.0f, fill));
+            ColourGradient l (tint.withAlpha (0.05f + 0.22f * lit), 0.0f, light.getY(), tint.withAlpha (0.18f + 0.50f * lit), 0.0f, light.getBottom(), false);
+            g.setGradientFill (l);
+            g.fillRect (light);
+            if (fill < 0.995f) // Lichtkante der Füllhöhe
+            {
+                g.setColour (tint.withAlpha (0.8f));
+                g.fillRect (light.getX(), light.getY(), light.getWidth(), 1.2f);
+            }
+            g.setColour (tint.withAlpha (0.22f * lit)); // innerer Lichtschein am Rand (Glasdicke)
+            g.drawRoundedRectangle (r.reduced (2.5f), corner - 1.5f, 2.0f);
+        }
+
+        // diffuses farbiges Aufleuchten von unten
+        if (glow > 0.01f)
+        {
+            const float cx = r.getCentreX(), cy = r.getBottom() + r.getHeight() * 0.1f;
+            ColourGradient d (glowColour.withAlpha (0.65f * glow), cx, cy, glowColour.withAlpha (0.0f), cx + r.getWidth() * 0.95f, cy, true);
+            d.addColour (0.45, glowColour.withAlpha (0.25f * glow));
+            g.setGradientFill (d);
+            g.fillRect (r);
+        }
+
+        // Spiegelung oben
+        ColourGradient spec (juce::Colours::white.withAlpha (0.16f + 0.10f * lit), 0.0f, r.getY(), juce::Colours::white.withAlpha (0.0f), 0.0f, r.getY() + r.getHeight() * 0.45f, false);
+        g.setGradientFill (spec);
+        g.fillRect (r.withHeight (r.getHeight() * 0.45f));
+        g.setColour (juce::Colours::white.withAlpha (0.35f + 0.3f * lit));
+        g.fillRoundedRectangle (r.getX() + corner, r.getY() + 1.2f, r.getWidth() - 2.0f * corner, 1.0f, 0.5f);
+
+        // Kanten: Glasdicke innen dunkel, außen Licht, links/rechts feiner Farbsaum
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.drawRoundedRectangle (r.reduced (1.5f), corner - 1.0f, 1.0f);
+        g.setColour (tint.interpolatedWith (juce::Colours::white, 0.4f).withAlpha (0.30f + 0.55f * lit));
+        g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
     }
 }
 
@@ -103,7 +175,6 @@ public:
         const auto c = bounds.getCentre();
         const float valueAngle = startAngle + pos * (endAngle - startAngle);
         const bool hasOverdrive = (bool) slider.getProperties().getWithDefault ("overdrive", false);
-        const float splitAngle = startAngle + 0.5f * (endAngle - startAngle);
         const bool hot = slider.isMouseOverOrDragging();
 
         // --- holo highlight: thin value ring around the knob ---------------------
@@ -115,28 +186,40 @@ public:
         g.setColour (Col::holoDim.withAlpha (0.55f));
         g.strokePath (track, PathStrokeType (1.2f, PathStrokeType::curved, PathStrokeType::rounded));
 
-        auto glowArc = [&] (float from, float to, Colour col)
+        // Über 100 % (Color): kein Farbwechsel, sondern mehr Leuchten und ein weiß-heißer Kern
+        const float over = hasOverdrive ? jlimit (0.0f, 1.0f, (pos - 0.5f) * 2.0f) : 0.0f;
+        // Leuchten außen um den Regler, wird mit der Stellung stärker
         {
-            if (to <= from + 0.0005f)
-                return;
-            Path p;
-            p.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, from, to, true);
-            g.setColour (col.withAlpha (hot ? 0.20f : 0.12f));
-            g.strokePath (p, PathStrokeType (9.0f, PathStrokeType::curved, PathStrokeType::rounded));
-            g.setColour (col.withAlpha (hot ? 0.40f : 0.28f));
-            g.strokePath (p, PathStrokeType (4.5f, PathStrokeType::curved, PathStrokeType::rounded));
-            g.setColour (col.brighter (0.2f));
-            g.strokePath (p, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        };
-        if (hasOverdrive)
-        {
-            glowArc (startAngle, jmin (valueAngle, splitAngle), Col::tox);
-            glowArc (splitAngle, valueAngle, Col::pink);
+            const float R = ringR + 14.0f;
+            const float amt = 0.10f + 0.70f * pos;
+            const auto col = Col::holo.interpolatedWith (Col::violet, 0.35f * pos);
+            ColourGradient halo (col.withAlpha (0.0f), c.x, c.y, col.withAlpha (0.0f), c.x + R, c.y, true);
+            halo.addColour ((ringR - 3.0f) / R, col.withAlpha (0.0f));
+            halo.addColour ((ringR + 1.0f) / R, col.withAlpha (0.22f * amt));
+            g.setGradientFill (halo);
+            g.fillEllipse (Rectangle<float> (R * 2.0f, R * 2.0f).withCentre (c));
         }
-        else
+        // Über 100 %: ein feiner Holo-Nebel außenrum (kühle Neonfarben, langsam wabernd).
+        // Läuft radial genau bis zum Rand der Komponente aus, damit nichts eckig abgeschnitten wird.
+        if (over > 0.01f)
         {
-            glowArc (startAngle, valueAngle, Col::tox);
+            const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001);
+            const float lim = jmin ((float) slider.getWidth(), (float) slider.getHeight()) * 0.5f - 1.0f;
+            const Colour mist[] { Colour (0xff00e5ff), Colour (0xff8a5cff), Colour (0xff3affc8), Colour (0xffff4fd8) };
+            for (int i = 0; i < 4; ++i)
+            {
+                const float a = tm * (0.28f + 0.07f * (float) i) + (float) i * 1.7f;
+                const auto o = Point<float> (std::cos (a), std::sin (a)) * 3.5f; // Schwerpunkt wandert -> Farbe wandert um den Regler
+                const auto ctr = c + o;
+                const float r1 = jmax (ringR + 1.0f, lim - 4.0f);
+                ColourGradient fog (mist[i].withAlpha (0.0f), ctr.x, ctr.y, mist[i].withAlpha (0.0f), ctr.x + r1, ctr.y, true);
+                fog.addColour (jlimit (0.0f, 0.99f, (ringR - 3.0f) / r1), mist[i].withAlpha (0.0f));
+                fog.addColour (jlimit (0.0f, 0.99f, (ringR + 2.0f) / r1), mist[i].withAlpha (0.20f * over));
+                g.setGradientFill (fog);
+                g.fillEllipse (Rectangle<float> (r1 * 2.0f, r1 * 2.0f).withCentre (ctr));
+            }
         }
+        drawCrystalArc (g, c, ringR, startAngle, endAngle, valueAngle, hot, over, 2.0f, pos);
 
         drawModRing (g, c, ringR, startAngle, endAngle, slider);
 
@@ -175,60 +258,72 @@ public:
         g.setColour (juce::Colours::black.withAlpha (0.8f));
         g.drawEllipse (skirt, 1.0f);
 
-        // bevel between skirt and cap
-        ColourGradient bevel (Colour (0xff6a7480), c.x - capR, c.y - capR, Colour (0xff050608), c.x + capR * 0.6f, c.y + capR, false);
+        // Fassung zwischen Rändel und Glas
+        ColourGradient bevel (Colour (0xff7a8590), c.x - capR, c.y - capR, Colour (0xff050608), c.x + capR * 0.6f, c.y + capR, false);
         g.setGradientFill (bevel);
-        g.fillEllipse (cap.expanded (1.6f));
+        g.fillEllipse (cap.expanded (1.8f));
 
-        // brushed cap: conic sheen (two highlights opposite each other)
-        g.setColour (Colour (0xff1a1f24));
-        g.fillEllipse (cap);
-        const int wedges = 90;
-        for (int i = 0; i < wedges; ++i)
+        // Glaslinse: dunkles Rauchglas. Je weiter aufgedreht, desto mehr leuchtet das Glas innen
+        // diffus und farbig auf (kühl -> violett, ganz oben kommt Wärme dazu), Color über 100 % noch heller.
         {
-            const float a0 = MathConstants<float>::twoPi * (float) i / (float) wedges;
-            const float a1 = MathConstants<float>::twoPi * (float) (i + 1) / (float) wedges;
-            const float sheen = std::pow (std::abs (std::cos ((a0 + a1) * 0.5f + 0.75f)), 6.0f);
-            Path w;
-            w.addPieSegment (cap, a0, a1 + 0.004f, 0.0f);
-            g.setColour (Colour (0xff1a1f24).interpolatedWith (Colour (0xff5f6a74), sheen * 0.9f));
-            g.fillPath (w);
-        }
-        // fine circular brushing
-        for (float rr = capR * 0.15f; rr < capR; rr += 1.6f)
-        {
-            g.setColour ((((int) (rr * 3.0f)) % 2 == 0 ? juce::Colours::white : juce::Colours::black).withAlpha (0.035f));
-            g.drawEllipse (Rectangle<float> (rr * 2.0f, rr * 2.0f).withCentre (c), 0.8f);
-        }
-        // depth + wet gloss
-        ColourGradient depth (juce::Colours::transparentBlack, c.x, c.y - capR * 0.2f, juce::Colours::black.withAlpha (0.45f), c.x, c.y + capR * 1.2f, true);
-        g.setGradientFill (depth);
-        g.fillEllipse (cap);
-        ColourGradient gloss (juce::Colours::white.withAlpha (0.22f), c.x - capR * 0.35f, c.y - capR * 0.55f,
-                              juce::Colours::white.withAlpha (0.0f), c.x - capR * 0.35f, c.y + capR * 0.1f, true);
-        g.setGradientFill (gloss);
-        g.fillEllipse (cap.reduced (capR * 0.12f).translated (-capR * 0.12f, -capR * 0.2f).withHeight (capR * 0.9f));
-        g.setColour (juce::Colours::black.withAlpha (0.7f));
-        g.drawEllipse (cap, 0.8f);
+            ColourGradient lens (Colour (0xff0e2133), c.x - capR * 0.2f, c.y - capR * 0.3f, Colour (0xff03070c), c.x + capR, c.y + capR, true);
+            g.setGradientFill (lens);
+            g.fillEllipse (cap);
 
-        // tiny water drops on the cap
-        auto drop = [&] (float ax, float ay, float rr)
+            Graphics::ScopedSaveState clip (g);
+            Path lensPath;
+            lensPath.addEllipse (cap);
+            g.reduceClipRegion (lensPath);
+
+            const float amt = jlimit (0.0f, 1.0f, 0.20f + 0.80f * pos);
+            const float neon = jlimit (0.0f, 1.0f, (pos - 0.55f) / 0.45f); // voll aufgedreht: greller, neonartiger
+            const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001) + (float) (reinterpret_cast<std::uintptr_t> (&slider) % 97) * 0.37f;
+            // Das Licht im Glas dreht sich nicht mit dem Poti: die Lichter wabern unabhängig und die Farben mischen
+            // sich dynamisch durcheinander. Die Stellung ändert nur die Lichtintensität.
+            const Colour pal[] { Colour (0xff10e8ff), Colour (0xffa060ff), Colour (0xff30ffc0), Colour (0xffff50d0), Colour (0xffffc040) };
+            const float k = 1.0f + 0.6f * neon;
+            for (int i = 0; i < 5; ++i)
+            {
+                const float fi = (float) i;
+                const float ax = tm * (0.21f + 0.06f * fi) + fi * 1.9f;
+                const float ay = tm * (0.17f + 0.05f * fi) + fi * 2.7f;
+                const auto pt = Point<float> (c.x + capR * 0.50f * std::sin (ax) * std::cos (ay * 0.7f),
+                                              c.y + capR * 0.50f * std::sin (ay));
+                const float mixAmt = 0.5f + 0.5f * std::sin (tm * 0.45f + fi * 1.3f);
+                const auto col = pal[i].interpolatedWith (pal[(i + 2) % 5], mixAmt);
+                const float alpha = (0.55f - 0.04f * fi) * amt * k;
+                const float size = 1.0f - 0.03f * fi;
+                ColourGradient glow (col.withAlpha (alpha), pt.x, pt.y, col.withAlpha (0.0f), pt.x + capR * size, pt.y, true);
+                g.setGradientFill (glow);
+                g.fillEllipse (Rectangle<float> (capR * size * 2.0f, capR * size * 2.0f).withCentre (pt));
+            }
+            if (neon > 0.0f) // heller Neonkern, wabert leicht in der Mitte
+            {
+                const auto pt = Point<float> (c.x + capR * 0.10f * std::sin (tm * 0.6f), c.y + capR * 0.10f * std::cos (tm * 0.5f));
+                ColourGradient core (Colour (0xffd0f8ff).withAlpha (0.35f * neon), pt.x, pt.y, Colour (0xffd0f8ff).withAlpha (0.0f), pt.x + capR * 0.7f, pt.y, true);
+                g.setGradientFill (core);
+                g.fillEllipse (Rectangle<float> (capR * 1.4f, capR * 1.4f).withCentre (pt));
+            }
+
+            // Spiegelung oben links und feine Lichtkante
+            ColourGradient gloss (juce::Colours::white.withAlpha (0.20f), c.x - capR * 0.35f, c.y - capR * 0.6f,
+                                  juce::Colours::white.withAlpha (0.0f), c.x - capR * 0.35f, c.y + capR * 0.05f, true);
+            g.setGradientFill (gloss);
+            g.fillEllipse (cap.reduced (capR * 0.14f).translated (-capR * 0.12f, -capR * 0.24f).withHeight (capR * 0.85f));
+        }
         {
-            const Point<float> p (c.x + ax * capR, c.y + ay * capR);
-            g.setColour (juce::Colours::black.withAlpha (0.35f));
-            g.fillEllipse (Rectangle<float> (rr * 2.0f, rr * 2.0f).withCentre (p.translated (0.4f, 0.6f)));
-            g.setColour (Colour (0xff3a444d).withAlpha (0.9f));
-            g.fillEllipse (Rectangle<float> (rr * 2.0f, rr * 2.0f).withCentre (p));
-            g.setColour (juce::Colours::white.withAlpha (0.75f));
-            g.fillEllipse (Rectangle<float> (rr * 0.8f, rr * 0.8f).withCentre (p.translated (-rr * 0.35f, -rr * 0.35f)));
-        };
-        drop (0.42f, 0.38f, 1.7f);
-        drop (-0.30f, 0.52f, 1.2f);
+            Path rim;
+            rim.addCentredArc (c.x, c.y, capR - 0.8f, capR - 0.8f, 0.0f, -2.4f, -0.5f, true);
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.strokePath (rim, PathStrokeType (1.0f, PathStrokeType::curved, PathStrokeType::rounded));
+            g.setColour (juce::Colours::black.withAlpha (0.8f));
+            g.drawEllipse (cap, 0.9f);
+        }
 
         // --- holo highlight: glowing indicator in a machined groove --------------
         const auto tip = c.getPointOnCircumference (capR * 0.86f, valueAngle);
         const auto inner = c.getPointOnCircumference (capR * 0.30f, valueAngle);
-        const auto pc = (hasOverdrive && valueAngle > splitAngle) ? Col::pink : Col::holoBright;
+        const auto pc = Col::holoBright.interpolatedWith (Col::crystal, over);
         g.setColour (juce::Colours::black.withAlpha (0.75f));
         g.drawLine ({ inner, tip }, 4.0f);
         g.setColour (pc.withAlpha (hot ? 0.40f : 0.25f));
@@ -240,6 +335,47 @@ public:
         g.fillEllipse (Rectangle<float> (7.0f, 7.0f).withCentre (edgeDot));
         g.setColour (pc);
         g.fillEllipse (Rectangle<float> (3.0f, 3.0f).withCentre (edgeDot));
+    }
+
+    // Wertebogen aus Licht: wird zur Spitze hin heller. over (0..1) verstärkt Leuchten und Kern (Color über 100 %).
+    // disperse (0..1, = Reglerwert): je weiter aufgedreht, desto stärker leuchtet der Bogen.
+    static void drawCrystalArc (juce::Graphics& g, juce::Point<float> c, float r, float start, float end, float value, bool hot, float over,
+                                float width = 2.0f, float disperse = 0.0f)
+    {
+        using namespace juce;
+        if (value <= start + 0.0005f)
+            return;
+        const float span = end - start;
+        // Halo
+        {
+            Path p;
+            p.addCentredArc (c.x, c.y, r, r, 0.0f, start, value, true);
+            const float glow = 0.5f + 0.7f * disperse; // mit dem Wert heller
+            g.setColour (Col::holo.withAlpha (((hot ? 0.14f : 0.09f) + 0.10f * over) * glow));
+            g.strokePath (p, PathStrokeType (width * 4.5f + 3.0f * disperse + 6.0f * over, PathStrokeType::curved, PathStrokeType::rounded));
+            g.setColour (Col::holo.withAlpha (((hot ? 0.28f : 0.20f) + 0.15f * over) * glow));
+            g.strokePath (p, PathStrokeType (width * 2.2f + 2.0f * over, PathStrokeType::curved, PathStrokeType::rounded));
+        }
+        const int n = jmax (2, (int) ((value - start) / 0.04f));
+        // Kern: Verlauf von gedämpftem Blau zu eisweiß
+        for (int i = 0; i < n; ++i)
+        {
+            const float a0 = start + (value - start) * (float) i / (float) n;
+            const float a1 = start + (value - start) * (float) (i + 1) / (float) n + 0.004f;
+            const float t = ((a0 + a1) * 0.5f - start) / span;
+            Path seg;
+            seg.addCentredArc (c.x, c.y, r, r, 0.0f, a0, jmin (a1, value), true);
+            g.setColour (Col::holo.interpolatedWith (Col::crystal, jlimit (0.0f, 1.0f, 0.25f + t * 0.9f)));
+            g.strokePath (seg, PathStrokeType (width, PathStrokeType::curved, PathStrokeType::butt));
+        }
+        // Lichtpunkt an der Spitze, über 100 % mit Blüte
+        const auto tip = c.getPointOnCircumference (r, value);
+        const float bloom = 6.0f + 10.0f * over + (hot ? 2.0f : 0.0f);
+        ColourGradient glow (Col::crystal.withAlpha (0.55f + 0.35f * over), tip.x, tip.y, Col::holo.withAlpha (0.0f), tip.x + bloom, tip.y, true);
+        g.setGradientFill (glow);
+        g.fillEllipse (Rectangle<float> (bloom * 2.0f, bloom * 2.0f).withCentre (tip));
+        g.setColour (juce::Colours::white);
+        g.fillEllipse (Rectangle<float> (2.6f + 1.4f * over, 2.6f + 1.4f * over).withCentre (tip));
     }
 
     // Beim Ziehen einer Modulationsquelle leuchtet der Regler als Ziel auf.
@@ -276,12 +412,7 @@ public:
         track.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, startAngle, endAngle, true);
         g.setColour (juce::Colours::black.withAlpha (0.6f));
         g.strokePath (track, PathStrokeType (3.5f, PathStrokeType::curved, PathStrokeType::rounded));
-        Path val;
-        val.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, startAngle, valueAngle, true);
-        g.setColour (Col::tox.withAlpha (hot ? 0.35f : 0.2f));
-        g.strokePath (val, PathStrokeType (5.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        g.setColour (Col::tox);
-        g.strokePath (val, PathStrokeType (1.8f, PathStrokeType::curved, PathStrokeType::rounded));
+        drawCrystalArc (g, c, ringR, startAngle, endAngle, valueAngle, hot, 0.0f, 1.6f, pos);
         const float capR = ringR - 5.0f;
         const auto cap = Rectangle<float> (capR * 2.0f, capR * 2.0f).withCentre (c);
         ColourGradient fill (Colour (0xff4a545e), c.x - capR, c.y - capR, Colour (0xff07090b), c.x + capR * 0.6f, c.y + capR, false);
@@ -386,16 +517,23 @@ public:
         const auto r = b.getLocalBounds().toFloat().reduced (0.5f);
         if (b.getToggleState())
         {
+            // an: beleuchtetes Glas mit Spektrum-Linie unten (statt Farbfläche)
             for (int i = 3; i >= 1; --i)
             {
-                g.setColour (Col::pink.withAlpha (0.10f / (float) i));
-                g.fillRoundedRectangle (r.expanded ((float) i * 2.5f), 3.0f + (float) i * 2.5f);
+                g.setColour (Col::holo.withAlpha (0.07f / (float) i));
+                g.fillRoundedRectangle (r.expanded ((float) i * 2.0f), 3.0f + (float) i * 2.0f);
             }
-            ColourGradient fill (Col::pink.brighter (0.15f), 0.0f, r.getY(), Col::pink.darker (0.35f), 0.0f, r.getBottom(), false);
+            ColourGradient fill (Col::holo.withAlpha (0.42f), 0.0f, r.getY(), Col::glassDeep.withAlpha (0.92f), 0.0f, r.getBottom(), false);
             g.setGradientFill (fill);
             g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (Col::crystal.withAlpha (over || down ? 1.0f : 0.85f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.2f);
             g.setColour (juce::Colours::white.withAlpha (0.35f));
             g.drawHorizontalLine ((int) r.getY() + 1, r.getX() + 3.0f, r.getRight() - 3.0f);
+            const float lineY = r.getBottom() - 3.0f;
+            g.setGradientFill (Col::spectrum (r.getX() + 6.0f, lineY, r.getRight() - 6.0f, 0.95f));
+            g.fillRoundedRectangle (r.getX() + 6.0f, lineY - 0.75f, r.getWidth() - 12.0f, 1.5f, 0.75f);
+            holo::cornerBrackets (g, r.reduced (0.5f), 5.0f, juce::Colours::white, 1.4f);
         }
         else
         {
@@ -418,7 +556,7 @@ public:
         a.setLineSpacing (2.0f);
         const auto title = text.upToFirstOccurrenceOf ("\n", false, false);
         const auto body = text.fromFirstOccurrenceOf ("\n", false, false);
-        a.append (title, bb::fonts::display (14.5f, true).withExtraKerningFactor (0.04f), Col::tox);
+        a.append (title, bb::fonts::display (14.5f, true).withExtraKerningFactor (0.04f), Col::holoBright);
         if (body.isNotEmpty())
             a.append ("\n" + body, bb::fonts::display (14.0f), Col::ink);
         juce::TextLayout layout;
