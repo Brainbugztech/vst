@@ -199,25 +199,25 @@ public:
             g.setGradientFill (halo);
             g.fillEllipse (Rectangle<float> (R * 2.0f, R * 2.0f).withCentre (c));
         }
-        // Über 100 %: ein feiner Holo-Nebel außenrum (kühle Neonfarben, langsam wabernd)
+        // Über 100 %: ein feiner Holo-Nebel außenrum (kühle Neonfarben, langsam wabernd).
+        // Läuft radial genau bis zum Rand der Komponente aus, damit nichts eckig abgeschnitten wird.
         if (over > 0.01f)
         {
             const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001);
-            const float R = ringR + 16.0f;
+            const float lim = jmin ((float) slider.getWidth(), (float) slider.getHeight()) * 0.5f - 1.0f;
             const Colour mist[] { Colour (0xff00e5ff), Colour (0xff8a5cff), Colour (0xff3affc8), Colour (0xffff4fd8) };
             for (int i = 0; i < 4; ++i)
             {
                 const float a = tm * (0.28f + 0.07f * (float) i) + (float) i * 1.7f;
-                const auto p = c.getPointOnCircumference (ringR + 1.0f + 3.0f * std::sin (a * 1.4f), a);
-                ColourGradient fog (mist[i].withAlpha (0.28f * over), p.x, p.y, mist[i].withAlpha (0.0f), p.x + R * 0.8f, p.y, true);
+                const auto o = Point<float> (std::cos (a), std::sin (a)) * 3.5f; // Schwerpunkt wandert -> Farbe wandert um den Regler
+                const auto ctr = c + o;
+                const float r1 = jmax (ringR + 1.0f, lim - 4.0f);
+                ColourGradient fog (mist[i].withAlpha (0.0f), ctr.x, ctr.y, mist[i].withAlpha (0.0f), ctr.x + r1, ctr.y, true);
+                fog.addColour (jlimit (0.0f, 0.99f, (ringR - 3.0f) / r1), mist[i].withAlpha (0.0f));
+                fog.addColour (jlimit (0.0f, 0.99f, (ringR + 2.0f) / r1), mist[i].withAlpha (0.20f * over));
                 g.setGradientFill (fog);
-                g.fillEllipse (Rectangle<float> (R * 1.6f, R * 1.6f).withCentre (p));
+                g.fillEllipse (Rectangle<float> (r1 * 2.0f, r1 * 2.0f).withCentre (ctr));
             }
-            ColourGradient ring (Col::holoBright.withAlpha (0.0f), c.x, c.y, Col::holoBright.withAlpha (0.0f), c.x + R, c.y, true);
-            ring.addColour ((ringR - 1.0f) / R, Col::holoBright.withAlpha (0.0f));
-            ring.addColour ((ringR + 4.0f) / R, Col::holoBright.withAlpha (0.16f * over));
-            g.setGradientFill (ring);
-            g.fillEllipse (Rectangle<float> (R * 2.0f, R * 2.0f).withCentre (c));
         }
         drawCrystalArc (g, c, ringR, startAngle, endAngle, valueAngle, hot, over, 2.0f, pos);
 
