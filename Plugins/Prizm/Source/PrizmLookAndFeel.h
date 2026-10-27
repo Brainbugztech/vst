@@ -275,45 +275,34 @@ public:
             lensPath.addEllipse (cap);
             g.reduceClipRegion (lensPath);
 
-            // Fenster zu einem Reaktor: je weiter aufgedreht, desto heller und bunter brennt es im Glas.
-            // Das Licht dreht sich nicht mit dem Poti, die Stellung ändert nur Helligkeit und Größe.
-            const float lum = jlimit (0.0f, 1.0f, 0.14f + 0.86f * pos);
+            const float amt = jlimit (0.0f, 1.0f, 0.20f + 0.80f * pos);
             const float neon = jlimit (0.0f, 1.0f, (pos - 0.55f) / 0.45f); // voll aufgedreht: greller, neonartiger
             const float tm = (float) (Time::getMillisecondCounterHiRes() * 0.001) + (float) (reinterpret_cast<std::uintptr_t> (&slider) % 97) * 0.37f;
-            const Colour pal[] { Colour (0xffff2d9a), Colour (0xff00e5ff), Colour (0xffffd400), Colour (0xff8a4dff),
-                                 Colour (0xffff6a00), Colour (0xff2dffb4), Colour (0xff2f7bff), Colour (0xffc6ff00) };
-            constexpr int nLights = 8; // je Licht ein eigener Farbton, kleine Flecken: so bleibt es poppig statt zu verwaschen
-            for (int i = 0; i < nLights; ++i)
+            // Das Licht im Glas dreht sich nicht mit dem Poti: die Lichter wabern unabhängig und die Farben mischen
+            // sich dynamisch durcheinander. Die Stellung ändert nur die Lichtintensität.
+            const Colour pal[] { Colour (0xff10e8ff), Colour (0xffa060ff), Colour (0xff30ffc0), Colour (0xffff50d0), Colour (0xffffc040) };
+            const float k = 1.0f + 0.6f * neon;
+            for (int i = 0; i < 5; ++i)
             {
                 const float fi = (float) i;
-                // zwei ineinander verschachtelte, unterschiedlich schnelle Bahnen: wirkt unregelmäßig
-                const float a1 = tm * (0.19f + 0.043f * fi) + fi * 2.39f;
-                const float a2 = tm * (0.13f + 0.037f * fi) + fi * 1.13f;
-                const float wob = std::sin (tm * 0.31f + fi * 1.7f);
-                const auto pt = Point<float> (c.x + capR * 0.72f * std::sin (a1 + 0.8f * wob) * std::cos (a2 * 0.7f),
-                                              c.y + capR * 0.72f * std::sin (a2 + 0.7f * std::sin (a1)));
-                const float mixAmt = jlimit (0.0f, 1.0f, 0.5f + 0.5f * std::sin (tm * 0.37f + fi * 1.3f) * std::cos (tm * 0.11f + fi));
-                const auto col = pal[i].interpolatedWith (pal[(i + 1) % 8], 0.45f * mixAmt); // nur zum Nachbarton, sonst wird es grau
-                const float pulse = 0.65f + 0.35f * std::sin (tm * (0.45f + 0.11f * fi) + fi * 2.3f);
-                const float alpha = jlimit (0.0f, 1.0f, (0.30f + 0.85f * lum) * pulse * (1.0f + 0.35f * neon));
-                const float size = (0.48f + 0.32f * lum) * (0.9f + 0.2f * pulse);
+                const float ax = tm * (0.21f + 0.06f * fi) + fi * 1.9f;
+                const float ay = tm * (0.17f + 0.05f * fi) + fi * 2.7f;
+                const auto pt = Point<float> (c.x + capR * 0.50f * std::sin (ax) * std::cos (ay * 0.7f),
+                                              c.y + capR * 0.50f * std::sin (ay));
+                const float mixAmt = 0.5f + 0.5f * std::sin (tm * 0.45f + fi * 1.3f);
+                const auto col = pal[i].interpolatedWith (pal[(i + 2) % 5], mixAmt);
+                const float alpha = (0.55f - 0.04f * fi) * amt * k;
+                const float size = 1.0f - 0.03f * fi;
                 ColourGradient glow (col.withAlpha (alpha), pt.x, pt.y, col.withAlpha (0.0f), pt.x + capR * size, pt.y, true);
                 g.setGradientFill (glow);
                 g.fillEllipse (Rectangle<float> (capR * size * 2.0f, capR * size * 2.0f).withCentre (pt));
-                // leuchtender Kern des Flecks: heller, kaum weißlich
-                const auto hotCol = col.brighter (0.30f);
-                ColourGradient spot (hotCol.withAlpha (jlimit (0.0f, 1.0f, alpha * 0.9f)), pt.x, pt.y, hotCol.withAlpha (0.0f), pt.x + capR * size * 0.5f, pt.y, true);
-                g.setGradientFill (spot);
-                g.fillEllipse (Rectangle<float> (capR * size, capR * size).withCentre (pt));
             }
-            // heißer Kern, wird mit der Stellung weißer und größer
+            if (neon > 0.0f) // heller Neonkern, wabert leicht in der Mitte
             {
-                const float hot2 = std::pow (pos, 3.0f);
-                const auto pt = Point<float> (c.x + capR * 0.12f * std::sin (tm * 0.6f), c.y + capR * 0.12f * std::cos (tm * 0.5f));
-                const auto coreCol = Colour (0xffffffff).interpolatedWith (pal[(int) (tm * 0.35f) % 8], 0.55f);
-                ColourGradient core (coreCol.withAlpha (0.55f * hot2), pt.x, pt.y, coreCol.withAlpha (0.0f), pt.x + capR * (0.30f + 0.35f * neon), pt.y, true);
+                const auto pt = Point<float> (c.x + capR * 0.10f * std::sin (tm * 0.6f), c.y + capR * 0.10f * std::cos (tm * 0.5f));
+                ColourGradient core (Colour (0xffd0f8ff).withAlpha (0.35f * neon), pt.x, pt.y, Colour (0xffd0f8ff).withAlpha (0.0f), pt.x + capR * 0.7f, pt.y, true);
                 g.setGradientFill (core);
-                g.fillEllipse (Rectangle<float> (capR * 1.3f, capR * 1.3f).withCentre (pt));
+                g.fillEllipse (Rectangle<float> (capR * 1.4f, capR * 1.4f).withCentre (pt));
             }
 
             // Spiegelung oben links und feine Lichtkante
@@ -321,29 +310,6 @@ public:
                                   juce::Colours::white.withAlpha (0.0f), c.x - capR * 0.35f, c.y + capR * 0.05f, true);
             g.setGradientFill (gloss);
             g.fillEllipse (cap.reduced (capR * 0.14f).translated (-capR * 0.12f, -capR * 0.24f).withHeight (capR * 0.85f));
-        }
-        // Ganz aufgedreht quillt das Licht minimal über den Rand der Linse
-        if (pos > 0.6f)
-        {
-            const float spill = jlimit (0.0f, 1.0f, (pos - 0.6f) / 0.4f);
-            const float tm2 = (float) (Time::getMillisecondCounterHiRes() * 0.001) + (float) (reinterpret_cast<std::uintptr_t> (&slider) % 97) * 0.37f;
-            const Colour pal2[] { Colour (0xffff2d9a), Colour (0xff00e5ff), Colour (0xffffd400), Colour (0xff8a4dff), Colour (0xffff6a00), Colour (0xff2dffb4) };
-            Graphics::ScopedSaveState ring (g);
-            Path outside;
-            outside.setUsingNonZeroWinding (false);
-            outside.addEllipse (Rectangle<float> (capR * 2.5f, capR * 2.5f).withCentre (c));
-            outside.addEllipse (cap.reduced (0.6f));
-            g.reduceClipRegion (outside);
-            for (int i = 0; i < 6; ++i)
-            {
-                const float ang = tm2 * (0.16f + 0.05f * (float) i) + (float) i * 1.05f + 0.6f * std::sin (tm2 * 0.23f + (float) i);
-                const auto pt = c.getPointOnCircumference (capR * 0.99f, ang);
-                const auto col = pal2[i].interpolatedWith (pal2[(i + 2) % 6], 0.5f + 0.5f * std::sin (tm2 * 0.4f + (float) i * 1.9f));
-                const float r = capR * (0.34f + 0.08f * std::sin (tm2 * 0.7f + (float) i * 2.1f));
-                ColourGradient gl (col.withAlpha (0.38f * spill), pt.x, pt.y, col.withAlpha (0.0f), pt.x + r, pt.y, true);
-                g.setGradientFill (gl);
-                g.fillEllipse (Rectangle<float> (r * 2.0f, r * 2.0f).withCentre (pt));
-            }
         }
         {
             Path rim;
