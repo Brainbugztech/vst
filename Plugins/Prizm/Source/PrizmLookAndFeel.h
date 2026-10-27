@@ -311,29 +311,6 @@ public:
             g.setGradientFill (gloss);
             g.fillEllipse (cap.reduced (capR * 0.14f).translated (-capR * 0.12f, -capR * 0.24f).withHeight (capR * 0.85f));
         }
-        // Heller Strahlenkranz über dem sonst schwarzen Rändelring: gleichmäßig um den ganzen Ring,
-        // wird mit der Stellung immer heller, bewusst einfarbig (kühles Weiß), die Farben bleiben im Glas.
-        if (pos > 0.25f)
-        {
-            const float s1 = jlimit (0.0f, 1.0f, (pos - 0.25f) / 0.75f);
-            const float shine = s1 * s1 * (3.0f - 2.0f * s1);
-            const float tmS = (float) (Time::getMillisecondCounterHiRes() * 0.001);
-            const float breathe = 0.92f + 0.08f * std::sin (tmS * 1.1f + (float) (reinterpret_cast<std::uintptr_t> (&slider) % 97));
-            const float rOut = skirtR + (ringR - skirtR) * 0.55f;
-            Graphics::ScopedSaveState sk (g);
-            Path ringClip;
-            ringClip.setUsingNonZeroWinding (false);
-            ringClip.addEllipse (Rectangle<float> (rOut * 2.0f, rOut * 2.0f).withCentre (c));
-            ringClip.addEllipse (cap.reduced (0.4f));
-            g.reduceClipRegion (ringClip);
-            const auto light = Colour (0xffe9f7ff);
-            ColourGradient shineGrad (light.withAlpha (0.0f), c.x, c.y, light.withAlpha (0.0f), c.x + rOut, c.y, true);
-            shineGrad.addColour ((double) (capR / rOut), light.withAlpha (0.60f * shine * breathe));
-            shineGrad.addColour ((double) ((capR + skirtR) * 0.5f / rOut), light.withAlpha (0.34f * shine * breathe));
-            shineGrad.addColour ((double) (skirtR / rOut), light.withAlpha (0.16f * shine * breathe));
-            g.setGradientFill (shineGrad);
-            g.fillEllipse (Rectangle<float> (rOut * 2.0f, rOut * 2.0f).withCentre (c));
-        }
         {
             Path rim;
             rim.addCentredArc (c.x, c.y, capR - 0.8f, capR - 0.8f, 0.0f, -2.4f, -0.5f, true);
