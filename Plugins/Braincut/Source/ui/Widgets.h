@@ -79,8 +79,9 @@ private:
     std::unique_ptr<SA> attachment;
 };
 
-// Zeigt die aktuelle Phrase: jeder Block ist ein Stück der Quelle (Farbe = Stelle im Loop). Umgestellte Stücke leuchten,
-// rückwärts gespielte tragen Pfeile. Darunter der Loop als Farbband mit Marke, woher gerade gelesen wird.
+// Rundes Display ("Auge"): außen die aktuelle Phrase als Ring (Farbe = Stelle im Loop, umgestellte Stücke leuchten,
+// rückwärts gespielte haben eine gestrichelte Linie), innen der Loop als schmaler Ring. Eine Kurve verbindet den
+// Abspielpunkt mit der Stelle, von der gerade gelesen wird.
 class SliceView : public juce::Component
 {
 public:
@@ -88,166 +89,174 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        auto r = getLocalBounds().toFloat();
-        juce::ColourGradient bgGrad (juce::Colour (0xff130c1f).withAlpha (0.66f), 0, r.getY(), juce::Colour (0xff0a0612).withAlpha (0.74f), 0, r.getBottom(), false);
-        g.setGradientFill (bgGrad);
-        g.fillRoundedRectangle (r, 14.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.08f));
-        g.drawRoundedRectangle (r.reduced (0.5f), 14.0f, 1.0f);
+        using juce::MathConstants;
+        const float twoPi = MathConstants<float>::twoPi;
+        auto b = getLocalBounds().toFloat();
+        const float cx = b.getCentreX(), cy = b.getY() + 120.0f;
+        const float R = 112.0f, o0 = 74.0f, o1 = 110.0f, l0 = 55.0f, l1 = 65.0f;
+
+        auto pt = [&] (float rad, float a) { return juce::Point<float> (cx + rad * std::sin (a), cy - rad * std::cos (a)); };
+        auto wedge = [&] (float r0, float r1, float a0, float a1)
+        {
+            juce::Path p;
+            p.addPieSegment (cx - r1, cy - r1, r1 * 2.0f, r1 * 2.0f, a0, a1, r0 / r1);
+            return p;
+        };
+
+        // Scheibe und Skala
+        {
+            juce::ColourGradient d (juce::Colour (0xff0b0714).withAlpha (0.35f), cx, cy, juce::Colour (0xff0b0714).withAlpha (0.78f), cx + R + 6.0f, cy, true);
+            g.setGradientFill (d);
+            g.fillEllipse (cx - R - 6.0f, cy - R - 6.0f, (R + 6.0f) * 2.0f, (R + 6.0f) * 2.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.12f));
+            g.drawEllipse (cx - R - 6.0f, cy - R - 6.0f, (R + 6.0f) * 2.0f, (R + 6.0f) * 2.0f, 1.0f);
+            for (int k = 0; k < 64; ++k)
+            {
+                const float a = twoPi * (float) k / 64.0f;
+                const float len = (k % 4 == 0) ? 6.0f : 3.0f;
+                g.setColour (juce::Colours::white.withAlpha ((k % 16 == 0) ? 0.55f : 0.22f));
+                g.drawLine (juce::Line<float> (pt (R + 9.0f, a), pt (R + 9.0f + len, a)), 1.0f);
+            }
+        }
 
         const bool playing = proc.vizPlaying.load (std::memory_order_relaxed);
         auto& sl = proc.engine.slicer;
         const int n = sl.vizSteps.load (std::memory_order_relaxed);
         const int M = std::max (1, sl.vizLoop.load (std::memory_order_relaxed));
 
-        auto area = r.reduced (18.0f, 0.0f);
-        const float top = r.getY() + 34.0f, bottom = r.getBottom() - 46.0f;
-        juce::Rectangle<float> lane (area.getX(), top, area.getWidth(), bottom - top);
-        juce::Rectangle<float> strip (area.getX(), r.getBottom() - 20.0f, area.getWidth(), 7.0f);
-
-        // Loop-Farbband (immer sichtbar)
-        {
-            juce::ColourGradient cg (spectrum (0.0f), strip.getX(), 0, spectrum (1.0f), strip.getRight(), 0, false);
-            for (int k = 1; k < 8; ++k) cg.addColour (k / 8.0, spectrum ((float) k / 8.0f));
-            g.setGradientFill (cg);
-            g.setOpacity (playing ? 0.40f : 0.22f);
-            g.fillRoundedRectangle (strip, 3.5f);
-        }
-
-        g.setFont (bb::fonts::display (11.5f, true));
-        g.setColour (bb::col::inkDim);
-        g.drawText ("OUT", (int) area.getX(), 10, 60, 16, juce::Justification::centredLeft);
-        g.drawText ("LOOP", (int) area.getX(), (int) strip.getY() - 15, 60, 12, juce::Justification::centredLeft);
-
         if (! playing || n <= 0)
         {
-            // Ruhezustand: weiche Deko-Blöcke und ein Hinweis
-            const int blocks = 12;
-            const float bw = lane.getWidth() / (float) blocks;
+            const float rot = (float) (juce::Time::getMillisecondCounter() % 24000) / 24000.0f * twoPi;
+            const int blocks = 16;
             for (int i = 0; i < blocks; ++i)
             {
-                const auto c = spectrum ((float) i / (float) (blocks - 1));
-                auto b = juce::Rectangle<float> (lane.getX() + (float) i * bw + 2.0f, lane.getY() + lane.getHeight() * 0.18f, bw - 4.0f, lane.getHeight() * 0.64f);
-                g.setColour (c.withAlpha (0.13f));
-                g.fillRoundedRectangle (b, 6.0f);
+                const float a0 = rot + twoPi * (float) i / (float) blocks + 0.03f, a1 = rot + twoPi * (float) (i + 1) / (float) blocks - 0.03f;
+                g.setColour (spectrum ((float) i / (float) blocks).withAlpha (0.16f));
+                g.fillPath (wedge (o0, o1, a0, a1));
             }
-            g.setFont (bb::fonts::display (14.5f, true));
+            g.setColour (juce::Colours::white.withAlpha (0.10f));
+            g.drawEllipse (cx - l1, cy - l1, l1 * 2.0f, l1 * 2.0f, 1.0f);
+            g.setFont (bb::fonts::display (13.0f, true));
             g.setColour (bb::col::inkDim);
-            g.drawText (juce::String::fromUTF8 ("Host-Transport starten \xe2\x80\x93 Braincut schneidet im Takt des Hosts"), lane, juce::Justification::centred);
+            g.drawText ("START HOST", (int) cx - 50, (int) cy - 16, 100, 16, juce::Justification::centred);
+            g.drawText ("TRANSPORT", (int) cx - 50, (int) cy + 2, 100, 16, juce::Justification::centred);
             return;
         }
 
         const float pos = proc.engine.vizPos.load (std::memory_order_relaxed);
         const int cur = juce::jlimit (0, n - 1, (int) pos);
         const float pb = sl.vizPhraseBeats.load (std::memory_order_relaxed);
-
-        // Kopfzeile: Länge der Phrase, Schritte und Lichter
-        g.setFont (bb::fonts::mono (11.5f));
-        g.setColour (bb::col::inkDim);
-        g.drawText (juce::String (n) + " STEPS  \xc2\xb7  " + juce::String (pb, pb == std::floor (pb) ? 0 : 1) + " BEATS", 50, 10, 200, 16, juce::Justification::centredLeft);
-        auto chip = [&] (juce::Rectangle<float> cr, const char* text, bool lit, juce::Colour c)
-        {
-            g.setColour (lit ? c.withAlpha (0.30f) : juce::Colours::black.withAlpha (0.25f));
-            g.fillRoundedRectangle (cr, 6.0f);
-            g.setColour (lit ? c : bb::col::line);
-            g.drawRoundedRectangle (cr, 6.0f, 1.0f);
-            g.setFont (bb::fonts::display (11.0f, true));
-            g.setColour (lit ? c.brighter (0.4f) : bb::col::inkDim.withAlpha (0.6f));
-            g.drawText (text, cr, juce::Justification::centred);
-        };
-        chip ({ r.getRight() - 162.0f, r.getY() + 8.0f, 72.0f, 20.0f }, "REPEAT", proc.engine.vizRepeat.load (std::memory_order_relaxed), col::pink);
-        chip ({ r.getRight() - 84.0f, r.getY() + 8.0f, 66.0f, 20.0f }, "GLITCH", proc.engine.vizGlitch.load (std::memory_order_relaxed), col::violet);
-
-        // Blöcke: zusammenhängende Schritte (Quelle läuft vorwärts weiter) bilden einen Block
-        const float sw = lane.getWidth() / (float) n;
         auto srcAt = [&] (int i) { return (int) sl.vizSrc[(size_t) i].load (std::memory_order_relaxed); };
         auto movedAt = [&] (int i) { return sl.vizMoved[(size_t) i].load (std::memory_order_relaxed) != 0; };
         auto revAt = [&] (int i) { return sl.vizRev[(size_t) i].load (std::memory_order_relaxed) != 0; };
 
+        // Loop-Ring
+        for (int k = 0; k < M; ++k)
+        {
+            const float a0 = twoPi * (float) k / (float) M, a1 = twoPi * (float) (k + 1) / (float) M;
+            g.setColour (spectrum ((float) k / (float) std::max (1, M - 1)).withAlpha (0.38f));
+            g.fillPath (wedge (l0, l1, a0 + 0.004f, a1 - 0.004f));
+        }
+
+        // Phrase: zusammenhängende Schritte bilden einen Block
+        const float stepA = twoPi / (float) n;
         int a = 0;
         while (a < n)
         {
-            int b = a + 1;
+            int e = a + 1;
             const bool rev = revAt (a), mv = movedAt (a);
-            while (b < n && revAt (b) == rev && movedAt (b) == mv)
+            while (e < n && revAt (e) == rev && movedAt (e) == mv)
             {
-                const int expect = rev ? srcAt (b - 1) - 1 : srcAt (b - 1) + 1;
-                if (((srcAt (b) - expect) % M + M) % M != 0) break;
-                ++b;
+                const int expect = rev ? srcAt (e - 1) - 1 : srcAt (e - 1) + 1;
+                if (((srcAt (e) - expect) % M + M) % M != 0) break;
+                ++e;
             }
-            const float x0 = lane.getX() + (float) a * sw, x1 = lane.getX() + (float) b * sw;
-            juce::Rectangle<float> blk (x0 + 1.5f, lane.getY(), std::max (2.0f, x1 - x0 - 3.0f), lane.getHeight());
-            const auto c0 = spectrum ((float) srcAt (a) / (float) M), c1 = spectrum ((float) srcAt (b - 1) / (float) M);
-            const bool isCur = cur >= a && cur < b;
+            const float gap = (e - a) * stepA > 0.05f ? 0.012f : 0.004f;
+            const float s0 = (float) a * stepA + gap, s1 = (float) e * stepA - gap;
+            const bool isCur = cur >= a && cur < e;
+            const auto mid = spectrum ((float) srcAt (a) / (float) M).interpolatedWith (spectrum ((float) srcAt (e - 1) / (float) M), 0.5f);
 
             if (mv)
             {
-                g.setColour (c0.interpolatedWith (c1, 0.5f).withAlpha (isCur ? 0.34f : 0.20f));
-                g.fillRoundedRectangle (blk.expanded (4.0f), 10.0f);
+                g.setColour (mid.withAlpha (isCur ? 0.34f : 0.20f));
+                g.fillPath (wedge (o0 - 4.0f, o1 + 5.0f, s0 - 0.01f, s1 + 0.01f));
             }
-            juce::ColourGradient cg (c0.withAlpha (mv ? 0.95f : 0.50f), blk.getX(), 0, c1.withAlpha (mv ? 0.95f : 0.50f), blk.getRight(), 0, false);
-            g.setGradientFill (cg);
-            g.fillRoundedRectangle (blk, 7.0f);
-            // Glanz oben
-            juce::ColourGradient shine (juce::Colours::white.withAlpha (mv ? 0.22f : 0.10f), 0, blk.getY(), juce::Colours::white.withAlpha (0.0f), 0, blk.getY() + blk.getHeight() * 0.6f, false);
-            g.setGradientFill (shine);
-            g.fillRoundedRectangle (blk, 7.0f);
+            for (int i = a; i < e; ++i)
+            {
+                const float t0 = s0 + (s1 - s0) * (float) (i - a) / (float) (e - a);
+                const float t1 = s0 + (s1 - s0) * (float) (i - a + 1) / (float) (e - a);
+                g.setColour (spectrum (((float) srcAt (i) + 0.5f) / (float) M).withAlpha (mv ? 0.95f : 0.50f));
+                g.fillPath (wedge (o0, o1, t0, t1 + 0.003f));
+            }
             if (isCur)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.85f));
-                g.drawRoundedRectangle (blk, 7.0f, 1.6f);
+                g.setColour (juce::Colours::white.withAlpha (0.9f));
+                g.strokePath (wedge (o0, o1, s0, s1), juce::PathStrokeType (1.5f));
             }
-
-            // Schritt-Teilung (dezent)
-            if (sw > 7.0f)
-            {
-                g.setColour (juce::Colours::black.withAlpha (0.22f));
-                for (int k = a + 1; k < b; ++k)
-                    g.fillRect (lane.getX() + (float) k * sw - 0.5f, blk.getY() + 6.0f, 1.0f, blk.getHeight() - 12.0f);
-            }
-            // Rückwärts: Pfeile
             if (rev)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.8f));
-                const float cy = blk.getCentreY();
-                for (float px = blk.getX() + 10.0f; px < blk.getRight() - 6.0f; px += 16.0f)
-                {
-                    juce::Path ar;
-                    ar.startNewSubPath (px + 5.0f, cy - 6.0f);
-                    ar.lineTo (px, cy);
-                    ar.lineTo (px + 5.0f, cy + 6.0f);
-                    g.strokePath (ar, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                }
+                juce::Path arc;
+                arc.addCentredArc (cx, cy, (o0 + o1) * 0.5f, (o0 + o1) * 0.5f, 0.0f, s0 + 0.02f, s1 - 0.02f, true);
+                juce::Path dashed;
+                const float dl[2] { 3.0f, 4.0f };
+                juce::PathStrokeType (2.0f).createDashedStroke (dashed, arc, dl, 2);
+                g.setColour (juce::Colours::white.withAlpha (0.85f));
+                g.fillPath (dashed);
             }
-            a = b;
+            a = e;
         }
 
-        // Verbindung zur Quelle im Loop
+        // Abspielpunkt und Verbindung zur gelesenen Stelle im Loop
         const float within = juce::jlimit (0.0f, 0.999f, pos - (float) cur);
-        const float px = lane.getX() + juce::jlimit (0.0f, (float) n, pos) * sw;
+        const float pa = twoPi * juce::jlimit (0.0f, (float) n, pos) / (float) n;
         const float srcPos = ((float) srcAt (cur) + within) / (float) M;
-        const float sx = strip.getX() + juce::jlimit (0.0f, 1.0f, srcPos) * strip.getWidth();
+        const float sa = twoPi * srcPos;
         const auto sc = spectrum (srcPos);
 
+        g.setColour (juce::Colours::white.withAlpha (0.22f));
+        g.drawLine (juce::Line<float> (pt (o0 - 6.0f, pa), pt (o1 + 8.0f, pa)), 4.0f);
+        g.setColour (juce::Colours::white);
+        g.drawLine (juce::Line<float> (pt (o0 - 6.0f, pa), pt (o1 + 8.0f, pa)), 1.6f);
+
         juce::Path link;
-        link.startNewSubPath (px, lane.getBottom());
-        link.cubicTo (px, lane.getBottom() + 12.0f, sx, strip.getY() - 14.0f, sx, strip.getY());
+        link.startNewSubPath (pt (o0 - 6.0f, pa));
+        const auto ctrl = juce::Point<float> (cx + (pt (o0, pa).x - cx + pt (l1, sa).x - cx) * 0.18f,
+                                              cy + (pt (o0, pa).y - cy + pt (l1, sa).y - cy) * 0.18f);
+        link.quadraticTo (ctrl, pt (l1 + 1.0f, sa));
         g.setColour (sc.withAlpha (0.35f));
         g.strokePath (link, juce::PathStrokeType (4.0f));
-        g.setColour (juce::Colours::white.withAlpha (0.75f));
+        g.setColour (juce::Colours::white.withAlpha (0.8f));
         g.strokePath (link, juce::PathStrokeType (1.2f));
 
-        const float segW = std::max (4.0f, strip.getWidth() / (float) M);
-        g.setColour (sc.withAlpha (0.35f));
-        g.fillRoundedRectangle (juce::Rectangle<float> (sx - segW * 0.5f - 3.0f, strip.getY() - 3.0f, segW + 6.0f, strip.getHeight() + 6.0f), 5.0f);
+        const float segA = twoPi / (float) M;
+        g.setColour (sc.withAlpha (0.4f));
+        g.fillPath (wedge (l0 - 4.0f, l1 + 4.0f, std::floor (srcPos * (float) M) * segA - 0.01f, std::floor (srcPos * (float) M) * segA + segA + 0.01f));
         g.setColour (juce::Colours::white);
-        g.fillRoundedRectangle (juce::Rectangle<float> (sx - segW * 0.5f, strip.getY() - 1.0f, segW, strip.getHeight() + 2.0f), 3.0f);
+        g.fillPath (wedge (l0 - 1.0f, l1 + 1.0f, std::floor (srcPos * (float) M) * segA, std::floor (srcPos * (float) M) * segA + segA));
 
-        // Abspiel-Linie
-        g.setColour (juce::Colours::white.withAlpha (0.20f));
-        g.fillRect (px - 2.5f, lane.getY() - 5.0f, 5.0f, lane.getHeight() + 10.0f);
-        g.setColour (juce::Colours::white);
-        g.fillRect (px - 0.8f, lane.getY() - 5.0f, 1.6f, lane.getHeight() + 10.0f);
+        // Mitte: Zahl der Schritte
+        g.setFont (bb::fonts::display (30.0f, true));
+        g.setColour (bb::col::ink);
+        g.drawText (juce::String (n), (int) cx - 40, (int) cy - 34, 80, 34, juce::Justification::centred);
+        g.setFont (bb::fonts::display (11.5f, true));
+        g.setColour (bb::col::inkDim);
+        g.drawText ("STEPS", (int) cx - 40, (int) cy, 80, 14, juce::Justification::centred);
+        g.setFont (bb::fonts::mono (11.0f));
+        g.drawText (juce::String (pb, pb == std::floor (pb) ? 0 : 1) + " BEATS", (int) cx - 40, (int) cy + 15, 80, 14, juce::Justification::centred);
+
+        // Lichter für Repeater und Glitcher
+        auto chip = [&] (juce::Rectangle<float> cr, const char* text, bool lit, juce::Colour c)
+        {
+            g.setColour (lit ? c.withAlpha (0.30f) : juce::Colours::black.withAlpha (0.35f));
+            g.fillRoundedRectangle (cr, 6.0f);
+            g.setColour (lit ? c : bb::col::line);
+            g.drawRoundedRectangle (cr, 6.0f, 1.0f);
+            g.setFont (bb::fonts::display (10.5f, true));
+            g.setColour (lit ? c.brighter (0.4f) : bb::col::inkDim.withAlpha (0.6f));
+            g.drawText (text, cr, juce::Justification::centred);
+        };
+        chip ({ cx - 74.0f, b.getBottom() - 24.0f, 70.0f, 18.0f }, "REPEAT", proc.engine.vizRepeat.load (std::memory_order_relaxed), col::pink);
+        chip ({ cx + 4.0f, b.getBottom() - 24.0f, 70.0f, 18.0f }, "GLITCH", proc.engine.vizGlitch.load (std::memory_order_relaxed), col::violet);
     }
 
 private:

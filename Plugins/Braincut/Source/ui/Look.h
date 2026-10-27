@@ -54,51 +54,64 @@ public:
         setColour (juce::ComboBox::arrowColourId, bb::col::tox);
     }
 
+    // Regler im HUD-Stil: Skalenstriche, dünner Leuchtbogen, flache dunkle Kappe mit Zeigerpunkt
     void drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float, float, juce::Slider& s) override
     {
         const float size = (float) std::min (w, h);
         const juce::Point<float> c ((float) x + (float) w * 0.5f, (float) y + (float) h * 0.5f);
-        const float thick = std::max (2.5f, size * 0.075f);
-        const float r = size * 0.5f - 2.0f - thick * 1.6f;
+        const float R = size * 0.5f - 3.0f;
         const float a = startAngle + pos * (endAngle - startAngle);
         const auto accent = accentOf (s);
         const bool on = s.isEnabled();
+        const auto ac = on ? accent : bb::col::inkDim;
+        auto at = [&] (float rad, float ang) { return juce::Point<float> (c.x + rad * std::sin (ang), c.y - rad * std::cos (ang)); };
 
+        // Skalenstriche
+        const int ticks = size > 90.0f ? 25 : 17;
+        for (int k = 0; k < ticks; ++k)
+        {
+            const float t = (float) k / (float) (ticks - 1);
+            const float ang = startAngle + t * (endAngle - startAngle);
+            const bool lit = t <= pos + 0.001f;
+            g.setColour (lit ? ac.withAlpha (0.95f) : juce::Colours::white.withAlpha (0.18f));
+            g.drawLine (juce::Line<float> (at (R - (k % 4 == 0 ? 5.0f : 3.0f), ang), at (R, ang)), 1.3f);
+        }
+
+        // Leuchtbogen
+        const float ar = R - 9.0f;
+        const float thick = std::max (2.0f, size * 0.04f);
         juce::Path track;
-        track.addCentredArc (c.x, c.y, r, r, 0.0f, startAngle, endAngle, true);
+        track.addCentredArc (c.x, c.y, ar, ar, 0.0f, startAngle, endAngle, true);
         g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.strokePath (track, juce::PathStrokeType (thick + 2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setColour (bb::col::line);
+        g.strokePath (track, juce::PathStrokeType (thick + 3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (juce::Colours::white.withAlpha (0.14f));
         g.strokePath (track, juce::PathStrokeType (thick, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
         if (pos > 0.003f)
         {
             juce::Path arc;
-            arc.addCentredArc (c.x, c.y, r, r, 0.0f, startAngle, a, true);
-            const auto ac = on ? accent : bb::col::inkDim;
-            g.setColour (ac.withAlpha (0.16f));
-            g.strokePath (arc, juce::PathStrokeType (thick * 3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            g.setColour (ac.withAlpha (0.34f));
-            g.strokePath (arc, juce::PathStrokeType (thick * 1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            arc.addCentredArc (c.x, c.y, ar, ar, 0.0f, startAngle, a, true);
+            g.setColour (ac.withAlpha (0.22f));
+            g.strokePath (arc, juce::PathStrokeType (thick * 3.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.setColour (ac);
             g.strokePath (arc, juce::PathStrokeType (thick, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
-        const float cr = r - thick * 1.6f;
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.fillEllipse (c.x - cr, c.y - cr + 2.0f, cr * 2.0f, cr * 2.0f);
-        juce::ColourGradient cap (juce::Colour (0xff2a1e3a), c.x, c.y - cr, juce::Colour (0xff0d0911), c.x, c.y + cr, false);
+        // Kappe
+        const float cr = ar - thick * 1.8f;
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillEllipse (c.x - cr, c.y - cr + 1.5f, cr * 2.0f, cr * 2.0f);
+        juce::ColourGradient cap (juce::Colour (0xff1c1530), c.x, c.y - cr, juce::Colour (0xff09060f), c.x, c.y + cr, false);
         g.setGradientFill (cap);
         g.fillEllipse (c.x - cr, c.y - cr, cr * 2.0f, cr * 2.0f);
-        g.setColour (accent.withAlpha (on ? 0.45f : 0.15f));
+        g.setColour (ac.withAlpha (on ? 0.35f : 0.12f));
         g.drawEllipse (c.x - cr, c.y - cr, cr * 2.0f, cr * 2.0f, 1.0f);
 
-        juce::Path p;
-        p.startNewSubPath (0.0f, -cr * 0.25f);
-        p.lineTo (0.0f, -cr * 0.88f);
-        g.setColour (bb::col::ink);
-        g.strokePath (p, juce::PathStrokeType (std::max (1.8f, size * 0.045f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
-                      juce::AffineTransform::rotation (a).translated (c));
+        // Zeiger: Punkt am Rand der Kappe plus kurze Linie
+        const auto d = at (cr - 4.0f, a);
+        g.setColour (ac.withAlpha (0.35f));
+        g.fillEllipse (d.x - 4.5f, d.y - 4.5f, 9.0f, 9.0f);
+        g.setColour (juce::Colours::white);
+        g.fillEllipse (d.x - 2.2f, d.y - 2.2f, 4.4f, 4.4f);
     }
 
     // Wertebalken (Min/Max Phrase, Min/Max Rep): Füllung zeigt den Wert, Beschriftung links, Wert rechts
