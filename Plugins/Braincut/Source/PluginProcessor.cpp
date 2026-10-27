@@ -31,7 +31,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraincutProcessor::createLay
 
     // Slicer
     layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::mode, 1 }, "Slicer Mode", StringArray { "CUT", "WARP" }, 0));
-    layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::phrase, 1 }, "Phrase", StringArray { "1 Bar", "2 Bars", "4 Bars" }, 0));
+    layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::loop, 1 }, "Loop Length", StringArray { "1 Bar", "2 Bars", "4 Bars" }, 0));
+    layout.add (std::make_unique<AudioParameterInt> (P { ParamIDs::phMin, 1 }, "Min Phrase", 1, 8, 1));
+    layout.add (std::make_unique<AudioParameterInt> (P { ParamIDs::phMax, 1 }, "Max Phrase", 1, 8, 4));
+    layout.add (std::make_unique<AudioParameterInt> (P { ParamIDs::repMin, 1 }, "Min Rep", 0, 16, 0));
+    layout.add (std::make_unique<AudioParameterInt> (P { ParamIDs::repMax, 1 }, "Max Rep", 0, 16, 3));
     layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::subdiv, 1 }, "Subdivision", StringArray { "1/4", "1/8", "1/16", "1/32" }, 2));
     floatP (ParamIDs::repeat, "Repeat", 0.0f, 1.0f, 0.4f, percent);
     layout.add (std::make_unique<AudioParameterInt> (P { ParamIDs::seed, 1 }, "Seed", 0, 9999, 1));
@@ -79,7 +83,11 @@ bc::EngineParams BraincutProcessor::readParams() const
 
     bc::EngineParams p;
     p.slicer.mode       = i (ParamIDs::mode);
-    p.slicer.phraseIdx  = i (ParamIDs::phrase);
+    p.slicer.loopIdx    = i (ParamIDs::loop);
+    p.slicer.phraseMin  = i (ParamIDs::phMin);
+    p.slicer.phraseMax  = i (ParamIDs::phMax);
+    p.slicer.repMin     = i (ParamIDs::repMin);
+    p.slicer.repMax     = i (ParamIDs::repMax);
     p.slicer.subdivIdx  = i (ParamIDs::subdiv);
     p.slicer.repeatProb = f (ParamIDs::repeat);
     p.slicer.seed       = i (ParamIDs::seed);
@@ -143,7 +151,11 @@ void BraincutProcessor::applyPreset (int index)
     const auto& s = bcpresets::kPresets[index];
 
     setParam (ParamIDs::mode, (float) s.mode);
-    setParam (ParamIDs::phrase, (float) s.phrase);
+    setParam (ParamIDs::loop, (float) s.loop);
+    setParam (ParamIDs::phMin, (float) s.phMin);
+    setParam (ParamIDs::phMax, (float) s.phMax);
+    setParam (ParamIDs::repMin, (float) s.repMin);
+    setParam (ParamIDs::repMax, (float) s.repMax);
     setParam (ParamIDs::subdiv, (float) s.subdiv);
     setParam (ParamIDs::repeat, s.repeat);
     setParam (ParamIDs::seed, (float) s.seed);

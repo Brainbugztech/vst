@@ -16,7 +16,7 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    static constexpr int baseW = 900, baseH = 520;
+    static constexpr int baseW = 960, baseH = 600;
 
 private:
     // Alle Bedienelemente liegen in einer Fläche mit fester Größe, die beim Skalieren des Fensters mitgezoomt wird
@@ -28,8 +28,8 @@ private:
 
     void timerCallback() override;
     void paintContent (juce::Graphics&);
-    void paintCard (juce::Graphics&, juce::Rectangle<float>, const juce::String& title, juce::Colour accent, bool on, const juce::String& caption);
     void renderFx (double t);
+    void paintCard (juce::Graphics&, juce::Rectangle<float>, const juce::String& title, juce::Colour accent, bool on);
     void syncFromParams();
     bool flag (const char* id) const { return proc.apvts.getRawParameterValue (id)->load() > 0.5f; }
 
@@ -41,7 +41,8 @@ private:
 
     bcui::SliceView sliceView;
 
-    bcui::KnobBox repeatK, phraseK, subdivK, seedK;
+    bcui::KnobBox repeatK, loopK, subdivK, seedK;
+    bcui::ValueBar phMinB, phMaxB, repMinB, repMaxB;
     bcui::KnobBox strAmtK, strMixK;
     bcui::KnobBox repChanceK, repRateK, repGateK, repDecayK;
     bcui::KnobBox gliAmtK, gliMixK;

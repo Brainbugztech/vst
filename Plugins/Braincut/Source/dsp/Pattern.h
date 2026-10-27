@@ -7,6 +7,10 @@
 //   WARP - springt freier: Blöcke unterschiedlicher Länge lesen von wechselnden Stellen
 // Alle Zufallswerte kommen aus einer Folge, die nur vom Seed abhängt. Das Muster ist also
 // reproduzierbar und unabhängig davon, welche anderen Sektionen an oder aus sind.
+//
+// Begriffe: Der "Loop" ist die aufgenommene Quelle (M Schritte). Die "Phrase" ist der Abschnitt der
+// Ausgabe, für den dieses Muster gilt (N Schritte, Länge zwischen Min und Max Takten).
+// "src" zählt immer in Schritten des Loops.
 
 #include <algorithm>
 #include <array>
@@ -20,28 +24,44 @@ struct Unit
 {
     int16_t start = 0;   // erster Schritt der Einheit in der Phrase
     int16_t len = 1;     // Länge in Schritten
-    int16_t src = 0;     // Schritt, ab dem gelesen wird
+    int16_t src = 0;     // Schritt im Loop, ab dem gelesen wird
     bool    rev = false; // rückwärts lesen
     float   vr = 0.0f;   // Zufallswert -1..1 für die Streckung (Richtung und Stärke)
     float   vsel = 0.0f; // Zufallswert 0..1: ob diese Einheit gestreckt wird
+};
+
+struct GenParams
+{
+    int N = 16;          // Schritte der Phrase
+    int M = 16;          // Schritte des Loops
+    int base = 0;        // Loop-Schritt, an dem die Phrase beginnt
+    int sb = 4;          // Schritte pro Beat
+    float rp = 0.4f;     // Umbau-Wahrscheinlichkeit pro Beat
+    int repMin = 0, repMax = 3;
 };
 
 struct Pattern
 {
     static constexpr int kMax = 512;
 
-    int steps = 0;
-    int count = 0;
+    int steps = 0, count = 0, loopSteps = 1, base = 0;
     std::array<Unit, kMax>     units {};
     std::array<int16_t, kMax>  unitOfStep {};
-    std::array<int16_t, kMax>  srcOfStep {};   // für die Anzeige: von welchem Schritt kommt dieser Schritt
+    std::array<int16_t, kMax>  srcOfStep {};   // für die Anzeige: von welchem Loop-Schritt kommt dieser Schritt
     std::array<uint8_t, kMax>  moved {};       // 1 = nicht am Originalplatz
+    std::array<uint8_t, kMax>  revOfStep {};   // 1 = rückwärts
+    std::array<uint8_t, kMax>  unitStart {};   // 1 = hier beginnt eine neue Einheit
 
-    void begin (int n)
+    void begin (int n, int m, int baseStep)
     {
-        steps = std::min (n, kMax);
+        steps = std::min (std::max (1, n), kMax);
+        loopSteps = std::max (1, m);
+        base = ((baseStep % loopSteps) + loopSteps) % loopSteps;
         count = 0;
     }
+
+    // Loop-Schritt, der zum Phrasen-Schritt "pos" gehört, wenn nichts umgebaut wird
+    int natural (int pos) const { return (base + pos) % loopSteps; }
 
     // Ein Block aus "len" Schritten ab "start". Innerhalb wird die Einheit von "u" Schritten wiederholt.
     void addBlock (int start, int len, int src, bool rev, int u, Rng& rv)
@@ -51,7 +71,7 @@ struct Pattern
         u = std::max (1, std::min (u, len));
         const float vr = rv.uni() * 2.0f - 1.0f;
         const float vsel = rv.uni();
-        src = std::max (0, std::min (src, steps - 1));
+        src = ((src % loopSteps) + loopSteps) % loopSteps;
         for (int off = 0; off < len; off += u)
         {
             if (count >= kMax) return;
@@ -75,74 +95,87 @@ struct Pattern
             {
                 const int rel = s - u.start;
                 int srcStep = u.rev ? (u.src + u.len - 1 - rel) : (u.src + rel);
-                srcStep = ((srcStep % steps) + steps) % steps;
+                srcStep = ((srcStep % loopSteps) + loopSteps) % loopSteps;
                 unitOfStep[(size_t) s] = (int16_t) k;
                 srcOfStep[(size_t) s] = (int16_t) srcStep;
-                moved[(size_t) s] = (uint8_t) (srcStep != s ? 1 : 0);
+                moved[(size_t) s] = (uint8_t) (srcStep != natural (s) ? 1 : 0);
+                revOfStep[(size_t) s] = (uint8_t) (u.rev ? 1 : 0);
+                unitStart[(size_t) s] = (uint8_t) (s == u.start ? 1 : 0);
             }
         }
     }
 };
 
 // ---------------------------------------------------------------------------------------------
-inline void generateCut (Pattern& P, int N, int sb, float rp, uint64_t key)
+inline void generateCut (Pattern& P, const GenParams& g, uint64_t key)
 {
     Rng rg (key ^ 0xC07A11ull), rv (key ^ 0x57E7C4ull);
-    P.begin (N);
-    const int beatCount = (N + sb - 1) / sb;
+    P.begin (g.N, g.M, g.base);
+    const int sb = std::max (1, g.sb);
+    const int loopBeats = std::max (1, (g.M + sb - 1) / sb);
+    const int rLo = std::min (g.repMin, g.repMax), rHi = std::max (g.repMin, g.repMax);
 
-    for (int pos = 0; pos < N; pos += sb)
+    for (int pos = 0; pos < P.steps; pos += sb)
     {
-        const int L = std::min (sb, N - pos);
-        const bool last = pos + sb >= N;
+        const int L = std::min (sb, P.steps - pos);
+        const bool last = pos + sb >= P.steps;
 
         // Alle Zufallswerte werden immer gezogen, damit das Muster nicht von Schwellwerten abhängt
         const float r  = rg.uni();
         const float r2 = rg.uni();
         const int variant = rg.range (0, 5);
-        const int other = rg.range (0, std::max (0, beatCount - 1)) * sb;
-        const float pRep = std::min (0.95f, rp * (last ? 1.5f : 1.0f));
+        const int other = rg.range (0, loopBeats - 1) * sb;
+        const int reps = rg.range (rLo, rHi);
+        const float pRep = std::min (0.95f, g.rp * (last ? 1.5f : 1.0f));
+        const int nat = P.natural (pos);
 
         if (r >= pRep)
         {
-            P.addBlock (pos, L, pos, false, L, rv);
+            P.addBlock (pos, L, nat, false, L, rv);
             continue;
         }
 
+        // Anzahl Wiederholungen bestimmt die Länge der wiederholten Einheit
+        const int u = reps <= 0 ? L : std::max (1, L / (reps + 1));
+
         switch (variant)
         {
-            case 0:  P.addBlock (pos, L, pos, false, std::max (1, L / 2), rv); break;       // Halb-Beat wiederholen
-            case 1:  P.addBlock (pos, L, pos, false, std::max (1, L / 4), rv); break;       // Roll
-            case 2:  P.addBlock (pos, L, std::min (N - 1, pos + (int) (r2 * (float) L)), false, 1, rv); break; // ein Schritt stottert
-            case 3:  P.addBlock (pos, L, pos, true, L, rv); break;                           // Beat rückwärts
-            case 4:  P.addBlock (pos, L, std::min (N - 1, other), false, L, rv); break;      // anderer Beat
-            default: P.addBlock (pos, L, pos, false, std::max (1, (L * 3) / 4), rv); break;  // 3 über 4
+            case 0:
+            case 1:  P.addBlock (pos, L, nat, false, u, rv); break;                              // Anfang des Beats wiederholen
+            case 2:  P.addBlock (pos, L, nat + (int) (r2 * (float) L), false, u, rv); break;     // Ausschnitt aus der Beat-Mitte
+            case 3:  P.addBlock (pos, L, nat, true, u, rv); break;                               // rückwärts stottern
+            case 4:  P.addBlock (pos, L, nat, true, L, rv); break;                               // Beat rückwärts
+            default: P.addBlock (pos, L, other, false, L, rv); break;                            // anderer Beat
         }
     }
     P.finish();
 }
 
-inline void generateWarp (Pattern& P, int N, int sb, float rp, uint64_t key)
+inline void generateWarp (Pattern& P, const GenParams& g, uint64_t key)
 {
     static constexpr int lens[8] { 1, 2, 2, 3, 3, 4, 5, 6 };
     Rng rg (key ^ 0x3A4B5Cull), rv (key ^ 0x9D2E11ull);
-    P.begin (N);
+    P.begin (g.N, g.M, g.base);
+    const int sb = std::max (1, g.sb);
+    const int rLo = std::min (g.repMin, g.repMax), rHi = std::max (g.repMin, g.repMax);
 
     int pos = 0;
-    while (pos < N)
+    while (pos < P.steps)
     {
-        const int L = std::min (lens[rg.range (0, 7)] * std::max (1, sb / 4), N - pos);
+        const int L = std::min (lens[rg.range (0, 7)] * std::max (1, sb / 4), P.steps - pos);
         const float rAnchor = rg.uni(), rJump = rg.uni(), rRev = rg.uni(), rRep = rg.uni();
-        const int rndSrc = rg.range (0, N - 1);
+        const int rndSrc = rg.range (0, P.loopSteps - 1);
+        const int reps = rg.range (rLo, rHi);
 
-        const bool onBeat = (pos % std::max (1, sb)) == 0;
-        const bool anchored = onBeat && rAnchor < (0.55f - 0.45f * rp);
-        const float pJump = 0.3f + 0.7f * rp;
+        const bool onBeat = (pos % sb) == 0;
+        const bool anchored = onBeat && rAnchor < (0.55f - 0.45f * g.rp);
+        const float pJump = 0.3f + 0.7f * g.rp;
+        const int nat = P.natural (pos);
 
-        int src = (!anchored && rJump < pJump) ? rndSrc : pos;
-        if (pos == 0 && rAnchor < 0.8f) src = 0; // der Downbeat bleibt meistens erhalten
-        const bool rev = !anchored && rRev < rp * 0.25f;
-        const int u = (L >= 2 && rRep < rp * 0.5f) ? std::max (1, L / 2) : L;
+        int src = (! anchored && rJump < pJump) ? rndSrc : nat;
+        if (pos == 0 && rAnchor < 0.8f) src = nat; // der Downbeat bleibt meistens erhalten
+        const bool rev = ! anchored && rRev < g.rp * 0.25f;
+        const int u = (L >= 2 && reps > 0 && rRep < 0.2f + g.rp * 0.6f) ? std::max (1, L / (reps + 1)) : L;
 
         P.addBlock (pos, L, src, rev, u, rv);
         pos += L;

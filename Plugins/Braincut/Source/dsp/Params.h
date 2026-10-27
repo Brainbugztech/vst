@@ -17,11 +17,15 @@ inline constexpr double kRepeatUnitBeats[5] { 0.5, 1.0 / 3.0, 0.25, 1.0 / 6.0, 0
 struct SlicerParams
 {
     int   mode = 0;          // 0 = CUT (CutProc-Stil), 1 = WARP
-    int   phraseIdx = 0;     // 0..2 -> 1, 2, 4 Takte
+    int   loopIdx = 0;       // Länge der Quelle (Loop): 0..2 -> 1, 2, 4 Takte
+    int   phraseMin = 1;     // kürzeste Phrase in Takten (1..8)
+    int   phraseMax = 4;     // längste Phrase in Takten (1..8)
+    int   repMin = 0;        // wenigste Wiederholungen pro Block (0..16)
+    int   repMax = 3;        // meiste Wiederholungen pro Block (0..16)
     int   subdivIdx = 2;     // 0..3 -> 1/4, 1/8, 1/16, 1/32
-    float repeatProb = 0.4f; // 0..1
+    float repeatProb = 0.4f; // 0..1: wie oft ein Beat umgebaut wird
     int   seed = 1;          // 0..9999
-    bool  lock = false;      // an: jede Phrase spielt dasselbe Muster
+    bool  lock = false;      // an: jede Runde spielt dasselbe Muster
 };
 
 struct StretchParams

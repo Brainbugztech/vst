@@ -8,7 +8,11 @@ namespace ParamIDs
 {
     // Slicer
     inline constexpr const char* mode    = "mode";
-    inline constexpr const char* phrase  = "phrase";
+    inline constexpr const char* loop    = "loop";
+    inline constexpr const char* phMin   = "phMin";
+    inline constexpr const char* phMax   = "phMax";
+    inline constexpr const char* repMin  = "repMin";
+    inline constexpr const char* repMax  = "repMax";
     inline constexpr const char* subdiv  = "subdiv";
     inline constexpr const char* repeat  = "repeat";
     inline constexpr const char* seed    = "seed";

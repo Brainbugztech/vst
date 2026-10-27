@@ -19,6 +19,15 @@ namespace col
     inline const juce::Colour card   { 0xff0c0716 };
 }
 
+// Farbverlauf grün -> cyan -> violett -> pink -> orange für die Slice-Anzeige (t = 0..1)
+inline juce::Colour spectrum (float t)
+{
+    const juce::Colour stops[5] { col::green, col::cyan, col::violet, col::pink, col::orange };
+    t = juce::jlimit (0.0f, 1.0f, t) * 4.0f;
+    const int i = juce::jmin (3, (int) t);
+    return stops[i].interpolatedWith (stops[i + 1], t - (float) i);
+}
+
 inline void setAccent (juce::Component& c, juce::Colour colour)
 {
     c.getProperties().set ("acc", (juce::int64) colour.getARGB());
@@ -49,8 +58,8 @@ public:
     {
         const float size = (float) std::min (w, h);
         const juce::Point<float> c ((float) x + (float) w * 0.5f, (float) y + (float) h * 0.5f);
-        const float r = size * 0.5f - 3.0f;
         const float thick = std::max (2.5f, size * 0.075f);
+        const float r = size * 0.5f - 2.0f - thick * 1.6f;
         const float a = startAngle + pos * (endAngle - startAngle);
         const auto accent = accentOf (s);
         const bool on = s.isEnabled();
@@ -90,6 +99,35 @@ public:
         g.setColour (bb::col::ink);
         g.strokePath (p, juce::PathStrokeType (std::max (1.8f, size * 0.045f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
                       juce::AffineTransform::rotation (a).translated (c));
+    }
+
+    // Wertebalken (Min/Max Phrase, Min/Max Rep): Füllung zeigt den Wert, Beschriftung links, Wert rechts
+    void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h, float sliderPos, float, float,
+                           juce::Slider::SliderStyle, juce::Slider& s) override
+    {
+        auto r = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (0.5f);
+        const auto accent = accentOf (s);
+        const float rad = 7.0f;
+        g.setColour (juce::Colour (0x66000000));
+        g.fillRoundedRectangle (r, rad);
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            juce::Path clip; clip.addRoundedRectangle (r, rad);
+            g.reduceClipRegion (clip);
+            juce::ColourGradient fill (accent.withAlpha (0.50f), r.getX(), 0, accent.withAlpha (0.20f), sliderPos, 0, false);
+            g.setGradientFill (fill);
+            g.fillRect (r.withRight (std::max (r.getX() + 2.0f, sliderPos)));
+            g.setColour (accent);
+            g.fillRect (std::max (r.getX(), sliderPos - 2.0f), r.getY(), 2.0f, r.getHeight());
+        }
+        g.setColour (s.isMouseOverOrDragging() ? accent.withAlpha (0.8f) : bb::col::line);
+        g.drawRoundedRectangle (r, rad, 1.0f);
+        g.setFont (bb::fonts::display (11.5f, true));
+        g.setColour (bb::col::inkDim);
+        g.drawText (s.getProperties()["lbl"].toString(), r.reduced (9.0f, 0.0f), juce::Justification::centredLeft);
+        g.setFont (bb::fonts::mono (12.5f));
+        g.setColour (bb::col::ink);
+        g.drawText (s.getTextFromValue (s.getValue()), r.reduced (9.0f, 0.0f), juce::Justification::centredRight);
     }
 
     void drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&, bool over, bool down) override

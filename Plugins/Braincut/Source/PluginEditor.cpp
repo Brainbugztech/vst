@@ -11,18 +11,23 @@ namespace
         return (float) (((h * 2654435761u) >> 8) & 0xffffu) / 65536.0f;
     }
 
-    const juce::Rectangle<float> slicerCard { 16.0f, 170.0f, 240.0f, 334.0f };
-    const juce::Rectangle<float> stretchCard { 268.0f, 170.0f, 170.0f, 334.0f };
-    const juce::Rectangle<float> repeatCard { 450.0f, 170.0f, 212.0f, 334.0f };
-    const juce::Rectangle<float> glitchCard { 674.0f, 170.0f, 210.0f, 334.0f };
+    const float cardY = 226.0f, cardH = 358.0f;
+    const juce::Rectangle<float> slicerCard { 20.0f, cardY, 320.0f, cardH };
+    const juce::Rectangle<float> stretchCard { 350.0f, cardY, 150.0f, cardH };
+    const juce::Rectangle<float> repeatCard { 510.0f, cardY, 215.0f, cardH };
+    const juce::Rectangle<float> glitchCard { 735.0f, cardY, 205.0f, cardH };
 }
 
 BraincutEditor::BraincutEditor (BraincutProcessor& p)
     : AudioProcessorEditor (&p), proc (p), sliceView (p),
-      repeatK (p.apvts, ParamIDs::repeat, "REPEAT", col::green),
-      phraseK (p.apvts, ParamIDs::phrase, "PHRASE", col::green),
+      repeatK (p.apvts, ParamIDs::repeat, "AMOUNT", col::green),
+      loopK (p.apvts, ParamIDs::loop, "LOOP", col::green),
       subdivK (p.apvts, ParamIDs::subdiv, "SUB", col::green),
       seedK (p.apvts, ParamIDs::seed, "SEED", col::green),
+      phMinB (p.apvts, ParamIDs::phMin, "MIN PHRASE", col::green, "BAR"),
+      phMaxB (p.apvts, ParamIDs::phMax, "MAX PHRASE", col::green, "BAR"),
+      repMinB (p.apvts, ParamIDs::repMin, "MIN REP", col::green, "REP"),
+      repMaxB (p.apvts, ParamIDs::repMax, "MAX REP", col::green, "REP"),
       strAmtK (p.apvts, ParamIDs::strAmt, "AMOUNT", col::cyan),
       strMixK (p.apvts, ParamIDs::strMix, "MIX", col::cyan),
       repChanceK (p.apvts, ParamIDs::repChance, "CHANCE", col::pink),
@@ -36,16 +41,18 @@ BraincutEditor::BraincutEditor (BraincutProcessor& p)
 {
     setLookAndFeel (&lnf);
     logo = juce::ImageCache::getFromMemory (BBAssets::logo_text_png, BBAssets::logo_text_pngSize);
-    fx = juce::Image (juce::Image::ARGB, 240, 140, true);
+    fx = juce::Image (juce::Image::ARGB, 240, 150, true);
     renderFx (0.0);
 
     content.painter = [this] (juce::Graphics& g) { paintContent (g); };
     addAndMakeVisible (content);
 
     content.addAndMakeVisible (sliceView);
-    for (auto* k : { &repeatK, &phraseK, &subdivK, &seedK, &strAmtK, &strMixK, &repChanceK, &repRateK, &repGateK, &repDecayK,
+    for (auto* k : { &repeatK, &loopK, &subdivK, &seedK, &strAmtK, &strMixK, &repChanceK, &repRateK, &repGateK, &repDecayK,
                      &gliAmtK, &gliMixK, &mixK, &outK })
         content.addAndMakeVisible (*k);
+    for (auto* v : { &phMinB, &phMaxB, &repMinB, &repMaxB })
+        content.addAndMakeVisible (*v);
 
     // Feste Standardwerte per Doppelklick kommen aus den Parametern (SliderAttachment)
 
@@ -101,41 +108,51 @@ BraincutEditor::BraincutEditor (BraincutProcessor& p)
     nextBtn.onClick = [this] { proc.applyPreset ((proc.getPresetIndex() + 1) % bcpresets::kNumPresets); };
 
     // Positionen (in Basis-Pixeln, Fenster skaliert alles)
-    sliceView.setBounds (16, 74, 868, 86);
+    const int cy = (int) cardY;
+    sliceView.setBounds (20, 80, 920, 134);
 
-    cutBtn.setBounds (30, 212, 98, 26);
-    warpBtn.setBounds (134, 212, 98, 26);
-    repeatK.setBounds (76, 246, 120, 150);
-    phraseK.setBounds (20, 404, 72, 84);
-    subdivK.setBounds (100, 404, 72, 84);
-    seedK.setBounds (180, 404, 72, 84);
+    // Slicer: Modus, großer Regler, Bereichsbalken, kleine Regler
+    cutBtn.setBounds (178, cy + 8, 74, 24);
+    warpBtn.setBounds (256, cy + 8, 74, 24);
+    repeatK.setBounds (100, cy + 40, 160, 152);
+    phMinB.setBounds (32, cy + 202, 140, 28);
+    phMaxB.setBounds (188, cy + 202, 140, 28);
+    repMinB.setBounds (32, cy + 236, 140, 28);
+    repMaxB.setBounds (188, cy + 236, 140, 28);
+    loopK.setBounds (40, cy + 274, 84, 78);
+    subdivK.setBounds (132, cy + 274, 84, 78);
+    seedK.setBounds (224, cy + 274, 84, 78);
 
-    strOnBtn.setBounds (376, 176, 48, 22);
-    strAmtK.setBounds (293, 246, 120, 150);
-    strMixK.setBounds (317, 404, 72, 84);
+    // Stretch
+    strOnBtn.setBounds (350 + 150 - 48, cy + 8, 40, 24);
+    strAmtK.setBounds (350 + 15, cy + 40, 120, 152);
+    strMixK.setBounds (350 + 20, cy + 206, 110, 140);
 
-    repOnBtn.setBounds (600, 176, 48, 22);
-    repChanceK.setBounds (496, 246, 120, 150);
-    repRateK.setBounds (454, 404, 66, 84);
-    repGateK.setBounds (524, 404, 66, 84);
-    repDecayK.setBounds (594, 404, 66, 84);
+    // Repeat
+    repOnBtn.setBounds (510 + 215 - 48, cy + 8, 40, 24);
+    repChanceK.setBounds (510 + 47, cy + 40, 120, 152);
+    repRateK.setBounds (510 + 12, cy + 274, 62, 78);
+    repGateK.setBounds (510 + 76, cy + 274, 62, 78);
+    repDecayK.setBounds (510 + 140, cy + 274, 62, 78);
 
-    gliOnBtn.setBounds (822, 176, 48, 22);
-    bitBtn.setBounds (684, 208, 58, 24);
-    revBtn.setBounds (750, 208, 58, 24);
-    stopBtn.setBounds (816, 208, 58, 24);
-    frzBtn.setBounds (684, 238, 92, 24);
-    pitBtn.setBounds (782, 238, 92, 24);
-    gliAmtK.setBounds (727, 272, 104, 134);
-    gliMixK.setBounds (743, 410, 72, 84);
+    // Glitch
+    gliOnBtn.setBounds (735 + 205 - 48, cy + 8, 40, 24);
+    gliAmtK.setBounds (735 + 42, cy + 40, 120, 152);
+    bitBtn.setBounds (735 + 14, cy + 204, 56, 26);
+    revBtn.setBounds (735 + 74, cy + 204, 56, 26);
+    stopBtn.setBounds (735 + 134, cy + 204, 56, 26);
+    frzBtn.setBounds (735 + 14, cy + 236, 86, 26);
+    pitBtn.setBounds (735 + 104, cy + 236, 86, 26);
+    gliMixK.setBounds (735 + 60, cy + 274, 84, 78);
 
-    prevBtn.setBounds (330, 18, 28, 30);
-    presetBox.setBounds (362, 18, 196, 30);
-    nextBtn.setBounds (562, 18, 28, 30);
-    rollBtn.setBounds (602, 18, 60, 30);
-    lockBtn.setBounds (668, 18, 60, 30);
-    mixK.setBounds (748, 0, 64, 66);
-    outK.setBounds (820, 0, 64, 66);
+    // Kopfzeile
+    prevBtn.setBounds (344, 20, 28, 32);
+    presetBox.setBounds (376, 20, 206, 32);
+    nextBtn.setBounds (586, 20, 28, 32);
+    rollBtn.setBounds (630, 20, 62, 32);
+    lockBtn.setBounds (698, 20, 62, 32);
+    mixK.setBounds (800, 6, 64, 68);
+    outK.setBounds (874, 6, 64, 68);
 
     setResizable (true, true);
     setResizeLimits (baseW * 3 / 4, baseH * 3 / 4, baseW * 3 / 2, baseH * 3 / 2);
@@ -145,7 +162,7 @@ BraincutEditor::BraincutEditor (BraincutProcessor& p)
 
     syncFromParams();
     lastMs = juce::Time::getMillisecondCounterHiRes();
-    startTimerHz (20);
+    startTimerHz (30);
 }
 
 BraincutEditor::~BraincutEditor()
@@ -207,10 +224,10 @@ void BraincutEditor::renderFx (double t)
         g.setGradientFill (gr);
         g.fillEllipse (cx * W - rad * W, cy * H - rad * W, rad * W * 2.0f, rad * W * 2.0f);
     };
-    blob (0.16f + 0.10f * std::sin (tt * 0.13f), 0.30f + 0.18f * std::cos (tt * 0.10f), 0.42f, col::green, 0.34f);
-    blob (0.82f + 0.10f * std::cos (tt * 0.11f), 0.22f + 0.15f * std::sin (tt * 0.14f), 0.40f, col::pink, 0.32f);
-    blob (0.52f + 0.22f * std::sin (tt * 0.07f), 0.88f + 0.10f * std::cos (tt * 0.12f), 0.46f, col::cyan, 0.26f);
-    blob (0.34f + 0.25f * std::cos (tt * 0.09f), 0.62f + 0.15f * std::sin (tt * 0.08f), 0.34f, col::violet, 0.28f);
+    blob (0.16f + 0.10f * std::sin (tt * 0.13f), 0.30f + 0.18f * std::cos (tt * 0.10f), 0.42f, col::green, 0.26f);
+    blob (0.82f + 0.10f * std::cos (tt * 0.11f), 0.22f + 0.15f * std::sin (tt * 0.14f), 0.40f, col::pink, 0.24f);
+    blob (0.52f + 0.22f * std::sin (tt * 0.07f), 0.88f + 0.10f * std::cos (tt * 0.12f), 0.46f, col::cyan, 0.20f);
+    blob (0.34f + 0.25f * std::cos (tt * 0.09f), 0.62f + 0.15f * std::sin (tt * 0.08f), 0.34f, col::violet, 0.24f);
     blob (0.90f + 0.05f * std::sin (tt * 0.17f), 0.80f, 0.22f, col::orange, 0.16f);
 
     for (int k = 0; k < 3; ++k)
@@ -254,29 +271,39 @@ void BraincutEditor::paint (juce::Graphics& g)
     }
 }
 
-void BraincutEditor::paintCard (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title, juce::Colour accent,
-                                bool on, const juce::String& caption)
+void BraincutEditor::paintCard (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& title, juce::Colour accent, bool on)
 {
-    g.setColour (col::card.withAlpha (on ? 0.64f : 0.52f));
-    g.fillRoundedRectangle (r, 12.0f);
+    // Glas-Karte: dunkle Fläche, weicher Farbschein von oben, feiner Rand
+    juce::ColourGradient body (juce::Colour (0xff160e24).withAlpha (on ? 0.78f : 0.62f), 0, r.getY(),
+                               juce::Colour (0xff0b0714).withAlpha (on ? 0.80f : 0.64f), 0, r.getBottom(), false);
+    g.setGradientFill (body);
+    g.fillRoundedRectangle (r, 14.0f);
 
-    juce::ColourGradient glow (accent.withAlpha (on ? 0.20f : 0.06f), r.getX(), r.getY(), accent.withAlpha (0.0f), r.getX(), r.getY() + 110.0f, false);
+    juce::ColourGradient glow (accent.withAlpha (on ? 0.22f : 0.05f), r.getCentreX(), r.getY(), accent.withAlpha (0.0f), r.getCentreX(), r.getY() + 150.0f, false);
     g.setGradientFill (glow);
-    g.fillRoundedRectangle (r, 12.0f);
+    g.fillRoundedRectangle (r, 14.0f);
 
-    g.setColour (accent.withAlpha (on ? 0.38f : 0.12f));
-    g.drawRoundedRectangle (r.reduced (0.5f), 12.0f, 1.0f);
+    juce::ColourGradient edge (accent.withAlpha (on ? 0.55f : 0.16f), r.getX(), r.getY(), juce::Colours::white.withAlpha (0.07f), r.getX(), r.getBottom(), false);
+    g.setGradientFill (edge);
+    g.drawRoundedRectangle (r.reduced (0.5f), 14.0f, 1.0f);
 
-    g.setFont (bb::fonts::display (15.0f, true));
-    g.setColour (accent.withAlpha (on ? 1.0f : 0.5f));
-    g.drawText (title, r.getX() + 16.0f, r.getY() + 6.0f, r.getWidth() - 80.0f, 24.0f, juce::Justification::centredLeft);
-
-    if (caption.isNotEmpty())
+    // Kopf: Farbpunkt + Titel
+    const float cx = r.getX() + 20.0f, cy = r.getY() + 20.0f;
+    if (on)
     {
-        g.setFont (bb::fonts::mono (11.5f));
-        g.setColour (bb::col::inkDim.withAlpha (on ? 0.9f : 0.5f));
-        g.drawText (caption, r.getX() + 16.0f, r.getY() + 40.0f, r.getWidth() - 24.0f, 18.0f, juce::Justification::centredLeft);
+        g.setColour (accent.withAlpha (0.30f));
+        g.fillEllipse (cx - 7.0f, cy - 7.0f, 14.0f, 14.0f);
     }
+    g.setColour (on ? accent : accent.withAlpha (0.35f));
+    g.fillEllipse (cx - 3.5f, cy - 3.5f, 7.0f, 7.0f);
+    auto f = bb::fonts::display (13.5f, true);
+    f.setExtraKerningFactor (0.05f);
+    g.setFont (f);
+    g.setColour (on ? bb::col::ink : bb::col::inkDim);
+    g.drawText (title, (int) r.getX() + 34, (int) r.getY() + 8, (int) r.getWidth() - 84, 24, juce::Justification::centredLeft);
+
+    g.setColour (juce::Colours::white.withAlpha (0.06f));
+    g.fillRect (r.getX() + 16.0f, r.getY() + 38.0f, r.getWidth() - 32.0f, 1.0f);
 }
 
 void BraincutEditor::paintContent (juce::Graphics& g)
@@ -284,21 +311,20 @@ void BraincutEditor::paintContent (juce::Graphics& g)
     // Kopfzeile: kleines Logo und Titel
     if (logo.isValid())
     {
-        const float lh = 38.0f;
+        const float lh = 34.0f;
         const float lw = lh * (float) logo.getWidth() / (float) std::max (1, logo.getHeight());
-        g.drawImage (logo, juce::Rectangle<float> (16.0f, 14.0f, lw, lh), juce::RectanglePlacement::centred);
+        g.drawImage (logo, juce::Rectangle<float> (20.0f, 18.0f, lw, lh), juce::RectanglePlacement::centred);
     }
-    juce::ColourGradient tg (col::green, 112.0f, 0.0f, col::pink, 300.0f, 0.0f, false);
+    juce::ColourGradient tg (col::green, 124.0f, 0.0f, col::pink, 320.0f, 0.0f, false);
     tg.addColour (0.5, col::cyan);
     g.setGradientFill (tg);
-    g.setFont (bb::fonts::display (30.0f, true));
-    g.drawText ("BRAINCUT", 112, 10, 200, 36, juce::Justification::centredLeft);
-    g.setFont (bb::fonts::mono (11.0f));
-    g.setColour (bb::col::inkDim);
-    g.drawText ("slice  stretch  repeat  glitch", 114, 44, 210, 14, juce::Justification::centredLeft);
+    auto tf = bb::fonts::display (28.0f, true);
+    tf.setExtraKerningFactor (0.10f);
+    g.setFont (tf);
+    g.drawText ("BRAINCUT", 124, 14, 210, 40, juce::Justification::centredLeft);
 
-    paintCard (g, slicerCard, "SLICER", col::green, true, {});
-    paintCard (g, stretchCard, "STRETCH", col::cyan, flag (ParamIDs::strOn), juce::String::fromUTF8 ("Zufalls-Streckung \xc2\xb7 Pitch bleibt"));
-    paintCard (g, repeatCard, "REPEAT", col::pink, flag (ParamIDs::repOn), juce::String::fromUTF8 ("Stotterer & Rolls"));
-    paintCard (g, glitchCard, "GLITCH", col::violet, flag (ParamIDs::gliOn), {});
+    paintCard (g, slicerCard, "SLICER", col::green, true);
+    paintCard (g, stretchCard, "STRETCH", col::cyan, flag (ParamIDs::strOn));
+    paintCard (g, repeatCard, "REPEAT", col::pink, flag (ParamIDs::repOn));
+    paintCard (g, glitchCard, "GLITCH", col::violet, flag (ParamIDs::gliOn));
 }

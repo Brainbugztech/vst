@@ -132,7 +132,7 @@ int main()
 
     // 4) Lock: jede Phrase hat dasselbe Muster
     {
-        auto p = allOff(); p.slicer.repeatProb = 0.8f; p.slicer.seed = 7; p.slicer.lock = true;
+        auto p = allOff(); p.slicer.repeatProb = 0.8f; p.slicer.seed = 7; p.slicer.lock = true; p.slicer.phraseMin = p.slicer.phraseMax = 1;
         auto in = loopNoise (total, bar, 0.5f);
         BraincutEngine e; e.prepare (fs);
         auto out = run (e, p, in);
@@ -221,7 +221,7 @@ int main()
             for (int b = 0; b < 400; ++b)
             {
                 EngineParams p;
-                p.slicer.mode = (int) (uni() * 1.99f); p.slicer.phraseIdx = (int) (uni() * 2.99f); p.slicer.subdivIdx = (int) (uni() * 3.99f);
+                p.slicer.mode = (int) (uni() * 1.99f); p.slicer.loopIdx = (int) (uni() * 2.99f); p.slicer.phraseMin = 1 + (int) (uni() * 7.99f); p.slicer.phraseMax = 1 + (int) (uni() * 7.99f); p.slicer.repMin = (int) (uni() * 16.99f); p.slicer.repMax = (int) (uni() * 16.99f); p.slicer.subdivIdx = (int) (uni() * 3.99f);
                 p.slicer.repeatProb = uni(); p.slicer.seed = (int) (uni() * 9999); p.slicer.lock = uni() < 0.3f;
                 p.stretch.on = uni() < 0.7f; p.stretch.amount = uni(); p.stretch.mix = uni();
                 p.repeat.on = uni() < 0.7f; p.repeat.chance = uni(); p.repeat.rateIdx = (int) (uni() * 4.99f); p.repeat.gate = 0.1f + 0.9f * uni(); p.repeat.decay = uni();
