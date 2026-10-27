@@ -28,7 +28,7 @@ add_library(WormholeFFT STATIC
     Engine/pffft/pffft.c
     Engine/pffft/pffft_common.c)
 target_include_directories(WormholeFFT PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Engine ${CMAKE_CURRENT_SOURCE_DIR}/Engine/pffft)
-target_compile_definitions(WormholeFFT PRIVATE _USE_MATH_DEFINES)
+target_compile_definitions(WormholeFFT PRIVATE _USE_MATH_DEFINES PUBLIC PFFFT_STATIC_DEFINE)
 set_target_properties(WormholeFFT PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(MSVC)
     target_compile_options(WormholeFFT PRIVATE /W0)
