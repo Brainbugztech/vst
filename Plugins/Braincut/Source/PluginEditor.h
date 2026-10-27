@@ -29,15 +29,15 @@ private:
 
     void timerCallback() override;
     void paintContent (juce::Graphics&);
-    void renderFx (double t);
     void paintCard (juce::Graphics&, juce::Rectangle<float>, const juce::String& title, juce::Colour accent, bool on);
+    void paintGlitch (juce::Graphics&);
     void syncFromParams();
     bool flag (const char* id) const { return proc.apvts.getRawParameterValue (id)->load() > 0.5f; }
 
     BraincutProcessor& proc;
     bcui::Look lnf;
     Content content;
-    juce::Image bg, fx;
+    juce::Image bg;
     double timeSec = 0.0, lastMs = 0.0;
 
     bcui::SliceView sliceView;

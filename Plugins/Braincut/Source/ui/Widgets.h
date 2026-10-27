@@ -40,7 +40,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         g.setFont (bb::fonts::mono (12.0f));
-        g.setColour (bb::col::ink);
+        g.setColour (col::ink);
         g.drawText (slider.getTextFromValue (slider.getValue()), 0, getHeight() - kLabelH, getWidth(), 14, juce::Justification::centred);
         g.setFont (bb::fonts::display (12.5f, true));
         g.setColour (accent.withAlpha (0.92f));
@@ -105,16 +105,19 @@ public:
 
         // Scheibe und Skala
         {
-            juce::ColourGradient d (juce::Colour (0xff0b0714).withAlpha (0.35f), cx, cy, juce::Colour (0xff0b0714).withAlpha (0.78f), cx + R + 6.0f, cy, true);
+            // dunkle Scheibe, die Mitte bleibt durchsichtig, damit der Vortex aus dem Bild durchscheint
+            juce::ColourGradient d (col::glass.withAlpha (0.20f), cx, cy, col::glass.withAlpha (0.80f), cx + R + 6.0f, cy, true);
             g.setGradientFill (d);
             g.fillEllipse (cx - R - 6.0f, cy - R - 6.0f, (R + 6.0f) * 2.0f, (R + 6.0f) * 2.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.12f));
+            g.setColour (col::frame.withAlpha (0.25f));
+            g.drawEllipse (cx - R - 10.0f, cy - R - 10.0f, (R + 10.0f) * 2.0f, (R + 10.0f) * 2.0f, 5.0f);
+            g.setColour (col::slicer.withAlpha (0.55f));
             g.drawEllipse (cx - R - 6.0f, cy - R - 6.0f, (R + 6.0f) * 2.0f, (R + 6.0f) * 2.0f, 1.0f);
             for (int k = 0; k < 64; ++k)
             {
                 const float a = twoPi * (float) k / 64.0f;
                 const float len = (k % 4 == 0) ? 6.0f : 3.0f;
-                g.setColour (juce::Colours::white.withAlpha ((k % 16 == 0) ? 0.55f : 0.22f));
+                g.setColour ((k % 16 == 0) ? col::ink.withAlpha (0.75f) : col::slicer.withAlpha (0.40f));
                 g.drawLine (juce::Line<float> (pt (R + 9.0f, a), pt (R + 9.0f + len, a)), 1.0f);
             }
         }
@@ -134,10 +137,10 @@ public:
                 g.setColour (spectrum ((float) i / (float) blocks).withAlpha (0.16f));
                 g.fillPath (wedge (o0, o1, a0, a1));
             }
-            g.setColour (juce::Colours::white.withAlpha (0.10f));
+            g.setColour (col::slicer.withAlpha (0.25f));
             g.drawEllipse (cx - l1, cy - l1, l1 * 2.0f, l1 * 2.0f, 1.0f);
             g.setFont (bb::fonts::display (13.0f, true));
-            g.setColour (bb::col::inkDim);
+            g.setColour (col::inkDim);
             g.drawText ("START HOST", (int) cx - 50, (int) cy - 16, 100, 16, juce::Justification::centred);
             g.drawText ("TRANSPORT", (int) cx - 50, (int) cy + 2, 100, 16, juce::Justification::centred);
             return;
@@ -236,27 +239,28 @@ public:
 
         // Mitte: Zahl der Schritte
         g.setFont (bb::fonts::display (30.0f, true));
-        g.setColour (bb::col::ink);
+        g.setColour (col::ink);
         g.drawText (juce::String (n), (int) cx - 40, (int) cy - 34, 80, 34, juce::Justification::centred);
         g.setFont (bb::fonts::display (11.5f, true));
-        g.setColour (bb::col::inkDim);
+        g.setColour (col::inkDim);
         g.drawText ("STEPS", (int) cx - 40, (int) cy, 80, 14, juce::Justification::centred);
         g.setFont (bb::fonts::mono (11.0f));
         g.drawText (juce::String (pb, pb == std::floor (pb) ? 0 : 1) + " BEATS", (int) cx - 40, (int) cy + 15, 80, 14, juce::Justification::centred);
 
-        // Lichter für Repeater und Glitcher
+        // Lichter für Repeater und Glitcher: links und rechts unten neben dem Ring
         auto chip = [&] (juce::Rectangle<float> cr, const char* text, bool lit, juce::Colour c)
         {
-            g.setColour (lit ? c.withAlpha (0.30f) : juce::Colours::black.withAlpha (0.35f));
-            g.fillRoundedRectangle (cr, 6.0f);
-            g.setColour (lit ? c : bb::col::line);
-            g.drawRoundedRectangle (cr, 6.0f, 1.0f);
+            const auto shape = chamfer (cr, 5.0f);
+            g.setColour (lit ? c.withAlpha (0.32f) : col::glass.withAlpha (0.7f));
+            g.fillPath (shape);
+            g.setColour (lit ? c : col::line.brighter (0.3f));
+            g.strokePath (shape, juce::PathStrokeType (1.0f));
             g.setFont (bb::fonts::display (10.5f, true));
-            g.setColour (lit ? c.brighter (0.4f) : bb::col::inkDim.withAlpha (0.6f));
+            g.setColour (lit ? c.brighter (0.6f) : col::inkDim.withAlpha (0.6f));
             g.drawText (text, cr, juce::Justification::centred);
         };
-        chip ({ cx - 74.0f, b.getBottom() - 24.0f, 70.0f, 18.0f }, "REPEAT", proc.engine.vizRepeat.load (std::memory_order_relaxed), col::pink);
-        chip ({ cx + 4.0f, b.getBottom() - 24.0f, 70.0f, 18.0f }, "GLITCH", proc.engine.vizGlitch.load (std::memory_order_relaxed), col::violet);
+        chip ({ b.getX() + 2.0f, b.getBottom() - 22.0f, 58.0f, 18.0f }, "REPEAT", proc.engine.vizRepeat.load (std::memory_order_relaxed), col::repeat);
+        chip ({ b.getRight() - 60.0f, b.getBottom() - 22.0f, 58.0f, 18.0f }, "GLITCH", proc.engine.vizGlitch.load (std::memory_order_relaxed), col::glitch);
     }
 
 private:
