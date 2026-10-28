@@ -16,4 +16,22 @@ import type { Release } from "../types";
 //   featured: true,
 // },
 
-export const releases: Release[] = [];
+export const releases: Release[] = [
+  {
+    slug: "finger-on-the-trigger",
+    title: "Finger on the Trigger",
+    type: "track",
+    artists: "Brainbugz (Benido & Artificial Organism) & Lilith",
+    releaseDate: "2026-05-22",
+    label: "Speeding Records",
+    artwork: { src: "/media/releases/rapido-y-furioso-va.webp", alt: "Cover of Rapido Y Furioso VA: a red mech robot in front of a blue lightning tunnel" },
+    appearsOn: {
+      title: "Rapido Y Furioso VA",
+      url: "https://speedingrecords.bandcamp.com/album/rapido-y-furioso-va",
+    },
+    description: "Our first release: 185 BPM together with Lilith, out on Speeding Records.",
+    bandcamp: { albumId: "520798435", trackId: "2364707309" },
+    links: [{ label: "Track on Bandcamp", url: "https://speedingrecords.bandcamp.com/track/finger-on-the-trigger-185" }],
+    featured: true,
+  },
+];

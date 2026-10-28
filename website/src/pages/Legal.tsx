@@ -84,10 +84,10 @@ export function Datenschutz() {
         E-Mail widerrufen.
       </p>
 
-      <h2>4. SoundCloud- und Spotify-Player</h2>
+      <h2>4. SoundCloud-, Spotify- und Bandcamp-Player</h2>
       <p>
-        Auf der Musik-Seite können offizielle Player von SoundCloud (SoundCloud Global Limited &amp; Co. KG, Berlin) und Spotify
-        (Spotify AB, Stockholm) eingebunden sein. Sie werden erst geladen, wenn du auf den Button „Load … player“ klickst. Erst dann wird eine
+        Auf der Musik-Seite können offizielle Player von SoundCloud (SoundCloud Global Limited &amp; Co. KG, Berlin), Spotify
+        (Spotify AB, Stockholm) und Bandcamp (Bandcamp, Inc., USA) eingebunden sein. Sie werden erst geladen, wenn du auf den Button „Load … player“ klickst. Erst dann wird eine
         Verbindung zum jeweiligen Anbieter aufgebaut, der dabei u. a. deine IP-Adresse erhält und Cookies setzen kann.
         Rechtsgrundlage ist deine Einwilligung (Art. 6 Abs. 1 lit. a DSGVO). Wenn du „Always load … players“ wählst, speichern wir diese
         Entscheidung nur lokal in deinem Browser (localStorage). Du kannst sie löschen, indem du die Website-Daten in deinem Browser

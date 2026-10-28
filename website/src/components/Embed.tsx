@@ -1,14 +1,15 @@
 import { useId, useState } from "react";
 import { Link } from "../lib/router";
 import { readFlag, writeFlag } from "../lib/storage";
-import { soundcloudEmbedUrl, spotifyEmbedUrl } from "../lib/urls";
+import { bandcampEmbedUrl, soundcloudEmbedUrl, spotifyEmbedUrl } from "../lib/urls";
 import { ExternalLink } from "./ui";
 
-type Provider = "soundcloud" | "spotify";
+type Provider = "soundcloud" | "spotify" | "bandcamp";
 
 const info: Record<Provider, { name: string; host: string; height: number }> = {
   soundcloud: { name: "SoundCloud", host: "soundcloud.com", height: 166 },
   spotify: { name: "Spotify", host: "spotify.com", height: 152 },
+  bandcamp: { name: "Bandcamp", host: "bandcamp.com", height: 120 },
 };
 
 const consentKey = (p: Provider) => `bb-consent-${p}`;
@@ -17,8 +18,19 @@ const consentKey = (p: Provider) => `bb-consent-${p}`;
  * Offizieller Player von SoundCloud/Spotify mit Zwei-Klick-Lösung:
  * Erst nach Klick wird eine Verbindung zum Anbieter aufgebaut (DSGVO).
  */
-export function MusicEmbed({ provider, url, title }: { provider: Provider; url: string; title: string }) {
-  const src = provider === "soundcloud" ? soundcloudEmbedUrl(url) : spotifyEmbedUrl(url);
+export function MusicEmbed({
+  provider,
+  url,
+  title,
+  bandcamp,
+}: {
+  provider: Provider;
+  url: string;
+  title: string;
+  bandcamp?: { albumId: string; trackId?: string };
+}) {
+  const src =
+    provider === "soundcloud" ? soundcloudEmbedUrl(url) : provider === "spotify" ? spotifyEmbedUrl(url) : bandcampEmbedUrl(bandcamp);
   const [allowed, setAllowed] = useState(() => readFlag(consentKey(provider)));
   const [remember, setRemember] = useState(false);
   const rememberId = useId();

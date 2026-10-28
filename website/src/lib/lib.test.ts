@@ -6,7 +6,7 @@ import { splitGigs } from "./gigs";
 import { checkoutUrlOf, downloadUrlOf, filterPlugins, pickFeaturedPlugin, sortPlugins } from "./plugins";
 import { parseNowPlaying, resolveRadioMode } from "./radio";
 import { matchRoute, normalizePath } from "./router";
-import { instagramDmUrl, safeExternalUrl, soundcloudEmbedUrl, spotifyEmbedUrl } from "./urls";
+import { bandcampEmbedUrl, instagramDmUrl, safeExternalUrl, soundcloudEmbedUrl, spotifyEmbedUrl } from "./urls";
 
 const base: Plugin = {
   slug: "x",
@@ -100,6 +100,13 @@ describe("urls", () => {
     );
     expect(spotifyEmbedUrl("https://open.spotify.com/hack/123")).toBeNull();
     expect(spotifyEmbedUrl("https://open.spotify.evil.com/album/1")).toBeNull();
+  });
+  it("bandcamp embed only with numeric ids", () => {
+    expect(bandcampEmbedUrl({ albumId: "520798435", trackId: "2364707309" })).toBe(
+      "https://bandcamp.com/EmbeddedPlayer/album=520798435/size=large/bgcol=0a0c18/linkcol=7b5cff/tracklist=false/artwork=small/track=2364707309/transparent=true/",
+    );
+    expect(bandcampEmbedUrl({ albumId: "12/evil" })).toBeNull();
+    expect(bandcampEmbedUrl(undefined)).toBeNull();
   });
   it("instagram dm", () => {
     expect(instagramDmUrl("@brain.bugz")).toBe("https://ig.me/m/brain.bugz");
