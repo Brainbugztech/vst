@@ -24,6 +24,7 @@ export const releases: Release[] = [
     artists: "Brainbugz (Benido & Artificial Organism) & Lilith",
     releaseDate: "2026-05-22",
     label: "Speeding Records",
+    artwork: { src: "/media/releases/rapido-y-furioso-va.webp", alt: "Cover of Rapido Y Furioso VA: a red mech robot in front of a blue lightning tunnel" },
     appearsOn: {
       title: "Rapido Y Furioso VA",
       url: "https://speedingrecords.bandcamp.com/album/rapido-y-furioso-va",
