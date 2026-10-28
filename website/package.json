@@ -1,0 +1,34 @@
+{
+  "name": "brainbugz-website",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:drafts": "vite --mode drafts",
+    "build": "tsc -b && vite build",
+    "build:drafts": "tsc -b && vite build --mode drafts",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "plugin:publish": "node tools/set-plugin-published.mjs"
+  },
+  "dependencies": {
+    "@fontsource/chakra-petch": "5.2.6",
+    "@fontsource/share-tech-mono": "5.2.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.2",
+    "@types/react-dom": "19.1.2",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "5.8.3",
+    "vite": "6.4.5",
+    "vitest": "5.0.5"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

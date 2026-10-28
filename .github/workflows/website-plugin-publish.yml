@@ -1,0 +1,84 @@
+name: Plugin veröffentlichen (Website)
+
+# Button für Benett und Dexter: GitHub → Actions → "Plugin veröffentlichen (Website)" → Run workflow.
+# Schaltet ein Plugin auf der Website sichtbar oder unsichtbar. Netlify baut danach automatisch neu.
+# Nur Leute mit Schreibrechten am Repo können den Button benutzen.
+# Neues Plugin? Slug unten bei "options" ergänzen (muss genau so in website/src/content/plugins.json stehen).
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: "Welches Plugin?"
+        required: true
+        type: choice
+        options:
+          - braincut
+          - prizm
+          - brainfuzz
+          - snare-head
+          - bleep-designer
+          - bugz-align
+          - bugfuzz
+          - haas
+      action:
+        description: "Was soll passieren?"
+        required: true
+        type: choice
+        default: veröffentlichen
+        options:
+          - veröffentlichen
+          - zurückziehen
+
+permissions:
+  contents: write
+
+concurrency:
+  group: website-plugin-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Plugin umschalten
+        env:
+          PLUGIN: ${{ inputs.plugin }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          if [ "$ACTION" = "veröffentlichen" ]; then VALUE=true; else VALUE=false; fi
+          node tools/set-plugin-published.mjs "$PLUGIN" "$VALUE"
+
+      - name: Website testen (bricht ab, wenn etwas kaputt ist)
+        run: |
+          npm ci
+          npm run check
+
+      - name: Änderung speichern
+        env:
+          PLUGIN: ${{ inputs.plugin }}
+          ACTION: ${{ inputs.action }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if git diff --quiet -- src/content/plugins.json; then
+            echo "Keine Änderung nötig."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/content/plugins.json
+          git commit -m "Website: $PLUGIN $ACTION (von $ACTOR)"
+          git push origin HEAD:main

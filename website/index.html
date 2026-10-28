@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BrainBugz: Underground psychedelic HiTech duo</title>
+    <meta name="description" content="BrainBugz is an underground psychedelic HiTech duo: music, sound design and our own audio plugins." />
+    <meta name="theme-color" content="#05060c" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preload" as="image" href="/media/brand/wordmark.webp" type="image/webp" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="BrainBugz" />
+    <meta property="og:title" content="BrainBugz: Underground psychedelic HiTech duo" />
+    <meta property="og:description" content="BrainBugz is an underground psychedelic HiTech duo: music, sound design and our own audio plugins." />
+    <meta property="og:image" content="https://brainbugz.netlify.app/media/brand/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <noscript>
+      <p style="padding:2rem;color:#e8ecff;background:#05060c;font-family:sans-serif">
+        BrainBugz needs JavaScript to show this page. Please enable it in your browser.
+      </p>
+    </noscript>
+    <div id="root"></div>
+
+    <!--
+      Netlify Forms: Netlify findet das Booking-Formular beim Deploy über dieses versteckte HTML-Formular.
+      Die Feldnamen müssen mit src/lib/booking.ts (encodeForNetlify) übereinstimmen.
+    -->
+    <form name="booking" data-netlify="true" netlify-honeypot="bot-field" hidden>
+      <input type="text" name="bot-field" />
+      <input type="text" name="name" />
+      <input type="email" name="email" />
+      <input type="text" name="organization" />
+      <input type="text" name="eventName" />
+      <input type="date" name="eventDate" />
+      <input type="text" name="location" />
+      <input type="text" name="eventType" />
+      <input type="text" name="budget" />
+      <textarea name="message"></textarea>
+      <input type="checkbox" name="consent" />
+    </form>
+
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

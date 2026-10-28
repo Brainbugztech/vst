@@ -3,7 +3,10 @@ name: Build Windows VST3
 on:
   push:
     branches: [ main ]
+    # Reine Website-Änderungen brauchen keinen Windows-Plugin-Build
+    paths-ignore: [ 'website/**', '.github/workflows/website-*.yml' ]
   pull_request:
+    paths-ignore: [ 'website/**', '.github/workflows/website-*.yml' ]
   workflow_dispatch:
 
 permissions:
