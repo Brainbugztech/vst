@@ -179,7 +179,9 @@ export function RadioProvider({ children }: { children: ReactNode }) {
       }
       // Erster Klick: SoundCloud-Player laden (erst jetzt Verbindung zu SoundCloud)
       setStatus("loading");
-      setLoopFrameSrc(soundcloudEmbedUrl(radioConfig.loop.soundcloudUrl, { autoPlay: true }));
+      setLoopFrameSrc(
+        soundcloudEmbedUrl(radioConfig.loop.soundcloudUrl, { autoPlay: true, trackId: radioConfig.loop.trackId }),
+      );
     }
   }, [mode, streamUrl, getAudio]);
 
@@ -203,6 +205,7 @@ export function RadioProvider({ children }: { children: ReactNode }) {
 
   const setVolume = useCallback((v: number) => {
     const clamped = Math.min(1, Math.max(0, v));
+    volumeRef.current = clamped;
     setVolumeState(clamped);
     writeNumber("bb-radio-volume", clamped);
     if (audioRef.current) audioRef.current.volume = clamped;

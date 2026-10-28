@@ -25,7 +25,7 @@ function hostIs(u: URL, ...hosts: string[]) {
 /** Offizieller SoundCloud-Player für eine soundcloud.com-URL. */
 export function soundcloudEmbedUrl(
   trackUrl: string | undefined,
-  opts: { autoPlay?: boolean; visual?: boolean } = {},
+  opts: { autoPlay?: boolean; visual?: boolean; trackId?: string } = {},
 ): string | null {
   const safe = safeExternalUrl(trackUrl);
   if (!safe) return null;
@@ -33,7 +33,11 @@ export function soundcloudEmbedUrl(
   if (u.protocol !== "https:" || !hostIs(u, "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com")) return null;
   if (u.pathname.split("/").filter(Boolean).length < 1) return null;
   // Tracking-Parameter (si, utm_...) entfernen, der private "/s-..."-Teil bleibt im Pfad erhalten
-  const clean = `https://soundcloud.com${u.pathname.replace(/\/+$/, "")}`;
+  const path = u.pathname.replace(/\/+$/, "");
+  // Private Links ("/s-XXXX" am Ende) spielt der Player nur über Track-Nummer + secret_token
+  const secret = /\/(s-[A-Za-z0-9]+)$/.exec(path)?.[1];
+  const usePrivate = secret && opts.trackId && /^\d+$/.test(opts.trackId);
+  const clean = usePrivate ? `https://api.soundcloud.com/tracks/${opts.trackId}` : `https://soundcloud.com${path}`;
   const params = new URLSearchParams({
     url: clean,
     color: "#7b5cff",
@@ -44,6 +48,7 @@ export function soundcloudEmbedUrl(
     show_reposts: "false",
     visual: opts.visual ? "true" : "false",
   });
+  if (usePrivate) params.set("secret_token", secret);
   return `https://w.soundcloud.com/player/?${params.toString()}`;
 }
 

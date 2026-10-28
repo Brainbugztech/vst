@@ -65,10 +65,23 @@ export const radio = {
    */
   loop: {
     soundcloudUrl: "https://soundcloud.com/benidohitech/brainbugz-orange-sun-2h-2026/s-jBOKVoZwxJK",
+    /**
+     * Nur für PRIVATE SoundCloud-Links nötig: die Track-Nummer.
+     * Zu finden auf SoundCloud unter Teilen → Einbetten (Embed): im Code steht "api.soundcloud.com/tracks/ZAHL".
+     */
+    trackId: "2378468972",
     title: "Orange Sun",
     artist: "BrainBugz",
     /** Kurzer Hinweis, z. B. Länge des Sets */
     note: "2h set on loop",
+  },
+  /**
+   * Eingangs-Screen beim ersten Besuch: "Enter with sound" startet das Radio (Klick = Zustimmung + Browser erlaubt Ton).
+   * volume: Startlautstärke 0–1 (0.3 = 30 %).
+   */
+  entryGate: {
+    enabled: true,
+    volume: 0.3,
   },
 };
 
