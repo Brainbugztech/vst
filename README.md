@@ -175,5 +175,6 @@ cmake --build build --config Release
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
 - `Prototypes` – Browser-Prototypen zum Reinhören
+- `website` – BrainBugz-Website (React + Vite, Hosting kostenlos bei Netlify), Anleitung in `website/README.md`
 
 Schriften: Chakra Petch und Share Tech Mono (SIL Open Font License) werden beim Build geladen.

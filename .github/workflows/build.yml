@@ -3,7 +3,10 @@ name: Build Windows VST3
 on:
   push:
     branches: [ main ]
+    # Reine Website-Änderungen brauchen keinen Windows-Plugin-Build
+    paths-ignore: [ 'website/**', '.github/workflows/website-*.yml' ]
   pull_request:
+    paths-ignore: [ 'website/**', '.github/workflows/website-*.yml' ]
   workflow_dispatch:
 
 permissions:
@@ -84,7 +87,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p out-pr
-          changed=$(git diff --name-only HEAD^1 HEAD | grep '^Plugins/' | cut -d/ -f2 | sort -u)
+          # '|| true': PRs ohne Plugin-Änderung (z. B. nur HQ-App) sollen nicht abbrechen
+          changed=$( (git diff --name-only HEAD^1 HEAD | grep '^Plugins/' || true) | cut -d/ -f2 | sort -u)
           echo "Geändert: $changed"
           for p in $changed; do
             [ -d "build/Plugins/$p" ] || continue

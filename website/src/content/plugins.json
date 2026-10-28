@@ -1,0 +1,297 @@
+[
+  {
+    "slug": "braincut",
+    "published": false,
+    "name": "Braincut",
+    "tagline": "Slicer, stretcher, repeater and glitcher in one tempo-synced unit.",
+    "description": [
+      "Braincut chops incoming audio into tempo-synced slices and rearranges, stretches, repeats and glitches them. A seed and lock system keeps a pattern you like while you keep tweaking."
+    ],
+    "features": [
+      "Slicer with CUT and WARP modes, loop length of 1, 2 or 4 bars and 1/4 to 1/32 subdivisions",
+      "Phrase and repeat ranges with seed and lock",
+      "Stretch section with amount and mix",
+      "Repeater with chance, rate (1/8 to 1/32, incl. triplets), gate and decay",
+      "Glitch section: bit reduction, reverse, stop, freeze and pitch",
+      "Input, output and dry/wet mix"
+    ],
+    "category": "fx",
+    "type": "Glitch & Stutter",
+    "status": "in-development",
+    "access": {
+      "type": "coming-soon"
+    },
+    "accent": "#7b5cff",
+    "os": [
+      "Windows 10/11 (64-bit)"
+    ],
+    "formats": [
+      "VST3"
+    ],
+    "testedDaws": [],
+    "version": "0.1.0",
+    "addedDate": "2026-10-26",
+    "changelog": [],
+    "cover": {
+      "file": "braincut.webp",
+      "alt": "Braincut slicer artwork in dark violet"
+    }
+  },
+  {
+    "slug": "prizm",
+    "published": false,
+    "name": "Prizm",
+    "tagline": "Harmonic sweetener that pulls any audio into a key.",
+    "description": [
+      "Prizm pulls detuned pads, noise, drums or whole loops into a musical key. Both modes share the same filter core: a band-pass bank with one filter per note of the scale.",
+      "Zero Latency runs the filter bank directly for live use and recording. High Quality applies the same curve as a spectral mask with clearer transients and adds Shift, which snaps off-key notes to the nearest note of the scale."
+    ],
+    "features": [
+      "Zero Latency and High Quality modes",
+      "Key and scale selection, custom notes with per-note weighting",
+      "Key follows MIDI input or a sidechain track",
+      "Learn: detects key, scale and tuning from 8 seconds of input",
+      "Pitch Matrix that shows where every note ends up, with drag-to-remap",
+      "Two LFOs and an envelope follower with up to 8 modulation assignments",
+      "Range, gate, mid/side processing and formant preservation",
+      "39 factory presets"
+    ],
+    "category": "fx",
+    "type": "Filter & Modulation",
+    "status": "in-development",
+    "access": {
+      "type": "coming-soon"
+    },
+    "accent": "#3fd0ff",
+    "os": [
+      "Windows 10/11 (64-bit)"
+    ],
+    "formats": [
+      "VST3"
+    ],
+    "testedDaws": [],
+    "version": "0.1.0",
+    "addedDate": "2026-10-25",
+    "changelog": [],
+    "cover": {
+      "file": "prizm.webp",
+      "alt": "Prizm backdrop with dark blue particles",
+      "overlayName": true
+    }
+  },
+  {
+    "slug": "brainfuzz",
+    "published": false,
+    "name": "Brainfuzz",
+    "tagline": "4-band saturation with stereo width and per-band effects.",
+    "description": [
+      "Brainfuzz splits the signal into four bands. Every band gets its own drive, level, width and spread, plus crush, chorus and reverb. Saturation runs with linear-phase 4x oversampling.",
+      "Width and spread are mono-safe: the mono sum stays the same, so the extra width disappears cleanly in mono."
+    ],
+    "features": [
+      "Live per-band analyser with draggable crossovers",
+      "7 saturation types from hard to warm: Splat, Fuzz, Fold, Diode, Crunch, Tube, Tape",
+      "8 crossover filter types at 12, 24 or 48 dB",
+      "Per-band crush, chorus and reverb, pre or post saturation",
+      "Tight filters that only clean up the distortion products at the band edges",
+      "Mono bass, limiter, undo/redo and a resizable window",
+      "40 level-matched factory presets"
+    ],
+    "category": "fx",
+    "type": "Distortion & Saturation",
+    "status": "in-development",
+    "access": {
+      "type": "coming-soon"
+    },
+    "accent": "#ff4fd8",
+    "os": [
+      "Windows 10/11 (64-bit)"
+    ],
+    "formats": [
+      "VST3"
+    ],
+    "testedDaws": [],
+    "version": "0.1.0",
+    "addedDate": "2026-10-24",
+    "changelog": [],
+    "cover": {
+      "file": "brainfuzz.webp",
+      "alt": "Brainfuzz logo on a dark violet background",
+      "fit": "contain"
+    }
+  },
+  {
+    "slug": "snare-head",
+    "published": false,
+    "name": "Snare Head",
+    "tagline": "Snare synth for metallic psy and HiTech snares.",
+    "description": [
+      "Snare Head is an instrument: every MIDI note triggers a snare. Instead of a deep body it builds the sound from a ringing cluster of six resonances, band-limited noise and a hard block envelope."
+    ],
+    "features": [
+      "Ring cluster tunable from 700 Hz to 1.6 kHz with spread, metal and punch",
+      "Resonance EQ with note display and link to the ring tone",
+      "Large reverb with a tempo-syncable gate",
+      "XTREME NOISY: comb, ring mod, drive and bitcrush on one knob",
+      "Hz/note display with typed note entry",
+      "26 factory presets"
+    ],
+    "category": "synth",
+    "type": "Drum Synth",
+    "status": "in-development",
+    "access": {
+      "type": "coming-soon"
+    },
+    "accent": "#9b5cff",
+    "os": [
+      "Windows 10/11 (64-bit)"
+    ],
+    "formats": [
+      "VST3"
+    ],
+    "testedDaws": [],
+    "version": "0.3.0",
+    "addedDate": "2026-10-22",
+    "changelog": []
+  },
+  {
+    "slug": "bleep-designer",
+    "published": false,
+    "name": "Bleep Designer",
+    "tagline": "Generates bleeps, freezes them as samples and plays them through a tempo-synced arp.",
+    "description": [
+      "Bleep Designer generates four short bleeps, freezes them as samples and plays them in patterns. Signal flow: generator, four slots, arp/sampler, comb, crush, filter, delay, out."
+    ],
+    "features": [
+      "Phase-distortion generator with pitch envelope and audio-rate LFO",
+      "GENERATE with 14 characters and lockable slots",
+      "Step sequencer/arp synced to the host tempo, with seed-based randomness",
+      "Comb, crush, filter and synced delay",
+      "11 factory presets, user presets store the exact bleeps"
+    ],
+    "category": "synth",
+    "type": "Bleep Generator",
+    "status": "in-development",
+    "access": {
+      "type": "coming-soon"
+    },
+    "accent": "#ff3b3b",
+    "os": [
+      "Windows 10/11 (64-bit)"
+    ],
+    "formats": [
+      "VST3"
+    ],
+    "testedDaws": [],
+    "version": "0.1.0",
+    "addedDate": "2026-10-21",
+    "changelog": [],
+    "cover": {
+      "file": "bleep-designer.webp",
+      "alt": "Bleep Designer mascot: a mech in a hoodie",
+      "overlayName": true
+    }
+  },
+  {
+    "slug": "bugz-align",
+    "published": false,
+    "name": "Bugz Align",
+    "tagline": "Automatically aligns the bass phase to the kick.",
+    "description": [
+      "Put Bugz Align on the bass channel and route the kick into its sidechain. On every kick it measures how well kick sub and bass sub line up and rotates the bass sub to the best angle, faded in just before the kick via look-ahead.",
+      "The signal path is linear-phase: at 0 degrees the output is bit-identical to the input, and nothing above the split frequency is touched. Fixed latency of about 148 ms, made for producing, not for live use."
+    ],
+    "features": [
+      "Amount, split, window, glide, kick sensitivity and manual offset",
+      "HOLD, A/B compare and SUB CHECK",
+      "Wide, zoomable sub and phase history display"
+    ],
+    "category": "utility",
+    "type": "Mix Utility",
+    "status": "in-development",
+    "access": {
+      "type": "coming-soon"
+    },
+    "accent": "#b6ff2e",
+    "os": [
+      "Windows 10/11 (64-bit)"
+    ],
+    "formats": [
+      "VST3"
+    ],
+    "testedDaws": [],
+    "version": "0.2.0",
+    "addedDate": "2026-10-21",
+    "changelog": []
+  },
+  {
+    "slug": "bugfuzz",
+    "published": false,
+    "name": "BugFuzz",
+    "tagline": "4-band fuzz after the Quadrafuzz principle.",
+    "description": [
+      "BugFuzz splits the signal into four phase-aligned Linkwitz-Riley bands, distorts each band on its own and mixes them back together. Runs with 8x oversampling."
+    ],
+    "features": [
+      "Drive with a harder, asymmetric 'Krass' zone above 50 %",
+      "Saturation from warm and round to square-like",
+      "OCTA rectifier octave on the upper three bands",
+      "Auto-gain, time-aligned dry/wet mix and output",
+      "Band display: drag crossovers and per-band drive"
+    ],
+    "category": "fx",
+    "type": "Distortion & Saturation",
+    "status": "in-development",
+    "access": {
+      "type": "coming-soon"
+    },
+    "accent": "#ff8a1f",
+    "os": [
+      "Windows 10/11 (64-bit)"
+    ],
+    "formats": [
+      "VST3"
+    ],
+    "testedDaws": [],
+    "version": "0.3.0",
+    "addedDate": "2026-10-21",
+    "changelog": []
+  },
+  {
+    "slug": "haas",
+    "published": false,
+    "name": "Haas",
+    "tagline": "Two-knob Haas stereo widener with a 'Krass' mode.",
+    "description": [
+      "Width delays the left side a little and the right side more (6 ms / 30 ms at 100 %). Above 100 % the Krass zone adds side boost, allpass decorrelation and slightly drifting delays, level-compensated."
+    ],
+    "features": [
+      "Width with Krass zone above 100 %",
+      "Mono Bass keeps the low end centred and undelayed",
+      "L/R swap and mono check",
+      "Delay times editable directly on the lab monitor"
+    ],
+    "category": "fx",
+    "type": "Delay & Spatial",
+    "status": "in-development",
+    "access": {
+      "type": "coming-soon"
+    },
+    "accent": "#4da3ff",
+    "os": [
+      "Windows 10/11 (64-bit)"
+    ],
+    "formats": [
+      "VST3"
+    ],
+    "testedDaws": [],
+    "version": "0.1.0",
+    "addedDate": "2026-10-21",
+    "changelog": [],
+    "cover": {
+      "file": "haas.webp",
+      "alt": "Haas lab scene with the BrainBugz brain bug",
+      "overlayName": true
+    }
+  }
+]
