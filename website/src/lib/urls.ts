@@ -52,6 +52,15 @@ export function soundcloudEmbedUrl(
   return `https://w.soundcloud.com/player/?${params.toString()}`;
 }
 
+/** Offizieller Bandcamp-Player (nur Zahlen-IDs, damit nichts Fremdes eingebettet wird). */
+export function bandcampEmbedUrl(ids: { albumId: string; trackId?: string } | undefined): string | null {
+  if (!ids || !/^\d+$/.test(ids.albumId) || (ids.trackId && !/^\d+$/.test(ids.trackId))) return null;
+  const parts = [`album=${ids.albumId}`, "size=large", "bgcol=0a0c18", "linkcol=7b5cff", "tracklist=false", "artwork=small"];
+  if (ids.trackId) parts.push(`track=${ids.trackId}`);
+  parts.push("transparent=true");
+  return `https://bandcamp.com/EmbeddedPlayer/${parts.join("/")}/`;
+}
+
 const SPOTIFY_TYPES = ["track", "album", "playlist", "artist", "episode", "show"];
 
 /** Offizieller Spotify-Player für eine open.spotify.com-URL. */

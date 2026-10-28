@@ -11,6 +11,7 @@ const releaseTypeLabel: Record<Release["type"], string> = {
   album: "Album",
   remix: "Remix",
   compilation: "Compilation",
+  track: "Track",
 };
 
 export function ReleaseCard({ release, headingLevel = 2 }: { release: Release; headingLevel?: 2 | 3 }) {
@@ -34,10 +35,29 @@ export function ReleaseCard({ release, headingLevel = 2 }: { release: Release; h
           {release.label ? ` · ${release.label}` : ""}
         </p>
         <H className="release__title">{release.title}</H>
+        {release.artists && <p className="release__artists">{release.artists}</p>}
+        {release.appearsOn && (
+          <p className="release__appears">
+            <span className="kicker">Appears on</span> {release.appearsOn.title}
+          </p>
+        )}
         {release.description && <p>{release.description}</p>}
+        {release.appearsOn?.url && (
+          <ExternalLink href={release.appearsOn.url} className="btn btn--primary btn--sm release__va-btn">
+            Full VA on Bandcamp
+          </ExternalLink>
+        )}
         <div className="release__embeds">
           {release.soundcloudUrl && <MusicEmbed provider="soundcloud" url={release.soundcloudUrl} title={release.title} />}
           {release.spotifyUrl && <MusicEmbed provider="spotify" url={release.spotifyUrl} title={release.title} />}
+          {release.bandcamp && (
+            <MusicEmbed
+              provider="bandcamp"
+              url={release.links?.find((l) => /bandcamp\.com/.test(l.url))?.url ?? release.appearsOn?.url ?? "https://bandcamp.com"}
+              title={release.title}
+              bandcamp={release.bandcamp}
+            />
+          )}
         </div>
         {links.length > 0 && (
           <ul className="link-list">

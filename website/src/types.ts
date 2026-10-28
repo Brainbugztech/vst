@@ -18,7 +18,17 @@ export interface ExternalLink {
 export interface Release {
   slug: string;
   title: string;
-  type: "single" | "ep" | "album" | "remix" | "compilation";
+  /** "track" = einzelner Track, z. B. auf einer VA (dann appearsOn ausfüllen) */
+  type: "single" | "ep" | "album" | "remix" | "compilation" | "track";
+  /** Artist-Zeile, wie sie beim Release steht, z. B. "Brainbugz & Lilith" */
+  artists?: string;
+  /** Erschienen auf (VA / Compilation) mit Link */
+  appearsOn?: { title: string; url?: string };
+  /**
+   * Offizieller Bandcamp-Player. IDs stehen im Embed-Code von Bandcamp
+   * (Share/Embed → "album=ZAHL" und "track=ZAHL").
+   */
+  bandcamp?: { albumId: string; trackId?: string };
   releaseDate: ISODate;
   artwork?: Image;
   /** Label oder Netlabel, nur wenn es das wirklich gibt. */
