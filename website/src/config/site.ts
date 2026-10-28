@@ -58,6 +58,18 @@ export const radio = {
    * AzuraCast (/api/nowplaying/...) und einfache {"artist":"...","title":"..."}-Antworten.
    */
   metadataUrl: "",
+  /**
+   * Dauerschleife, solange es keinen echten Stream gibt (streamUrl hat Vorrang).
+   * SoundCloud-Link, auch ein privater Link mit "/s-..." am Ende geht. Leer = aus.
+   * Achtung: Wer auf der Website ist, kann das Set hören.
+   */
+  loop: {
+    soundcloudUrl: "https://soundcloud.com/benidohitech/brainbugz-orange-sun-2h-2026/s-jBOKVoZwxJK",
+    title: "Orange Sun",
+    artist: "BrainBugz",
+    /** Kurzer Hinweis, z. B. Länge des Sets */
+    note: "2h set on loop",
+  },
 };
 
 export const merch = {

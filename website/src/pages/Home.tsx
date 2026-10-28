@@ -12,7 +12,8 @@ import { todayISO } from "../lib/format";
 import { splitGigs } from "../lib/gigs";
 import { usePageMeta } from "../lib/meta";
 import { categoryLabels, pickFeaturedPlugin, sortPlugins } from "../lib/plugins";
-import { radioStatusText, useRadio } from "../lib/radio";
+import { radioStatusLabel, useRadio } from "../lib/radio";
+import { radio as radioConfig } from "../config/site";
 import { Link } from "../lib/router";
 
 export function Home() {
@@ -153,12 +154,14 @@ export function Home() {
                 <PlayButton />
                 <div>
                   <p className="radio-teaser__status">
-                    <span className={`dot dot--${radio.status}`} aria-hidden="true" /> {radioStatusText[radio.status]}
+                    <span className={`dot dot--${radio.status}`} aria-hidden="true" /> {radioStatusLabel(radio.mode, radio.status)}
                   </p>
                   <p className="muted">
-                    {radio.status === "unconfigured"
+                    {radio.mode === "none"
                       ? "A 24/7 BrainBugz stream is planned. It isn't on air yet."
-                      : "Our stream, straight from the lab."}
+                      : radio.mode === "loop"
+                        ? `${radioConfig.loop.artist} – ${radioConfig.loop.title}. Press play and it runs on repeat.`
+                        : "Our stream, straight from the lab."}
                   </p>
                 </div>
               </div>

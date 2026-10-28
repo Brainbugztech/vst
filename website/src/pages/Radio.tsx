@@ -1,8 +1,8 @@
 import { radio as radioConfig, social } from "../config/site";
-import { NowPlayingText, PlayButton, VolumeSlider } from "../components/MiniPlayer";
+import { LoopConsentNote, NowPlayingText, PlayButton, VolumeSlider } from "../components/MiniPlayer";
 import { ExternalLink, PageHeader } from "../components/ui";
 import { usePageMeta } from "../lib/meta";
-import { radioStatusText, useRadio } from "../lib/radio";
+import { radioStatusLabel, useRadio } from "../lib/radio";
 import { Link } from "../lib/router";
 
 export function Radio() {
@@ -19,11 +19,11 @@ export function Radio() {
             ))}
           </div>
           <p className="radio-console__status" aria-live="polite">
-            <span className={`dot dot--${r.status}`} aria-hidden="true" /> {radioStatusText[r.status]}
+            <span className={`dot dot--${r.status}`} aria-hidden="true" /> {radioStatusLabel(r.mode, r.status)}
           </p>
           <NowPlayingText />
         </div>
-        {r.status === "unconfigured" ? (
+        {r.mode === "none" ? (
           <div className="radio-console__offline">
             <h2>Not on air yet</h2>
             <p>
@@ -43,9 +43,21 @@ export function Radio() {
           </div>
         ) : (
           <div className="radio-console__controls">
+            {r.mode === "loop" && (
+              <div>
+                <h2>
+                  {radioConfig.loop.artist} – {radioConfig.loop.title}
+                </h2>
+                <p>
+                  Recorded set ({radioConfig.loop.note}). It starts over by itself when it ends. This isn't a live stream yet; a
+                  real 24/7 stream is planned.
+                </p>
+              </div>
+            )}
             <PlayButton large />
             <VolumeSlider />
-            {r.status === "error" && <p role="alert">The stream can't be reached right now. Please try again later.</p>}
+            <LoopConsentNote />
+            {r.status === "error" && <p role="alert">The player can't be reached right now. Please try again later.</p>}
             <p className="muted">{radioConfig.name} keeps playing while you browse the site.</p>
           </div>
         )}

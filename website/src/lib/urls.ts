@@ -23,21 +23,26 @@ function hostIs(u: URL, ...hosts: string[]) {
 }
 
 /** Offizieller SoundCloud-Player für eine soundcloud.com-URL. */
-export function soundcloudEmbedUrl(trackUrl: string | undefined): string | null {
+export function soundcloudEmbedUrl(
+  trackUrl: string | undefined,
+  opts: { autoPlay?: boolean; visual?: boolean } = {},
+): string | null {
   const safe = safeExternalUrl(trackUrl);
   if (!safe) return null;
   const u = new URL(safe);
   if (u.protocol !== "https:" || !hostIs(u, "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com")) return null;
   if (u.pathname.split("/").filter(Boolean).length < 1) return null;
+  // Tracking-Parameter (si, utm_...) entfernen, der private "/s-..."-Teil bleibt im Pfad erhalten
+  const clean = `https://soundcloud.com${u.pathname.replace(/\/+$/, "")}`;
   const params = new URLSearchParams({
-    url: safe,
+    url: clean,
     color: "#7b5cff",
-    auto_play: "false",
+    auto_play: opts.autoPlay ? "true" : "false",
     hide_related: "true",
     show_comments: "false",
     show_user: "true",
     show_reposts: "false",
-    visual: "false",
+    visual: opts.visual ? "true" : "false",
   });
   return `https://w.soundcloud.com/player/?${params.toString()}`;
 }

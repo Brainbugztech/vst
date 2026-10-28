@@ -1593,8 +1593,16 @@ p {
   font-size: 0.92rem;
   color: #cfd5f5;
 }
-.mini-player__panel[hidden] {
+.mini-player__panel.is-collapsed {
   display: none;
+}
+.mini-player__frame {
+  display: block;
+  margin: 10px 0;
+}
+.radio-console__controls h2 {
+  font-size: 1.5rem;
+  margin-bottom: 6px;
 }
 .mini-player__links {
   display: flex;
