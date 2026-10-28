@@ -97,9 +97,9 @@ export const merch = {
 export const legal = {
   responsibleName: "Benett Buhk",
   /** Pflicht: Straße + Hausnummer (Postanschrift, kein Postfach) */
-  street: "",
+  street: "Radickestraße 49d",
   /** Pflicht: PLZ + Ort, z. B. "20095 Hamburg" */
-  postalCodeCity: "Hamburg",
+  postalCodeCity: "21079 Hamburg",
   country: "Deutschland",
   email: "benettbuhk3@gmail.com",
   phone: "",
