@@ -1593,8 +1593,16 @@ p {
   font-size: 0.92rem;
   color: #cfd5f5;
 }
-.mini-player__panel[hidden] {
+.mini-player__panel.is-collapsed {
   display: none;
+}
+.mini-player__frame {
+  display: block;
+  margin: 10px 0;
+}
+.radio-console__controls h2 {
+  font-size: 1.5rem;
+  margin-bottom: 6px;
 }
 .mini-player__links {
   display: flex;
@@ -1949,4 +1957,63 @@ body.menu-open .mini-player {
   inset: auto 0 0 0;
   padding: 40px 20px 16px;
   background: linear-gradient(180deg, transparent, rgba(5, 6, 12, 0.85));
+}
+
+/* ---------- Eingangs-Screen ---------- */
+body.gate-open {
+  overflow: hidden;
+}
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: grid;
+  place-items: center;
+  padding: 24px var(--gutter);
+  overflow-y: auto;
+  text-align: center;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 50%, rgba(139, 92, 255, 0.28), transparent 70%),
+    linear-gradient(rgba(122, 140, 255, 0.07) 1px, transparent 1px) 0 0 / 48px 48px,
+    linear-gradient(90deg, rgba(122, 140, 255, 0.07) 1px, transparent 1px) 0 0 / 48px 48px,
+    rgba(5, 6, 12, 0.97);
+  animation: gate-in 0.5s var(--ease);
+}
+@keyframes gate-in {
+  from { opacity: 0; }
+}
+.gate__inner {
+  max-width: 560px;
+  width: 100%;
+}
+.gate__bug {
+  width: min(320px, 70%);
+  margin: 0 auto -12px;
+  animation: crawl 7s ease-in-out infinite;
+}
+.gate__title {
+  margin: 0 auto 8px;
+  max-width: 420px;
+}
+.gate__title img {
+  width: 100%;
+  filter: drop-shadow(0 0 26px rgba(182, 255, 46, 0.25));
+}
+.gate__desc {
+  font-size: 1.1rem;
+  color: #d4daf7;
+  margin-bottom: 24px;
+}
+.gate__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.gate__note {
+  font-size: 0.85rem;
+  color: var(--muted);
+  max-width: 460px;
+  margin: 0 auto;
 }

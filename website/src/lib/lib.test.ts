@@ -4,7 +4,7 @@ import { emptyBooking, encodeForNetlify, isValidEmail, submitBooking, validateBo
 import { formatDate, parseISODate, todayISO } from "./format";
 import { splitGigs } from "./gigs";
 import { checkoutUrlOf, downloadUrlOf, filterPlugins, pickFeaturedPlugin, sortPlugins } from "./plugins";
-import { parseNowPlaying } from "./radio";
+import { parseNowPlaying, resolveRadioMode } from "./radio";
 import { matchRoute, normalizePath } from "./router";
 import { instagramDmUrl, safeExternalUrl, soundcloudEmbedUrl, spotifyEmbedUrl } from "./urls";
 
@@ -165,6 +165,27 @@ describe("router", () => {
     expect(matchRoute(routes, "/plugins")).toBeNull();
     expect(matchRoute(routes, "/plugins/%E0%A4%A")).toBeNull();
     expect(normalizePath("/news/")).toBe("/news");
+  });
+});
+
+describe("radio mode", () => {
+  const sc = "https://soundcloud.com/benidohitech/brainbugz-orange-sun-2h-2026/s-jBOKVoZwxJK?si=abc&utm_source=clipboard";
+  it("stream wins, then loop, else none", () => {
+    expect(resolveRadioMode({ streamUrl: "https://radio.example.com/live.mp3", loop: { soundcloudUrl: sc } })).toBe("stream");
+    expect(resolveRadioMode({ streamUrl: "", loop: { soundcloudUrl: sc } })).toBe("loop");
+    expect(resolveRadioMode({ streamUrl: "", loop: { soundcloudUrl: "" } })).toBe("none");
+    expect(resolveRadioMode({ streamUrl: "javascript:x", loop: { soundcloudUrl: "https://evil.com/x" } })).toBe("none");
+  });
+  it("public link: permalink without tracking params", () => {
+    const u = new URL(soundcloudEmbedUrl("https://soundcloud.com/a/b?si=1&utm_source=x")!);
+    expect(u.searchParams.get("url")).toBe("https://soundcloud.com/a/b");
+    expect(u.searchParams.get("secret_token")).toBeNull();
+  });
+  it("private link: track id + secret_token (like SoundCloud's own embed)", () => {
+    const u = new URL(soundcloudEmbedUrl(sc, { autoPlay: true, trackId: "2378468972" })!);
+    expect(u.searchParams.get("url")).toBe("https://api.soundcloud.com/tracks/2378468972");
+    expect(u.searchParams.get("secret_token")).toBe("s-jBOKVoZwxJK");
+    expect(u.searchParams.get("auto_play")).toBe("true");
   });
 });
 

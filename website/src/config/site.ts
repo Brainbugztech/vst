@@ -58,6 +58,31 @@ export const radio = {
    * AzuraCast (/api/nowplaying/...) und einfache {"artist":"...","title":"..."}-Antworten.
    */
   metadataUrl: "",
+  /**
+   * Dauerschleife, solange es keinen echten Stream gibt (streamUrl hat Vorrang).
+   * SoundCloud-Link, auch ein privater Link mit "/s-..." am Ende geht. Leer = aus.
+   * Achtung: Wer auf der Website ist, kann das Set hören.
+   */
+  loop: {
+    soundcloudUrl: "https://soundcloud.com/benidohitech/brainbugz-orange-sun-2h-2026/s-jBOKVoZwxJK",
+    /**
+     * Nur für PRIVATE SoundCloud-Links nötig: die Track-Nummer.
+     * Zu finden auf SoundCloud unter Teilen → Einbetten (Embed): im Code steht "api.soundcloud.com/tracks/ZAHL".
+     */
+    trackId: "2378468972",
+    title: "Orange Sun",
+    artist: "BrainBugz",
+    /** Kurzer Hinweis, z. B. Länge des Sets */
+    note: "2h set on loop",
+  },
+  /**
+   * Eingangs-Screen beim ersten Besuch: "Enter with sound" startet das Radio (Klick = Zustimmung + Browser erlaubt Ton).
+   * volume: Startlautstärke 0–1 (0.3 = 30 %).
+   */
+  entryGate: {
+    enabled: true,
+    volume: 0.3,
+  },
 };
 
 export const merch = {
@@ -70,10 +95,12 @@ export const merch = {
  * Bitte vollständig eintragen, bevor ihr die Seite teilt.
  */
 export const legal = {
-  responsibleName: "",
-  street: "",
-  postalCodeCity: "",
+  responsibleName: "Benett Buhk",
+  /** Pflicht: Straße + Hausnummer (Postanschrift, kein Postfach) */
+  street: "Radickestraße 49d",
+  /** Pflicht: PLZ + Ort, z. B. "20095 Hamburg" */
+  postalCodeCity: "21079 Hamburg",
   country: "Deutschland",
-  email: "",
+  email: "benettbuhk3@gmail.com",
   phone: "",
 };

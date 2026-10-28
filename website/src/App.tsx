@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { EntryGate } from "./components/EntryGate";
 import { Footer } from "./components/Footer";
 import { Header } from "./components/Header";
 import { MiniPlayer } from "./components/MiniPlayer";
@@ -92,6 +93,7 @@ export function App() {
       </main>
       <Footer />
       <MiniPlayer />
+      <EntryGate />
     </RadioProvider>
   );
 }

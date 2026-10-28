@@ -96,6 +96,10 @@ export function Datenschutz() {
 
       <h2>5. Radio-Stream</h2>
       <p>
+        Spielt das Radio ein aufgenommenes Set über SoundCloud ab, wird der SoundCloud-Player erst geladen, wenn du auf „Play“
+        klickst. Dabei gilt das unter Punkt 4 zu SoundCloud Gesagte.
+      </p>
+      <p>
         Wenn ein Radio-Stream angeboten wird und du auf „Play“ klickst, verbindet sich dein Browser mit dem Stream-Server. Dieser
         erhält dabei technisch bedingt deine IP-Adresse. Die gewählte Lautstärke wird nur lokal in deinem Browser gespeichert.
       </p>
