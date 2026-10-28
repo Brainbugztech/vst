@@ -95,10 +95,12 @@ export const merch = {
  * Bitte vollständig eintragen, bevor ihr die Seite teilt.
  */
 export const legal = {
-  responsibleName: "",
+  responsibleName: "Benett Buhk",
+  /** Pflicht: Straße + Hausnummer (Postanschrift, kein Postfach) */
   street: "",
-  postalCodeCity: "",
+  /** Pflicht: PLZ + Ort, z. B. "20095 Hamburg" */
+  postalCodeCity: "Hamburg",
   country: "Deutschland",
-  email: "",
+  email: "benettbuhk3@gmail.com",
   phone: "",
 };
