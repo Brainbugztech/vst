@@ -40,11 +40,14 @@ private:
     juce::Image bg;
     double timeSec = 0.0, lastMs = 0.0;
 
-    bcui::SliceView sliceView;
+    void radio (juce::TextButton& b, const char* id, int value, juce::Colour accent);
+    void syncRadio (juce::TextButton& b);
 
-    bcui::KnobBox repeatK, loopK, subdivK, seedK;
-    bcui::ValueBar phMinB, phMaxB, repMinB, repMaxB;
-    bcui::KnobBox strAmtK, strMixK;
+    bcui::StepGrid stepGrid;
+
+    bcui::KnobBox repeatK, seedK, slRevK, slJumpK, slFadeK;
+    bcui::ValueBar phMinB, phMaxB, repMinB, repMaxB, loopB, subdivB;
+    bcui::KnobBox strAmtK, strMixK, strChanceK, strGrainK, strGlideK;
     bcui::KnobBox repChanceK, repRateK, repGateK, repDecayK;
     bcui::KnobBox gliAmtK, gliMixK;
     bcui::KnobBox mixK, outK;
@@ -52,6 +55,9 @@ private:
     juce::TextButton cutBtn { "CUT" }, warpBtn { "WARP" }, lockBtn { "LOCK" }, rollBtn { "ROLL" },
                      prevBtn { "<" }, nextBtn { ">" };
     juce::TextButton strOnBtn { "ON" }, repOnBtn { "ON" }, gliOnBtn { "ON" };
+    juce::TextButton decentBtn { "DECENT" }, mediumBtn { "MEDIUM" }, nutsBtn { "NUTS" };
+    juce::TextButton slowBtn { "SLOW" }, bothBtn { "BOTH" }, fastBtn { "FAST" }, keepBtn { "KEEP" }, tapeBtn { "TAPE" },
+                     freeBtn { "FREE" }, musicBtn { "MUSIC" };
     juce::TextButton bitBtn { "BIT" }, revBtn { "REV" }, stopBtn { "STOP" }, frzBtn { "FREEZE" }, pitBtn { "PITCH" };
     juce::ComboBox presetBox;
 

@@ -4,6 +4,7 @@
 // An jeder Einheiten-Grenze (Rate) wird mit einer Wahrscheinlichkeit ein Ereignis gestartet: die erste
 // Einheit läuft normal durch und wird dabei aufgenommen, danach wird sie 1..7 Mal wiederholt.
 // Gate kürzt jede Wiederholung, Decay macht jede Wiederholung leiser.
+// Ereignisse starten nur in einer Dichte-Zone und enden spätestens mit ihr.
 
 #include <algorithm>
 #include <cmath>
@@ -11,6 +12,7 @@
 #include <vector>
 #include "Params.h"
 #include "Rng.h"
+#include "Density.h"
 
 namespace bc
 {
@@ -37,7 +39,8 @@ public:
 
     bool isRepeating() const { return state != Idle; }
 
-    void process (float& l, float& r, double beat, double spb, const RepeatParams& p, uint64_t seedKey)
+    void process (float& l, float& r, double beat, double spb, const RepeatParams& p, uint64_t seedKey,
+                  const Zone& zone = Zone {}, int density = kNuts)
     {
         if (! p.on)
         {
@@ -61,7 +64,7 @@ public:
                 liveGain = 0.0f;
             }
             lastU = uIdx;
-            boundary (uIdx, ub, spb, p, seedKey);
+            boundary (uIdx, ub, spb, p, seedKey, zone, density);
         }
 
         switch (state)
@@ -100,7 +103,7 @@ public:
 private:
     enum State { Idle, Capture, Play };
 
-    void boundary (long long uIdx, double ub, double spb, const RepeatParams& p, uint64_t seedKey)
+    void boundary (long long uIdx, double ub, double spb, const RepeatParams& p, uint64_t seedKey, const Zone& zone, int density)
     {
         if (state == Capture)
         {
@@ -123,15 +126,19 @@ private:
             return;
         }
 
-        if (state == Idle)
+        if (state == Idle && zone.on)
         {
-            const double c = std::max (0.0, std::min (1.0, (double) p.chance));
+            // so viele Einheiten passen noch in die Zone (Aufnahme + Wiederholungen)
+            const int fit = (int) std::min (64.0, std::floor (zone.left / ub + 1e-3));
+            const double c = (double) zoneBoost (density, p.chance);
             const double prob = c >= 1.0 ? 1.0 : 1.0 - std::pow (1.0 - c, ub);
             const uint64_t key = hashCombine (seedKey ^ 0x5EEDull, (uint64_t) uIdx);
             if ((double) hash01 (key) < prob)
             {
                 static constexpr int totals[6] { 2, 3, 4, 4, 6, 8 };
-                total = totals[(int) (hash01 (key ^ 0xABCDull) * 5.999f)];
+                total = std::min (totals[(int) (hash01 (key ^ 0xABCDull) * 5.999f)], fit);
+                if (total < 2)
+                    return;
                 state = Capture;
                 unitLen = std::min (capSize, std::max (1, (int) (ub * spb)));
                 recPos = 0;

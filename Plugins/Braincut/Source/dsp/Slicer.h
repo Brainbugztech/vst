@@ -6,9 +6,12 @@
 // Position im Loop, vom Host-Takt abgeleitet) und spielt es nach dem Schnitt-Muster wieder ab.
 // Stellen, die noch nie aufgenommen wurden (erster Durchlauf), liefern das trockene Signal.
 //
-// Der Stretcher streckt/staucht einzelne Einheiten zufällig, ohne die Tonhöhe zu ändern: zwei
-// überlappende Hann-Fenster (Granular-Verfahren) lesen die Quelle mit 1x Geschwindigkeit, ihre
-// Startpunkte wandern aber mit dem Faktor v durch die Quelle.
+// Der Stretcher streckt/staucht einzelne Einheiten zufällig. KEEP: Tonhöhe bleibt, zwei überlappende
+// Hann-Fenster (Granular-Verfahren, Fenstergröße = Grain) lesen die Quelle mit 1x Geschwindigkeit, ihre
+// Startpunkte wandern aber mit dem Faktor v durch die Quelle. TAPE: die Quelle wird direkt mit v gelesen,
+// die Tonhöhe geht mit. Glide lässt v vom Stückanfang aus langsam zum Zielwert gleiten.
+//
+// Außerhalb einer Dichte-Zone (siehe Density.h) spielt der Slicer das Original (trocken).
 
 #include <algorithm>
 #include <atomic>
@@ -19,9 +22,28 @@
 #include "Params.h"
 #include "Rng.h"
 #include "Pattern.h"
+#include "Density.h"
 
 namespace bc
 {
+
+// Streckfaktor (Lese-Geschwindigkeit der Quelle) aus dem Zufallswert vr (-1..1) eines Stücks.
+// v < 1: langsamer (gestreckt), v > 1: schneller (gestaucht).
+inline double stretchFactor (float vr, float amount, int dir, bool musical)
+{
+    amount = std::min (1.0f, std::max (0.0f, amount));
+    if (amount <= 0.0f) return 1.0;
+    const float a = std::min (1.0f, std::abs (vr));
+    const int sign = dir == kDirSlow ? -1 : dir == kDirFast ? 1 : (vr < 0.0f ? -1 : 1);
+    if (! musical)
+        return std::exp ((double) sign * (double) a * std::log (1.0 + (double) amount));
+
+    // Raster: je mehr Amount, desto weitere Faktoren sind erlaubt
+    static constexpr double slow[3] { 0.75, 2.0 / 3.0, 0.5 }, fast[3] { 4.0 / 3.0, 1.5, 2.0 };
+    const int n = std::max (1, std::min (3, (int) std::ceil (amount * 3.0f - 1e-4f)));
+    const int lvl = std::min (n - 1, (int) (a * (float) n));
+    return sign < 0 ? slow[lvl] : fast[lvl];
+}
 
 class Slicer
 {
@@ -33,8 +55,6 @@ public:
         buf[0].assign ((size_t) capacity + 4, 0.0f);
         buf[1].assign ((size_t) capacity + 4, 0.0f);
         filled.assign ((size_t) (capacity >> kShift) + 2, 0);
-        grainLen = std::max (64, (int) std::lround (0.030 * sr)) & ~1;
-        hop = grainLen / 2;
         xfade = std::max (16, (int) std::lround (0.0025 * sr));
         reset();
     }
@@ -57,10 +77,14 @@ public:
 
     // Vor jedem Block aufrufen. Liefert false, wenn der Slicer nicht arbeiten kann
     // (z. B. Phrase länger als der Puffer): dann wird das Signal durchgereicht.
-    bool beginBlock (const Transport& tr, const SlicerParams& sp, const StretchParams& st)
+    bool beginBlock (const Transport& tr, const SlicerParams& sp, const StretchParams& st, int densityMode = kNuts)
     {
         stretch = st;
         slicer = sp;
+        density = densityMode;
+        // In den Zonen soll sicher etwas passieren: Umbau-Wahrscheinlichkeit anheben (außerhalb spielt eh das Original)
+        effRp = std::lround (zoneBoost (density, sp.repeatProb) * 100.0f) / 100.0f;
+        xfade = std::max (16, (int) std::lround (std::min (20.0f, std::max (0.5f, sp.fadeMs)) * 0.001 * sr));
 
         const double bpm = std::min (400.0, std::max (20.0, tr.bpm));
         spb = 60.0 * sr / bpm;
@@ -95,8 +119,9 @@ public:
             lastLen = loopLen;
         }
 
-        const uint64_t sig = hashCombine (hashCombine ((uint64_t) sp.mode + 1, (uint64_t) M * 16 + (uint64_t) sb),
-                                          hashCombine ((uint64_t) std::lround (sp.repeatProb * 100.0f),
+        const uint64_t revJump = (uint64_t) std::lround (sp.reverse * 100.0f) * 1000 + (uint64_t) std::lround (sp.jump * 100.0f);
+        const uint64_t sig = hashCombine (hashCombine ((uint64_t) sp.mode + 1 + revJump * 4, (uint64_t) M * 16 + (uint64_t) sb),
+                                          hashCombine ((uint64_t) std::lround (effRp * 100.0f),
                                                        hashCombine ((uint64_t) sp.seed * 8 + (sp.lock ? 7 : 3),
                                                                     hashCombine ((uint64_t) pMin * 64 + (uint64_t) pMax,
                                                                                  (uint64_t) sp.repMin * 64 + (uint64_t) sp.repMax + (uint64_t) std::lround (bpb * 4.0) * 4096))));
@@ -108,13 +133,15 @@ public:
         return true;
     }
 
-    // Ein Sample. "beat" ist die Position in Beats. Liefert das zerschnittene Signal.
-    void process (float inL, float inR, double beat, float& outL, float& outR)
+    // Ein Sample. "beat" ist die Position in Beats, "zoneOn" ob die Dichte hier Effekte erlaubt.
+    // Liefert das zerschnittene Signal.
+    void process (float inL, float inR, double beat, float& outL, float& outR, bool zoneOn = true)
     {
         if (! active)
         {
             outL = inL;
             outR = inR;
+            info = UnitInfo {};
             return;
         }
 
@@ -168,7 +195,7 @@ public:
 
         // Einheit wechseln?
         const int ui = pattern.unitOfStep[(size_t) step];
-        if (! haveCur || curUi != ui || curSerial != serial || curPhraseOfUnit != phraseId)
+        if (! haveCur || curUi != ui || curSerial != serial || curPhraseOfUnit != phraseId || curZone != zoneOn)
         {
             if (haveCur)
             {
@@ -177,7 +204,8 @@ public:
                 havePrev = true;
                 sinceSwitch = 0;
             }
-            cur = resolve (pattern.units[(size_t) ui]);
+            cur = zoneOn ? resolve (pattern.units[(size_t) ui]) : Resolved::dryUnit();
+            curZone = zoneOn;
             curUi = ui;
             curSerial = serial;
             curPhraseOfUnit = phraseId;
@@ -205,18 +233,31 @@ public:
         outL = l;
         outR = r;
 
-        vizStepPos = (float) stepF;
+        // Infos zum gerade gespielten Schritt (für die Anzeige)
+        info.zone = zoneOn;
+        info.loopSteps = M;
+        if (zoneOn)
+        {
+            info.src = pattern.srcOfStep[(size_t) step];
+            info.moved = pattern.moved[(size_t) step] != 0;
+            info.rev = pattern.revOfStep[(size_t) step] != 0;
+            info.stretched = cur.stretched;
+            info.fast = cur.v > 1.0;
+        }
+        else
+        {
+            info.src = std::min (M - 1, (int) (pp * (double) sb));
+            info.moved = info.rev = info.stretched = info.fast = false;
+        }
     }
 
-    // --- Anzeige-Daten (vom Audio-Thread geschrieben, von der Oberfläche gelesen) ---
-    std::atomic<int>  vizSteps { 0 };
-    std::atomic<int>  vizLoop { 16 };
-    std::atomic<float> vizPhraseBeats { 4.0f };
-    std::atomic<int>  vizSerial { 0 };
-    std::array<std::atomic<int16_t>, Pattern::kMax> vizSrc {};
-    std::array<std::atomic<uint8_t>, Pattern::kMax> vizMoved {};
-    std::array<std::atomic<uint8_t>, Pattern::kMax> vizRev {};
-    float vizStepPos = 0.0f;
+    // Was der Slicer gerade spielt
+    struct UnitInfo
+    {
+        bool zone = false, moved = false, rev = false, stretched = false, fast = false;
+        int  src = 0, loopSteps = 1;
+    };
+    UnitInfo info;
 
     int steps() const { return N; }
     bool isActive() const { return active; }
@@ -229,8 +270,14 @@ private:
         double srcStart = 0.0;   // Samples in der Phrase
         double len = 0.0;        // Länge der Einheit in Samples
         double v = 1.0;          // Lese-Geschwindigkeit der Quelle (Streckfaktor)
+        double glideS = 0.0;     // Samples, in denen v vom Wert 1 zum Ziel gleitet
+        int    grain = 1440;     // Fensterlänge in Samples (gerade)
         bool   rev = false;
         bool   stretched = false;
+        bool   tape = false;
+        bool   dry = false;      // außerhalb der Zone: Original durchreichen
+
+        static Resolved dryUnit() { Resolved r; r.dry = true; return r; }
     };
 
     Resolved resolve (const Unit& u) const
@@ -239,10 +286,23 @@ private:
         r.len = (double) u.len * stepSamples;
         r.rev = u.rev;
         r.srcStart = (double) u.src * stepSamples + (u.rev ? r.len : 0.0);
-        const bool sel = stretch.on && u.vsel < 0.25f + 0.6f * stretch.amount;
-        r.v = sel ? std::exp ((double) u.vr * std::log (1.0 + (double) stretch.amount)) : 1.0;
+        const bool sel = stretch.on && u.vsel < std::min (1.0f, std::max (0.0f, stretch.chance));
+        r.v = sel ? stretchFactor (u.vr, stretch.amount, stretch.dir, stretch.musical) : 1.0;
         r.stretched = sel && std::abs (r.v - 1.0) > 0.02;
+        r.tape = stretch.tape;
+        r.glideS = std::min (1.0f, std::max (0.0f, stretch.glide)) * r.len;
+        r.grain = std::max (64, (int) std::lround (std::min (150.0f, std::max (10.0f, stretch.grainMs)) * 0.001 * sr)) & ~1;
         return r;
+    }
+
+    // Position in der Quelle (Samples ab Stückanfang) nach t Samples Ausgabe, mit Glide
+    static double srcPos (const Resolved& u, double t)
+    {
+        if (t <= 0.0) return t;
+        const double G = u.glideS;
+        if (G <= 1.0) return u.v * t;
+        if (t < G) return t + (u.v - 1.0) * t * t / (2.0 * G);
+        return u.v * t - (u.v - 1.0) * G * 0.5;
     }
 
     // Phrasen-Liste eines "Slots" (= Max-Phrase Takte) würfeln. Hängt nur von Seed und Slot ab.
@@ -278,25 +338,16 @@ private:
         g.M = M;
         g.base = (int) (((absStep % M) + M) % M);
         g.sb = sb;
-        g.rp = std::lround (slicer.repeatProb * 100.0f) / 100.0f;
+        g.rp = effRp;
         g.repMin = slicer.repMin;
         g.repMax = slicer.repMax;
+        g.rev = std::min (1.0f, std::max (0.0f, slicer.reverse));
+        g.jump = std::min (1.0f, std::max (0.0f, slicer.jump));
         const uint64_t key = hashCombine ((uint64_t) slicer.seed + 0x1234ull,
                                           hashCombine ((uint64_t) ord, slicer.lock ? 0ull : (uint64_t) slot));
         if (slicer.mode == 0) generateCut (pattern, g, key);
         else                  generateWarp (pattern, g, key);
         ++serial;
-
-        for (int i = 0; i < N; ++i)
-        {
-            vizSrc[(size_t) i].store (pattern.srcOfStep[(size_t) i], std::memory_order_relaxed);
-            vizMoved[(size_t) i].store (pattern.moved[(size_t) i], std::memory_order_relaxed);
-            vizRev[(size_t) i].store (pattern.revOfStep[(size_t) i], std::memory_order_relaxed);
-        }
-        vizSteps.store (N, std::memory_order_relaxed);
-        vizLoop.store (M, std::memory_order_relaxed);
-        vizPhraseBeats.store ((float) len, std::memory_order_relaxed);
-        vizSerial.store (serial, std::memory_order_relaxed);
     }
 
     void readBuf (double pos, float dryL, float dryR, float& l, float& r) const
@@ -322,6 +373,12 @@ private:
 
     void unitOut (const Resolved& u, double t, double delta, float dryL, float dryR, float& l, float& r) const
     {
+        if (u.dry)
+        {
+            l = dryL;
+            r = dryR;
+            return;
+        }
         const double dir = u.rev ? -1.0 : 1.0;
         const double base = u.srcStart - delta;
         readBuf (base + dir * t, dryL, dryR, l, r);
@@ -329,25 +386,34 @@ private:
         if (! u.stretched || stretch.mix <= 0.0f)
             return;
 
-        // Granular strecken: zwei überlappende Fenster, Lesetempo 1x, Startpunkte wandern mit v
-        const double m = std::floor (t / (double) hop);
         float accL = 0.0f, accR = 0.0f;
-        for (int k = 0; k < 2; ++k)
+        if (u.tape)
         {
-            const double mm = m - (double) k;
-            const double tau = t - mm * (double) hop;
-            const float win = 0.5f - 0.5f * std::cos (6.28318531f * (float) (tau / (double) grainLen));
-            float gl, gr;
-            readBuf (base + dir * (mm * (double) hop * u.v + tau), dryL, dryR, gl, gr);
-            accL += win * gl;
-            accR += win * gr;
+            // Bandmaschine: Quelle direkt mit v lesen (Tonhöhe geht mit)
+            readBuf (base + dir * srcPos (u, t), dryL, dryR, accL, accR);
+        }
+        else
+        {
+            // Granular strecken: zwei überlappende Fenster, Lesetempo 1x, Startpunkte wandern mit v
+            const double hop = (double) (u.grain / 2);
+            const double m = std::floor (t / hop);
+            for (int k = 0; k < 2; ++k)
+            {
+                const double mm = m - (double) k;
+                const double tau = t - mm * hop;
+                const float win = 0.5f - 0.5f * std::cos (6.28318531f * (float) (tau / (double) u.grain));
+                float gl, gr;
+                readBuf (base + dir * (srcPos (u, mm * hop) + tau), dryL, dryR, gl, gr);
+                accL += win * gl;
+                accR += win * gr;
+            }
         }
         l += (accL - l) * stretch.mix;
         r += (accR - r) * stretch.mix;
     }
 
     double sr = 48000.0;
-    int capacity = 0, grainLen = 1440, hop = 720, xfade = 120;
+    int capacity = 0, xfade = 120;
     std::vector<float> buf[2];
     std::vector<uint8_t> filled;
 
@@ -366,6 +432,8 @@ private:
 
     SlicerParams slicer;
     StretchParams stretch;
+    int density = kNuts;
+    float effRp = 0.4f;
 
     Pattern pattern;
     int serial = 0;
@@ -373,7 +441,7 @@ private:
     long long curPhrase = std::numeric_limits<long long>::min();
 
     Resolved cur, prev;
-    bool haveCur = false, havePrev = false;
+    bool haveCur = false, havePrev = false, curZone = true;
     int curUi = 0, curSerial = -1;
     long long curPhraseOfUnit = 0;
     double lastT = 0.0, prevT0 = 0.0;

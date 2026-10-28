@@ -3,7 +3,7 @@
 // Schnitt-Muster: wie eine Phrase in Einheiten ("Units") zerlegt wird und woher jede Einheit
 // ihr Audio nimmt. Eigene Umsetzung nach der Idee von Break-Cuttern wie Livecut/BBCut:
 //   CUT  - bleibt nah am Original, ersetzt pro Beat gelegentlich durch Wiederholung, Rolls,
-//          Rückwärts oder einen anderen Beat
+//          Rückwärts (Anteil = rev) oder einen anderen Beat (Anteil = jump)
 //   WARP - springt freier: Blöcke unterschiedlicher Länge lesen von wechselnden Stellen
 // Alle Zufallswerte kommen aus einer Folge, die nur vom Seed abhängt. Das Muster ist also
 // reproduzierbar und unabhängig davon, welche anderen Sektionen an oder aus sind.
@@ -38,6 +38,8 @@ struct GenParams
     int sb = 4;          // Schritte pro Beat
     float rp = 0.4f;     // Umbau-Wahrscheinlichkeit pro Beat
     int repMin = 0, repMax = 3;
+    float rev = 0.3f;    // 0..1: Anteil rückwärts
+    float jump = 0.5f;   // 0..1: wie oft von einer anderen Stelle gelesen wird
 };
 
 struct Pattern
@@ -123,7 +125,8 @@ inline void generateCut (Pattern& P, const GenParams& g, uint64_t key)
         // Alle Zufallswerte werden immer gezogen, damit das Muster nicht von Schwellwerten abhängt
         const float r  = rg.uni();
         const float r2 = rg.uni();
-        const int variant = rg.range (0, 5);
+        const int variant = rg.range (0, 2);
+        const float rJump = rg.uni(), rRev = rg.uni();
         const int other = rg.range (0, loopBeats - 1) * sb;
         const int reps = rg.range (rLo, rHi);
         const float pRep = std::min (0.95f, g.rp * (last ? 1.5f : 1.0f));
@@ -138,15 +141,13 @@ inline void generateCut (Pattern& P, const GenParams& g, uint64_t key)
         // Anzahl Wiederholungen bestimmt die Länge der wiederholten Einheit
         const int u = reps <= 0 ? L : std::max (1, L / (reps + 1));
 
-        switch (variant)
-        {
-            case 0:
-            case 1:  P.addBlock (pos, L, nat, false, u, rv); break;                              // Anfang des Beats wiederholen
-            case 2:  P.addBlock (pos, L, nat + (int) (r2 * (float) L), false, u, rv); break;     // Ausschnitt aus der Beat-Mitte
-            case 3:  P.addBlock (pos, L, nat, true, u, rv); break;                               // rückwärts stottern
-            case 4:  P.addBlock (pos, L, nat, true, L, rv); break;                               // Beat rückwärts
-            default: P.addBlock (pos, L, other, false, L, rv); break;                            // anderer Beat
-        }
+        const bool rev = rRev < g.rev;
+        if (rJump < g.jump * 0.4f)
+            P.addBlock (pos, L, other, rev, L, rv);                                  // anderer Beat (evtl. rückwärts)
+        else if (variant == 2)
+            P.addBlock (pos, L, nat + (int) (r2 * (float) L), rev, rev ? L : u, rv); // Ausschnitt aus der Beat-Mitte
+        else
+            P.addBlock (pos, L, nat, rev, u, rv);                                    // Anfang des Beats wiederholen / rückwärts stottern
     }
     P.finish();
 }
@@ -169,12 +170,12 @@ inline void generateWarp (Pattern& P, const GenParams& g, uint64_t key)
 
         const bool onBeat = (pos % sb) == 0;
         const bool anchored = onBeat && rAnchor < (0.55f - 0.45f * g.rp);
-        const float pJump = 0.3f + 0.7f * g.rp;
+        const float pJump = std::min (1.0f, (0.3f + 0.7f * g.rp) * (0.4f + 1.2f * g.jump));
         const int nat = P.natural (pos);
 
         int src = (! anchored && rJump < pJump) ? rndSrc : nat;
         if (pos == 0 && rAnchor < 0.8f) src = nat; // der Downbeat bleibt meistens erhalten
-        const bool rev = ! anchored && rRev < g.rp * 0.25f;
+        const bool rev = ! anchored && rRev < g.rev * 0.5f;
         const int u = (L >= 2 && reps > 0 && rRep < 0.2f + g.rp * 0.6f) ? std::max (1, L / (reps + 1)) : L;
 
         P.addBlock (pos, L, src, rev, u, rv);

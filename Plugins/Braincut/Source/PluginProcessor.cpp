@@ -29,6 +29,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraincutProcessor::createLay
         layout.add (std::make_unique<AudioParameterBool> (P { id, 1 }, name, def));
     };
 
+    auto ms = [] (int decimals)
+    {
+        return AudioParameterFloatAttributes().withLabel ("ms").withStringFromValueFunction ([decimals] (float v, int)
+        {
+            return String (v, decimals) + " ms";
+        });
+    };
+    auto skewed = [&] (const char* id, const char* name, float lo, float hi, float centre, float def, AudioParameterFloatAttributes attr)
+    {
+        NormalisableRange<float> r (lo, hi, 0.01f);
+        r.setSkewForCentre (centre);
+        layout.add (std::make_unique<AudioParameterFloat> (P { id, 1 }, name, r, def, attr));
+    };
+
+    // Dichte
+    layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::density, 1 }, "Density", StringArray { "DECENT", "MEDIUM", "NUTS" }, 1));
+
     // Slicer
     layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::mode, 1 }, "Slicer Mode", StringArray { "CUT", "WARP" }, 0));
     layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::loop, 1 }, "Loop Length", StringArray { "1 Bar", "2 Bars", "4 Bars" }, 0));
@@ -40,11 +57,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout BraincutProcessor::createLay
     floatP (ParamIDs::repeat, "Repeat", 0.0f, 1.0f, 0.4f, percent);
     layout.add (std::make_unique<AudioParameterInt> (P { ParamIDs::seed, 1 }, "Seed", 0, 9999, 1));
     boolP (ParamIDs::lock, "Lock", false);
+    floatP (ParamIDs::slRev, "Slicer Reverse", 0.0f, 1.0f, 0.3f, percent);
+    floatP (ParamIDs::slJump, "Slicer Jump", 0.0f, 1.0f, 0.5f, percent);
+    skewed (ParamIDs::slFade, "Slicer Smooth", 0.5f, 20.0f, 4.0f, 2.5f, ms (1));
 
     // Stretch
     boolP (ParamIDs::strOn, "Stretch On", true);
     floatP (ParamIDs::strAmt, "Stretch Amount", 0.0f, 1.0f, 0.5f, percent);
     floatP (ParamIDs::strMix, "Stretch Mix", 0.0f, 1.0f, 1.0f, percent);
+    floatP (ParamIDs::strChance, "Stretch Chance", 0.0f, 1.0f, 0.5f, percent);
+    skewed (ParamIDs::strGrain, "Stretch Grain", 10.0f, 150.0f, 40.0f, 30.0f, ms (0));
+    floatP (ParamIDs::strGlide, "Stretch Glide", 0.0f, 1.0f, 0.0f, percent);
+    layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::strDir, 1 }, "Stretch Direction", StringArray { "SLOW", "BOTH", "FAST" }, 1));
+    layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::strPitch, 1 }, "Stretch Pitch", StringArray { "KEEP", "TAPE" }, 0));
+    layout.add (std::make_unique<AudioParameterChoice> (P { ParamIDs::strGrid, 1 }, "Stretch Grid", StringArray { "FREE", "MUSIC" }, 0));
 
     // Repeat
     boolP (ParamIDs::repOn, "Repeater On", true);
@@ -82,6 +108,7 @@ bc::EngineParams BraincutProcessor::readParams() const
     auto i = [&] (const char* id) { return (int) std::lround (f (id)); };
 
     bc::EngineParams p;
+    p.density           = i (ParamIDs::density);
     p.slicer.mode       = i (ParamIDs::mode);
     p.slicer.loopIdx    = i (ParamIDs::loop);
     p.slicer.phraseMin  = i (ParamIDs::phMin);
@@ -92,10 +119,19 @@ bc::EngineParams BraincutProcessor::readParams() const
     p.slicer.repeatProb = f (ParamIDs::repeat);
     p.slicer.seed       = i (ParamIDs::seed);
     p.slicer.lock       = b (ParamIDs::lock);
+    p.slicer.reverse    = f (ParamIDs::slRev);
+    p.slicer.jump       = f (ParamIDs::slJump);
+    p.slicer.fadeMs     = f (ParamIDs::slFade);
 
     p.stretch.on     = b (ParamIDs::strOn);
     p.stretch.amount = f (ParamIDs::strAmt);
     p.stretch.mix    = f (ParamIDs::strMix);
+    p.stretch.chance = f (ParamIDs::strChance);
+    p.stretch.grainMs = f (ParamIDs::strGrain);
+    p.stretch.glide  = f (ParamIDs::strGlide);
+    p.stretch.dir    = i (ParamIDs::strDir);
+    p.stretch.tape   = i (ParamIDs::strPitch) == 1;
+    p.stretch.musical = i (ParamIDs::strGrid) == 1;
 
     p.repeat.on     = b (ParamIDs::repOn);
     p.repeat.chance = f (ParamIDs::repChance);
@@ -150,6 +186,7 @@ void BraincutProcessor::applyPreset (int index)
         return;
     const auto& s = bcpresets::kPresets[index];
 
+    setParam (ParamIDs::density, (float) s.density);
     setParam (ParamIDs::mode, (float) s.mode);
     setParam (ParamIDs::loop, (float) s.loop);
     setParam (ParamIDs::phMin, (float) s.phMin);
@@ -160,10 +197,19 @@ void BraincutProcessor::applyPreset (int index)
     setParam (ParamIDs::repeat, s.repeat);
     setParam (ParamIDs::seed, (float) s.seed);
     setParam (ParamIDs::lock, s.lock ? 1.0f : 0.0f);
+    setParam (ParamIDs::slRev, s.slRev);
+    setParam (ParamIDs::slJump, s.slJump);
+    setParam (ParamIDs::slFade, s.slFade);
 
     setParam (ParamIDs::strOn, s.strOn ? 1.0f : 0.0f);
     setParam (ParamIDs::strAmt, s.strAmt);
     setParam (ParamIDs::strMix, s.strMix);
+    setParam (ParamIDs::strChance, s.strChance);
+    setParam (ParamIDs::strGrain, s.strGrain);
+    setParam (ParamIDs::strGlide, s.strGlide);
+    setParam (ParamIDs::strDir, (float) s.strDir);
+    setParam (ParamIDs::strPitch, s.strTape ? 1.0f : 0.0f);
+    setParam (ParamIDs::strGrid, s.strGrid ? 1.0f : 0.0f);
 
     setParam (ParamIDs::repOn, s.repOn ? 1.0f : 0.0f);
     setParam (ParamIDs::repChance, s.repChance);

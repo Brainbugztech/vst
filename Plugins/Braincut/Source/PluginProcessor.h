@@ -6,6 +6,8 @@
 
 namespace ParamIDs
 {
+    // Dichte (gilt für alle Sektionen)
+    inline constexpr const char* density = "density";
     // Slicer
     inline constexpr const char* mode    = "mode";
     inline constexpr const char* loop    = "loop";
@@ -17,10 +19,19 @@ namespace ParamIDs
     inline constexpr const char* repeat  = "repeat";
     inline constexpr const char* seed    = "seed";
     inline constexpr const char* lock    = "lock";
+    inline constexpr const char* slRev   = "slRev";
+    inline constexpr const char* slJump  = "slJump";
+    inline constexpr const char* slFade  = "slFade";
     // Stretch
     inline constexpr const char* strOn   = "strOn";
     inline constexpr const char* strAmt  = "strAmt";
     inline constexpr const char* strMix  = "strMix";
+    inline constexpr const char* strChance = "strChance";
+    inline constexpr const char* strGrain  = "strGrain";
+    inline constexpr const char* strGlide  = "strGlide";
+    inline constexpr const char* strDir    = "strDir";
+    inline constexpr const char* strPitch  = "strPitch";
+    inline constexpr const char* strGrid   = "strGrid";
     // Repeat
     inline constexpr const char* repOn     = "repOn";
     inline constexpr const char* repChance = "repChance";
