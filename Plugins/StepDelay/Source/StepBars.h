@@ -1,11 +1,11 @@
 #pragma once
 
-// Echo-Zeitleiste: ein ausklingender Impuls pro Echo-Step. Ziehen/Wischen setzt die Lautstärke,
+// Balken-Editor: ein Balken pro Echo-Step. Ziehen/Wischen setzt die Lautstärke,
 // Rechtsklick schaltet stumm/an, Doppelklick setzt auf 80 %.
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginProcessor.h"
-#include "BrainBugzLook.h"
+#include "CyberLook.h"
 
 class StepBars : public juce::Component
 {
@@ -38,126 +38,117 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        using namespace bb;
-        auto r = getLocalBounds().toFloat();
-        g.setColour (col::panel);
-        g.fillRoundedRectangle (r, 8.0f);
-        g.setColour (col::line);
-        g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+        using namespace sd;
+        auto r = getLocalBounds().toFloat().reduced (4.0f);
+        const float u = getHeight() / 172.0f;   // Entwurf: Panel ist 172 Einheiten hoch
+        neonPanel (g, r, u, col::green, 1.0f, 16.0f);
 
         const auto area = barArea();
         const int n = numSteps();
         const float w = area.getWidth() / (float) n;
-        const float u = getHeight() / 280.0f;
         const float base = area.getBottom();
 
-        // Hilfslinien bei 25/50/75 %
-        g.setColour (col::line.withAlpha (0.5f));
-        for (float f : { 0.25f, 0.5f, 0.75f })
-        {
-            const float y = base - area.getHeight() * f;
-            for (float x = area.getX(); x < area.getRight(); x += 6.0f)
-                g.drawLine (x, y, std::min (x + 2.0f, area.getRight()), y, 1.0f);
-        }
+        // Kopfzeile: "/// 16 STEP PATTERN" links, "1/16 GRID ///" rechts
+        const float ty = 8.0f * u, th = 14.0f * u;
+        slashes (g, r.getX() + 22 * u, ty + 2 * u, th - 4 * u, 3, col::magenta, u);
+        g.setFont (bb::fonts::display (13.5f * u, true));
+        g.setColour (col::ink);
+        const auto title = juce::String (n) + (n == 1 ? " STEP PATTERN" : " STEP PATTERN");
+        g.drawText (title, juce::Rectangle<float> (r.getX() + 48 * u, ty, 300 * u, th), juce::Justification::centredLeft, false);
+        const float tw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), title);
+        const auto grid = proc.gridName().toUpperCase() + (proc.getParam (ParamIDs::sync) > 0.5f ? " GRID" : "");
+        const float gw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), grid);
+        const float gx = r.getRight() - 52 * u - gw;
+        g.drawText (grid, juce::Rectangle<float> (gx, ty, gw + 4, th), juce::Justification::centredLeft, false);
+        slashes (g, r.getRight() - 46 * u, ty + 2 * u, th - 4 * u, 3, col::magenta, u);
+        g.setColour (col::magenta.withAlpha (0.6f));
+        g.fillRect (juce::Rectangle<float> (r.getX() + 56 * u + tw, ty + th * 0.5f, gx - (r.getX() + 56 * u + tw) - 10 * u, 1.0f * u));
 
-        // Hover-Spalte
-        if (isMouseOver() && juce::isPositiveAndBelow (hoverStep, n))
-        {
-            g.setColour (col::panel2.brighter (0.06f));
-            g.fillRect (juce::Rectangle<float> (area.getX() + w * (float) hoverStep, area.getY(), w, area.getHeight()));
-        }
-
-        // Zeitachse mit Takt-Strichen
-        g.setColour (col::inkDim.withAlpha (0.55f));
-        g.fillRect (juce::Rectangle<float> (area.getX(), base, area.getWidth(), 1.5f * u));
-        for (int k = 0; k <= n; ++k)
-        {
-            const float x = area.getX() + w * (float) k;
-            const float t = (k % 4 == 0 ? 7.0f : 3.5f) * u;
-            g.setColour (k % 4 == 0 ? col::inkDim : col::line.brighter (0.3f));
-            g.fillRect (juce::Rectangle<float> (x - 0.5f, base, 1.0f, t));
-        }
-
-        // Echo-Impulse: senkrechter Anschlag, danach ausklingender Schweif
-        for (int k = 0; k < n; ++k)
-        {
-            const float x0 = area.getX() + w * (float) k;
-            const float ix = x0 + std::min (5.0f * u, w * 0.18f); // Position des Echos
-            const float lv = proc.getLevel (k);
-            const float gl = glow[(size_t) k];
-
-            if (lv > 0.001f)
-            {
-                const float h = area.getHeight() * lv;
-                const float top = base - h;
-                const auto c = col::tox.interpolatedWith (col::brain, gl);
-                const float tail = std::max (6.0f, w * 0.88f - (ix - x0));
-
-                juce::Path curve, fill;
-                curve.startNewSubPath (ix, top);
-                fill.startNewSubPath (ix, base);
-                fill.lineTo (ix, top);
-                const int segs = 24;
-                for (int i = 1; i <= segs; ++i)
-                {
-                    const float t = (float) i / (float) segs;
-                    const float y = base - h * std::exp (-4.2f * t) * (1.0f - t * 0.04f);
-                    curve.lineTo (ix + tail * t, y);
-                    fill.lineTo (ix + tail * t, y);
-                }
-                fill.lineTo (ix + tail, base);
-                fill.closeSubPath();
-
-                juce::ColourGradient grad (c.withAlpha (0.42f + 0.3f * gl), ix, top, c.withAlpha (0.02f), ix, base, false);
-                g.setGradientFill (grad);
-                g.fillPath (fill);
-
-                // Glühen bei aktivem Echo
-                if (gl > 0.02f)
-                {
-                    g.setColour (c.withAlpha (0.35f * gl));
-                    g.strokePath (curve, juce::PathStrokeType (6.0f * u));
-                    g.fillRect (juce::Rectangle<float> (ix - 4.0f * u, top, 8.0f * u, h));
-                }
-
-                g.setColour (c.withAlpha (0.85f));
-                g.strokePath (curve, juce::PathStrokeType (1.5f * u, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-                // Anschlag
-                g.setColour (c);
-                g.fillRect (juce::Rectangle<float> (ix - 1.3f * u, top, 2.6f * u, h));
-                g.setColour (juce::Colours::white.withAlpha (0.6f + 0.4f * gl));
-                g.fillEllipse (ix - 3.0f * u, top - 3.0f * u, 6.0f * u, 6.0f * u);
-            }
-            else
-            {
-                // stummer Step: kleiner Punkt auf der Zeitachse
-                g.setColour (col::inkDim.withAlpha (0.45f));
-                g.fillEllipse (ix - 2.0f * u, base - 2.0f * u, 4.0f * u, 4.0f * u);
-            }
-
-            // Step-Nummer
-            if (w > 14.0f || k % 4 == 0)
-            {
-                g.setFont (fonts::mono (std::min (13.0f * u, w * 0.62f + 4.0f)));
-                g.setColour (k % 4 == 0 ? col::ink : col::inkDim);
-                g.drawText (juce::String (k + 1), juce::Rectangle<float> (ix - 12.0f * u, base + 8.0f * u, 24.0f * u, 14.0f * u),
-                            juce::Justification::centredTop, false);
-            }
-        }
-
-        // Wert beim Ziehen/Hovern
+        // Wert beim Ziehen/Hovern mittig in der Linie
         if (isMouseOver() && juce::isPositiveAndBelow (hoverStep, n))
         {
             const float lv = proc.getLevel (hoverStep);
-            const auto txt = "Step " + juce::String (hoverStep + 1) + ": " + (lv < 0.001f ? juce::String ("stumm") : juce::String (juce::roundToInt (lv * 100.0f)) + "%");
-            g.setFont (fonts::mono (14.0f * u));
-            g.setColour (col::tox);
-            g.drawText (txt, juce::Rectangle<float> (area.getX(), 4.0f, area.getWidth(), 18.0f * u), juce::Justification::centredRight, false);
+            const auto txt = " STEP " + juce::String (hoverStep + 1) + ": " + (lv < 0.001f ? juce::String ("STUMM") : juce::String (juce::roundToInt (lv * 100.0f)) + "% ");
+            g.setFont (bb::fonts::mono (13.0f * u));
+            const float vw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), txt) + 10 * u;
+            auto box = juce::Rectangle<float> (r.getCentreX() - vw * 0.5f, ty - 1 * u, vw, th + 2 * u);
+            g.setColour (col::panel);
+            g.fillRect (box);
+            g.setColour (col::green);
+            g.drawText (txt, box, juce::Justification::centred, false);
         }
-        g.setFont (fonts::display (14.0f * u, true));
-        g.setColour (col::inkDim);
-        g.drawText ("ECHO-STEPS", juce::Rectangle<float> (area.getX(), 4.0f, 200.0f, 18.0f * u), juce::Justification::centredLeft, false);
+
+        // Feld mit Spalten
+        g.setColour (juce::Colour (0xff0a0510));
+        g.fillRect (area);
+        for (int k = 0; k < n; ++k)
+        {
+            const float x0 = area.getX() + w * (float) k;
+            auto slot = juce::Rectangle<float> (x0, area.getY(), w, area.getHeight());
+            juce::ColourGradient sg (juce::Colour (0xff1d1028), 0, slot.getY(), juce::Colour (0xff110818), 0, slot.getBottom(), false);
+            g.setGradientFill (sg);
+            g.fillRect (slot.reduced (1.0f * u, 0));
+            if (k == hoverStep && isMouseOver())
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.04f));
+                g.fillRect (slot);
+            }
+        }
+        g.setColour (juce::Colour (0xff050208));
+        for (int k = 1; k < n; ++k)
+            g.fillRect (juce::Rectangle<float> (area.getX() + w * (float) k - 1.0f * u, area.getY(), 2.0f * u, area.getHeight()));
+
+        // Balken
+        for (int k = 0; k < n; ++k)
+        {
+            const float x0 = area.getX() + w * (float) k;
+            const float pad = std::max (1.5f * u, std::min (5.0f * u, w * 0.08f));
+            auto slot = juce::Rectangle<float> (x0, area.getY(), w, area.getHeight()).reduced (pad, 0.0f);
+            const float lv = proc.getLevel (k);
+            const float gl = glow[(size_t) k];
+            const bool hot = gl > 0.15f;
+
+            if (lv > 0.001f)
+            {
+                auto bar = slot.withTop (base - area.getHeight() * lv).withBottom (base - 1.0f * u);
+                const auto top = col::green.interpolatedWith (col::magenta, gl);
+                const auto bot = col::greenDk.interpolatedWith (juce::Colour (0xffb0109c), gl);
+                // Leuchten
+                g.setColour (top.withAlpha (0.10f + 0.30f * gl));
+                g.fillRect (bar.expanded (3.0f * u, 3.0f * u));
+                juce::ColourGradient grad (top.brighter (0.15f), 0, bar.getY(), bot, 0, bar.getBottom(), false);
+                grad.addColour (0.35, top);
+                g.setGradientFill (grad);
+                g.fillRect (bar);
+                g.setColour (juce::Colours::white.withAlpha (0.35f + 0.4f * gl));
+                g.fillRect (bar.withHeight (std::min (2.0f * u, bar.getHeight())));
+                g.setColour (top.brighter (0.4f).withAlpha (0.6f));
+                g.drawRect (bar, 1.0f);
+            }
+            else
+            {
+                const float cx = slot.getCentreX(), cy = base - 9.0f * u, s2 = std::min (3.5f * u, w * 0.2f);
+                g.setColour (col::inkDim.withAlpha (0.45f));
+                g.drawLine (cx - s2, cy - s2, cx + s2, cy + s2, 1.2f * u);
+                g.drawLine (cx - s2, cy + s2, cx + s2, cy - s2, 1.2f * u);
+            }
+
+            // pinker Unterstrich beim gerade klingenden Step
+            if (hot)
+            {
+                g.setColour (col::magenta.withAlpha (gl));
+                g.fillRect (juce::Rectangle<float> (slot.getX(), base + 2.0f * u, slot.getWidth(), 2.0f * u));
+            }
+
+            // Step-Nummer
+            if (w > 16.0f * u || k % 4 == 0)
+            {
+                g.setFont (bb::fonts::display (std::min (13.0f * u, w * 0.55f + 4.0f), true));
+                g.setColour (hot ? col::magenta : col::inkDim);
+                g.drawText (juce::String (k + 1), juce::Rectangle<float> (x0 - 4 * u, base + 6.0f * u, w + 8 * u, 15.0f * u),
+                            juce::Justification::centred, false);
+            }
+        }
     }
 
     void mouseMove (const juce::MouseEvent& e) override { hoverStep = stepAt (e.position.x); repaint(); }
@@ -221,8 +212,8 @@ private:
 
     juce::Rectangle<float> barArea() const
     {
-        const float u = getHeight() / 280.0f;
-        return getLocalBounds().toFloat().withTrimmedTop (28.0f * u).withTrimmedBottom (24.0f * u).reduced (12.0f * u, 0.0f);
+        const float u = getHeight() / 172.0f;
+        return getLocalBounds().toFloat().reduced (4.0f).withTrimmedTop (28.0f * u).withTrimmedBottom (28.0f * u).reduced (18.0f * u, 0.0f);
     }
 
     int stepAt (float x) const
