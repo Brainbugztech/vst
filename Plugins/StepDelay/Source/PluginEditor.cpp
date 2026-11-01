@@ -108,7 +108,6 @@ StepDelayEditor::StepDelayEditor (StepDelayProcessor& p)
     if (auto* c = getConstrainer()) c->setFixedAspectRatio ((double) baseW / (double) baseH);
     setSize (baseW, baseH);
 
-    lastMs = juce::Time::getMillisecondCounterHiRes();
     timerCallback();
     startTimerHz (30);
 }
@@ -143,10 +142,6 @@ void StepDelayEditor::resized()
 
 void StepDelayEditor::timerCallback()
 {
-    const double now = juce::Time::getMillisecondCounterHiRes();
-    const double dt = juce::jlimit (0.0, 0.1, (now - lastMs) / 1000.0);
-    lastMs = now;
-    bugPhase += dt * 4.0;
 
     const bool sync = proc.getParam (ParamIDs::sync) > 0.5f;
     const int rate = (int) proc.getParam (ParamIDs::rate);
@@ -242,9 +237,6 @@ void StepDelayEditor::paintHeader (juce::Graphics& g)
     x += juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), a);
     g.setColour (col::brain);
     g.drawText (b, juce::Rectangle<float> (x, 0, 200 * u, r.getHeight()), juce::Justification::centredLeft, false);
-    x += juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), b);
-
-    paintBug (g, { x + 34 * u, r.getCentreY() }, 34 * u);
 
     // Anzeige rechts
     const int n = (int) proc.getParam (ParamIDs::steps);
@@ -258,64 +250,4 @@ void StepDelayEditor::paintHeader (juce::Graphics& g)
     g.drawText (juce::String::fromUTF8 ("letztes Echo nach ") + juce::String (total, 2) + " s"
                     + (total > bb::StepDelayEngine::kMaxSeconds ? " (max 24 s)" : ""),
                 R (600, 32, 362, 22), juce::Justification::centredRight, false);
-}
-
-// Kleiner Echo-Käfer: krabbelt im Takt mit, Fühler leuchten mit den Echos
-void StepDelayEditor::paintBug (juce::Graphics& g, juce::Point<float> c, float size)
-{
-    using namespace bb;
-    float act = 0.0f;
-    for (int k = 0; k < StepDelayProcessor::kMaxSteps; ++k)
-        act = std::max (act, proc.vizTap[(size_t) k].load (std::memory_order_relaxed));
-    act = juce::jlimit (0.0f, 1.0f, act * 1.5f);
-
-    const float s = size / 34.0f;
-    const float wig = (float) std::sin (bugPhase) * 3.0f * s;
-
-    // Beine
-    g.setColour (col::toxDim);
-    for (int side : { -1, 1 })
-        for (int i = 0; i < 3; ++i)
-        {
-            const float y = c.y - 6 * s + (float) i * 6 * s;
-            const float sway = (i % 2 == 0 ? wig : -wig) * (float) side;
-            juce::Path leg;
-            leg.startNewSubPath (c.x + 6.0f * s * (float) side, y);
-            leg.lineTo (c.x + 13.0f * s * (float) side, y - 3 * s + sway);
-            leg.lineTo (c.x + 17.0f * s * (float) side, y + 2 * s + sway);
-            g.strokePath (leg, juce::PathStrokeType (1.6f * s, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-
-    // Körper (zwei Flügeldecken) und Kopf
-    auto body = juce::Rectangle<float> (c.x - 9 * s, c.y - 9 * s, 18 * s, 22 * s);
-    juce::ColourGradient grad (col::tox, body.getCentreX(), body.getY(), col::toxDim.darker (0.6f), body.getCentreX(), body.getBottom(), false);
-    g.setGradientFill (grad);
-    g.fillEllipse (body);
-    g.setColour (juce::Colours::black.withAlpha (0.7f));
-    g.drawLine (c.x, body.getY() + 2 * s, c.x, body.getBottom() - 1 * s, 1.2f * s);
-    // Echo-Ringe auf dem Rücken
-    g.setColour (col::brain.withAlpha (0.35f + 0.65f * act));
-    for (int i = 0; i < 3; ++i)
-    {
-        const float rr = (2.0f + (float) i * 2.5f) * s;
-        g.drawEllipse (c.x - rr, c.y + 3 * s - rr, rr * 2, rr * 2, 0.9f * s);
-    }
-    g.setColour (col::panel2);
-    g.fillEllipse (c.x - 6 * s, c.y - 15 * s, 12 * s, 8 * s);
-    g.setColour (col::brain);
-    g.fillEllipse (c.x - 4 * s, c.y - 13 * s, 2.6f * s, 2.6f * s);
-    g.fillEllipse (c.x + 1.4f * s, c.y - 13 * s, 2.6f * s, 2.6f * s);
-
-    // Fühler
-    for (int side : { -1, 1 })
-    {
-        juce::Path ant;
-        ant.startNewSubPath (c.x + 2 * s * (float) side, c.y - 14 * s);
-        ant.quadraticTo (c.x + 6 * s * (float) side, c.y - 22 * s, c.x + (10 * s + wig * 0.4f) * (float) side, c.y - 21 * s);
-        g.setColour (col::toxDim);
-        g.strokePath (ant, juce::PathStrokeType (1.3f * s));
-        const auto tip = juce::Point<float> (c.x + (10 * s + wig * 0.4f) * (float) side, c.y - 21 * s);
-        g.setColour (col::brain.withAlpha (0.25f + 0.75f * act));
-        g.fillEllipse (tip.x - 2.2f * s, tip.y - 2.2f * s, 4.4f * s, 4.4f * s);
-    }
 }

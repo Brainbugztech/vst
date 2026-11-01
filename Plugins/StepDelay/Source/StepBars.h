@@ -1,6 +1,6 @@
 #pragma once
 
-// Balken-Editor: ein Balken pro Echo-Step. Ziehen/Wischen setzt die Lautstärke,
+// Echo-Zeitleiste: ein ausklingender Impuls pro Echo-Step. Ziehen/Wischen setzt die Lautstärke,
 // Rechtsklick schaltet stumm/an, Doppelklick setzt auf 80 %.
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -48,48 +48,92 @@ public:
         const auto area = barArea();
         const int n = numSteps();
         const float w = area.getWidth() / (float) n;
+        const float u = getHeight() / 280.0f;
+        const float base = area.getBottom();
 
         // Hilfslinien bei 25/50/75 %
-        g.setColour (col::line.withAlpha (0.6f));
+        g.setColour (col::line.withAlpha (0.5f));
         for (float f : { 0.25f, 0.5f, 0.75f })
         {
-            const float y = area.getBottom() - area.getHeight() * f;
+            const float y = base - area.getHeight() * f;
             for (float x = area.getX(); x < area.getRight(); x += 6.0f)
                 g.drawLine (x, y, std::min (x + 2.0f, area.getRight()), y, 1.0f);
         }
 
-        const float u = getHeight() / 280.0f;
+        // Hover-Spalte
+        if (isMouseOver() && juce::isPositiveAndBelow (hoverStep, n))
+        {
+            g.setColour (col::panel2.brighter (0.06f));
+            g.fillRect (juce::Rectangle<float> (area.getX() + w * (float) hoverStep, area.getY(), w, area.getHeight()));
+        }
+
+        // Zeitachse mit Takt-Strichen
+        g.setColour (col::inkDim.withAlpha (0.55f));
+        g.fillRect (juce::Rectangle<float> (area.getX(), base, area.getWidth(), 1.5f * u));
+        for (int k = 0; k <= n; ++k)
+        {
+            const float x = area.getX() + w * (float) k;
+            const float t = (k % 4 == 0 ? 7.0f : 3.5f) * u;
+            g.setColour (k % 4 == 0 ? col::inkDim : col::line.brighter (0.3f));
+            g.fillRect (juce::Rectangle<float> (x - 0.5f, base, 1.0f, t));
+        }
+
+        // Echo-Impulse: senkrechter Anschlag, danach ausklingender Schweif
         for (int k = 0; k < n; ++k)
         {
             const float x0 = area.getX() + w * (float) k;
-            auto slot = juce::Rectangle<float> (x0, area.getY(), w, area.getHeight()).reduced (std::min (4.0f, w * 0.14f), 0.0f);
+            const float ix = x0 + std::min (5.0f * u, w * 0.18f); // Position des Echos
             const float lv = proc.getLevel (k);
             const float gl = glow[(size_t) k];
-            const bool hover = isMouseOver() && k == hoverStep;
-
-            // Slot-Hintergrund, jeder 4. Step etwas heller (Taktgefühl)
-            g.setColour ((k % 4 == 0 ? col::panel2.brighter (0.08f) : col::panel2).withAlpha (hover ? 1.0f : 0.85f));
-            g.fillRoundedRectangle (slot, 3.0f);
 
             if (lv > 0.001f)
             {
-                auto bar = slot.withTop (slot.getBottom() - slot.getHeight() * lv);
+                const float h = area.getHeight() * lv;
+                const float top = base - h;
                 const auto c = col::tox.interpolatedWith (col::brain, gl);
-                g.setColour (c.withAlpha (0.18f + 0.35f * gl));
-                g.fillRoundedRectangle (bar.expanded (2.0f + 4.0f * gl, 2.0f + 4.0f * gl), 4.0f);
-                juce::ColourGradient grad (c.brighter (0.25f), 0, bar.getY(), c.darker (0.55f), 0, bar.getBottom(), false);
+                const float tail = std::max (6.0f, w * 0.88f - (ix - x0));
+
+                juce::Path curve, fill;
+                curve.startNewSubPath (ix, top);
+                fill.startNewSubPath (ix, base);
+                fill.lineTo (ix, top);
+                const int segs = 24;
+                for (int i = 1; i <= segs; ++i)
+                {
+                    const float t = (float) i / (float) segs;
+                    const float y = base - h * std::exp (-4.2f * t) * (1.0f - t * 0.04f);
+                    curve.lineTo (ix + tail * t, y);
+                    fill.lineTo (ix + tail * t, y);
+                }
+                fill.lineTo (ix + tail, base);
+                fill.closeSubPath();
+
+                juce::ColourGradient grad (c.withAlpha (0.42f + 0.3f * gl), ix, top, c.withAlpha (0.02f), ix, base, false);
                 g.setGradientFill (grad);
-                g.fillRoundedRectangle (bar, 3.0f);
-                g.setColour (juce::Colours::white.withAlpha (0.55f + 0.45f * gl));
-                g.fillRect (bar.withHeight (std::min (2.5f, bar.getHeight())));
+                g.fillPath (fill);
+
+                // Glühen bei aktivem Echo
+                if (gl > 0.02f)
+                {
+                    g.setColour (c.withAlpha (0.35f * gl));
+                    g.strokePath (curve, juce::PathStrokeType (6.0f * u));
+                    g.fillRect (juce::Rectangle<float> (ix - 4.0f * u, top, 8.0f * u, h));
+                }
+
+                g.setColour (c.withAlpha (0.85f));
+                g.strokePath (curve, juce::PathStrokeType (1.5f * u, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+                // Anschlag
+                g.setColour (c);
+                g.fillRect (juce::Rectangle<float> (ix - 1.3f * u, top, 2.6f * u, h));
+                g.setColour (juce::Colours::white.withAlpha (0.6f + 0.4f * gl));
+                g.fillEllipse (ix - 3.0f * u, top - 3.0f * u, 6.0f * u, 6.0f * u);
             }
             else
             {
-                // stummer Step: kleines X
-                const float cx = slot.getCentreX(), cy = slot.getBottom() - 10.0f * u, s = std::min (4.0f * u, w * 0.2f);
-                g.setColour (col::inkDim.withAlpha (0.5f));
-                g.drawLine (cx - s, cy - s, cx + s, cy + s, 1.2f);
-                g.drawLine (cx - s, cy + s, cx + s, cy - s, 1.2f);
+                // stummer Step: kleiner Punkt auf der Zeitachse
+                g.setColour (col::inkDim.withAlpha (0.45f));
+                g.fillEllipse (ix - 2.0f * u, base - 2.0f * u, 4.0f * u, 4.0f * u);
             }
 
             // Step-Nummer
@@ -97,7 +141,7 @@ public:
             {
                 g.setFont (fonts::mono (std::min (13.0f * u, w * 0.62f + 4.0f)));
                 g.setColour (k % 4 == 0 ? col::ink : col::inkDim);
-                g.drawText (juce::String (k + 1), juce::Rectangle<float> (x0 - 6.0f, area.getBottom() + 3.0f, w + 12.0f, 16.0f * u),
+                g.drawText (juce::String (k + 1), juce::Rectangle<float> (ix - 12.0f * u, base + 8.0f * u, 24.0f * u, 14.0f * u),
                             juce::Justification::centredTop, false);
             }
         }

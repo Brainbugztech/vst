@@ -19,7 +19,6 @@ public:
 private:
     void timerCallback() override;
     void paintHeader (juce::Graphics&);
-    void paintBug (juce::Graphics&, juce::Point<float> c, float size);
     juce::Rectangle<float> R (float x, float y, float w, float h) const { return { x * u, y * u, w * u, h * u }; }
 
     StepDelayProcessor& proc;
@@ -47,7 +46,6 @@ private:
     juce::TextButton leftBtn { juce::String::fromUTF8 ("\xe2\x97\x80") }, rightBtn { juce::String::fromUTF8 ("\xe2\x96\xb6") };
 
     float u = 1.0f;
-    double bugPhase = 0.0, lastMs = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StepDelayEditor)
 };
