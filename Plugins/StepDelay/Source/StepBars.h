@@ -36,118 +36,116 @@ public:
         if (changed) repaint();
     }
 
+    // Zeichnet das Balkenfeld der Vorlage (Komponente = Feld, 260 Vorlage-Pixel hoch)
     void paint (juce::Graphics& g) override
     {
         using namespace sd;
-        auto r = getLocalBounds().toFloat().reduced (4.0f);
-        const float u = getHeight() / 172.0f;   // Entwurf: Panel ist 172 Einheiten hoch
-        neonPanel (g, r, u, col::green, 1.0f, 16.0f);
+        const float u = getHeight() / 260.0f;
+        g.fillAll (col::field);
+
+        // Scanner-Lichtbalken läuft auch durchs Feld (hinter den Balken)
+        if (scanX > -9000.0f)
+        {
+            const float bw = 160.0f * u;
+            juce::ColourGradient band (col::magenta.withAlpha (0.0f), scanX - bw, 0, col::magenta.withAlpha (0.0f), scanX + bw * 0.25f, 0, false);
+            band.addColour (0.8, col::magenta.withAlpha (0.2f));
+            g.setGradientFill (band);
+            g.fillRect (juce::Rectangle<float> (scanX - bw, 0, bw * 1.25f, (float) getHeight()));
+            g.setColour (col::magenta.withAlpha (0.35f));
+            g.fillRect (juce::Rectangle<float> (scanX - 1.0f * u, 0, 2.0f * u, (float) getHeight()));
+        }
 
         const auto area = barArea();
         const int n = numSteps();
         const float w = area.getWidth() / (float) n;
         const float base = area.getBottom();
 
-        // Kopfzeile: "/// 16 STEP PATTERN" links, "1/16 GRID ///" rechts
-        const float ty = 8.0f * u, th = 14.0f * u;
-        slashes (g, r.getX() + 22 * u, ty + 2 * u, th - 4 * u, 3, col::magenta, u);
-        g.setFont (bb::fonts::display (13.5f * u, true));
-        g.setColour (col::ink);
-        const auto title = juce::String (n) + (n == 1 ? " STEP PATTERN" : " STEP PATTERN");
-        g.drawText (title, juce::Rectangle<float> (r.getX() + 48 * u, ty, 300 * u, th), juce::Justification::centredLeft, false);
-        const float tw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), title);
-        const auto grid = proc.gridName().toUpperCase() + (proc.getParam (ParamIDs::sync) > 0.5f ? " GRID" : "");
-        const float gw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), grid);
-        const float gx = r.getRight() - 52 * u - gw;
-        g.drawText (grid, juce::Rectangle<float> (gx, ty, gw + 4, th), juce::Justification::centredLeft, false);
-        slashes (g, r.getRight() - 46 * u, ty + 2 * u, th - 4 * u, 3, col::magenta, u);
-        g.setColour (col::magenta.withAlpha (0.6f));
-        g.fillRect (juce::Rectangle<float> (r.getX() + 56 * u + tw, ty + th * 0.5f, gx - (r.getX() + 56 * u + tw) - 10 * u, 1.0f * u));
-
-        // Wert beim Ziehen/Hovern mittig in der Linie
-        if (isMouseOver() && juce::isPositiveAndBelow (hoverStep, n))
-        {
-            const float lv = proc.getLevel (hoverStep);
-            const auto txt = " STEP " + juce::String (hoverStep + 1) + ": " + (lv < 0.001f ? juce::String ("STUMM") : juce::String (juce::roundToInt (lv * 100.0f)) + "% ");
-            g.setFont (bb::fonts::mono (13.0f * u));
-            const float vw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), txt) + 10 * u;
-            auto box = juce::Rectangle<float> (r.getCentreX() - vw * 0.5f, ty - 1 * u, vw, th + 2 * u);
-            g.setColour (col::panel);
-            g.fillRect (box);
-            g.setColour (col::green);
-            g.drawText (txt, box, juce::Justification::centred, false);
-        }
-
-        // Feld mit Spalten
-        g.setColour (juce::Colour (0xff0a0510));
-        g.fillRect (area);
+        // Spalten mit feinen lila Trennlinien
         for (int k = 0; k < n; ++k)
         {
-            const float x0 = area.getX() + w * (float) k;
-            auto slot = juce::Rectangle<float> (x0, area.getY(), w, area.getHeight());
-            juce::ColourGradient sg (juce::Colour (0xff1d1028), 0, slot.getY(), juce::Colour (0xff110818), 0, slot.getBottom(), false);
+            auto slot = juce::Rectangle<float> (area.getX() + w * (float) k, 0.0f, w, base + 1.0f * u);
+            juce::ColourGradient sg (col::slotTop.withAlpha (k == hoverStep && isMouseOver() ? 1.0f : 0.8f), 0, 0,
+                                     col::slotBot, 0, base, false);
             g.setGradientFill (sg);
-            g.fillRect (slot.reduced (1.0f * u, 0));
-            if (k == hoverStep && isMouseOver())
-            {
-                g.setColour (juce::Colours::white.withAlpha (0.04f));
-                g.fillRect (slot);
-            }
+            g.fillRect (slot);
         }
-        g.setColour (juce::Colour (0xff050208));
-        for (int k = 1; k < n; ++k)
-            g.fillRect (juce::Rectangle<float> (area.getX() + w * (float) k - 1.0f * u, area.getY(), 2.0f * u, area.getHeight()));
+        g.setColour (col::sep);
+        for (int k = 0; k <= n; ++k)
+            g.fillRect (juce::Rectangle<float> (area.getX() + w * (float) k - 0.6f * u, 0.0f, 1.2f * u, base));
 
-        // Balken
         for (int k = 0; k < n; ++k)
         {
             const float x0 = area.getX() + w * (float) k;
-            const float pad = std::max (1.5f * u, std::min (5.0f * u, w * 0.08f));
+            const float pad = std::max (1.5f * u, w * 0.085f);
             auto slot = juce::Rectangle<float> (x0, area.getY(), w, area.getHeight()).reduced (pad, 0.0f);
             const float lv = proc.getLevel (k);
             const float gl = glow[(size_t) k];
-            const bool hot = gl > 0.15f;
 
             if (lv > 0.001f)
             {
-                auto bar = slot.withTop (base - area.getHeight() * lv).withBottom (base - 1.0f * u);
-                const auto top = col::green.interpolatedWith (col::magenta, gl);
-                const auto bot = col::greenDk.interpolatedWith (juce::Colour (0xffb0109c), gl);
-                // Leuchten
-                g.setColour (top.withAlpha (0.10f + 0.30f * gl));
-                g.fillRect (bar.expanded (3.0f * u, 3.0f * u));
-                juce::ColourGradient grad (top.brighter (0.15f), 0, bar.getY(), bot, 0, bar.getBottom(), false);
-                grad.addColour (0.35, top);
+                auto bar = slot.withTop (base - area.getHeight() * lv).withBottom (base);
+                const auto top = col::greenHi.interpolatedWith (col::magenta, gl);
+                const auto mid = col::green.interpolatedWith (col::magenta, gl);
+                const auto bot = col::greenDk.interpolatedWith (col::magentaDk, gl);
+
+                // Leuchten (beim klingenden Step stark)
+                for (int i = 3; i >= 1; --i)
+                {
+                    g.setColour (mid.withAlpha ((0.05f + 0.10f * gl) * (float) (4 - i) / 3.0f));
+                    g.fillRect (bar.expanded ((float) i * (2.0f + 4.0f * gl) * u));
+                }
+                juce::ColourGradient grad (top, 0, bar.getY(), bot, 0, bar.getBottom(), false);
+                grad.addColour (0.3, mid);
                 g.setGradientFill (grad);
                 g.fillRect (bar);
-                g.setColour (juce::Colours::white.withAlpha (0.35f + 0.4f * gl));
-                g.fillRect (bar.withHeight (std::min (2.0f * u, bar.getHeight())));
-                g.setColour (top.brighter (0.4f).withAlpha (0.6f));
-                g.drawRect (bar, 1.0f);
+                // helle Kante und Schimmer oben
+                g.setColour (top.brighter (0.3f).withAlpha (0.9f));
+                g.drawRect (bar, 1.4f * u);
+                juce::ColourGradient sheen (juce::Colours::white.withAlpha (0.28f + 0.2f * gl), 0, bar.getY(),
+                                            juce::Colours::white.withAlpha (0.0f), 0, bar.getY() + std::min (40.0f * u, bar.getHeight()), false);
+                g.setGradientFill (sheen);
+                g.fillRect (bar.reduced (1.4f * u, 0).withTrimmedTop (1.4f * u));
             }
             else
             {
-                const float cx = slot.getCentreX(), cy = base - 9.0f * u, s2 = std::min (3.5f * u, w * 0.2f);
-                g.setColour (col::inkDim.withAlpha (0.45f));
-                g.drawLine (cx - s2, cy - s2, cx + s2, cy + s2, 1.2f * u);
-                g.drawLine (cx - s2, cy + s2, cx + s2, cy - s2, 1.2f * u);
+                const float cx = slot.getCentreX(), cy = base - 12.0f * u, s2 = std::min (6.0f * u, w * 0.2f);
+                g.setColour (col::inkDim.withAlpha (0.35f));
+                g.drawLine (cx - s2, cy - s2, cx + s2, cy + s2, 2.0f * u);
+                g.drawLine (cx - s2, cy + s2, cx + s2, cy - s2, 2.0f * u);
             }
 
-            // pinker Unterstrich beim gerade klingenden Step
-            if (hot)
+            // pinker Unterstrich beim klingenden Step
+            if (gl > 0.1f)
             {
-                g.setColour (col::magenta.withAlpha (gl));
-                g.fillRect (juce::Rectangle<float> (slot.getX(), base + 2.0f * u, slot.getWidth(), 2.0f * u));
+                auto line = juce::Rectangle<float> (slot.getX(), base + 2.0f * u, slot.getWidth(), 3.0f * u);
+                g.setColour (col::magenta.withAlpha (0.4f * gl));
+                g.fillRect (line.expanded (0, 3.0f * u));
+                g.setColour (col::magenta.brighter (0.3f).withAlpha (gl));
+                g.fillRect (line);
             }
 
             // Step-Nummer
-            if (w > 16.0f * u || k % 4 == 0)
+            if (w > 22.0f * u || k % 4 == 0)
             {
-                g.setFont (bb::fonts::display (std::min (13.0f * u, w * 0.55f + 4.0f), true));
-                g.setColour (hot ? col::magenta : col::inkDim);
-                g.drawText (juce::String (k + 1), juce::Rectangle<float> (x0 - 4 * u, base + 6.0f * u, w + 8 * u, 15.0f * u),
+                g.setFont (font (std::min (30.0f * u, w * 0.6f + 6.0f * u)));
+                g.setColour (col::lilac.interpolatedWith (col::magenta, juce::jlimit (0.0f, 1.0f, gl * 1.5f)));
+                g.drawText (juce::String (k + 1), juce::Rectangle<float> (x0 - 10 * u, base + 8.0f * u, w + 20 * u, 30.0f * u),
                             juce::Justification::centred, false);
             }
+        }
+
+        // Wert beim Ziehen/Hovern oben rechts im Feld
+        if (isMouseOver() && juce::isPositiveAndBelow (hoverStep, n))
+        {
+            const float lv = proc.getLevel (hoverStep);
+            const auto txt = "STEP " + juce::String (hoverStep + 1) + ": " + (lv < 0.001f ? juce::String ("STUMM") : juce::String (juce::roundToInt (lv * 100.0f)) + "%");
+            g.setFont (font (26.0f * u));
+            const float tw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), txt) + 24 * u;
+            auto box = juce::Rectangle<float> (area.getRight() - tw, 4 * u, tw, 30 * u);
+            g.setColour (juce::Colour (0xe0070409));
+            g.fillPath (chamfer (box, 6 * u));
+            g.setColour (col::green);
+            g.drawText (txt, box, juce::Justification::centred, false);
         }
     }
 
@@ -212,8 +210,8 @@ private:
 
     juce::Rectangle<float> barArea() const
     {
-        const float u = getHeight() / 172.0f;
-        return getLocalBounds().toFloat().reduced (4.0f).withTrimmedTop (28.0f * u).withTrimmedBottom (28.0f * u).reduced (18.0f * u, 0.0f);
+        const float u = getHeight() / 260.0f;
+        return getLocalBounds().toFloat().withTrimmedTop (8.0f * u).withTrimmedBottom (40.0f * u).reduced (2.0f * u, 0.0f);
     }
 
     int stepAt (float x) const
@@ -235,6 +233,9 @@ private:
     }
 
     StepDelayProcessor& proc;
+public:
+    float scanX = -10000.0f;   // Position des Scanners in lokalen Pixeln (vom Editor gesetzt)
+private:
     std::array<float, StepDelayProcessor::kMaxSteps> glow {}, shown {}, remembered {};
     int hoverStep = -1, lastN = -1;
     bool dragging = false;

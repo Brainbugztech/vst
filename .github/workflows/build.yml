@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 2 # bei Pull Requests: Vergleich mit main, welche Plugins geändert sind
 
-      - name: Schriften holen (Chakra Petch, Share Tech Mono, Sedgwick Ave Display, Creepster, Audiowide, OFL)
+      - name: Schriften holen (Chakra Petch, Share Tech Mono, Sedgwick Ave Display, Creepster, Audiowide, Rajdhani, OFL)
         shell: bash
         run: |
           base=https://github.com/google/fonts/raw/main/ofl
@@ -30,6 +30,7 @@ jobs:
           curl -fsSL -o Plugins/BleepDesigner/Assets/SedgwickAveDisplay-Regular.ttf $base/sedgwickavedisplay/SedgwickAveDisplay-Regular.ttf || echo "Font fehlt"
           curl -fsSL -o Plugins/SnareHead/Assets/Creepster-Regular.ttf $base/creepster/Creepster-Regular.ttf || echo "Font fehlt"
           curl -fsSL -o Plugins/BrainFuzz/Assets/Audiowide-Regular.ttf $base/audiowide/Audiowide-Regular.ttf || echo "Font fehlt"
+          curl -fsSL -o Plugins/StepDelay/Assets/Rajdhani-Bold.ttf $base/rajdhani/Rajdhani-Bold.ttf || echo "Font fehlt"
           ls -la Assets
 
       - name: JUCE-Cache

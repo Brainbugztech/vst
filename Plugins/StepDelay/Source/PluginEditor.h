@@ -5,6 +5,8 @@
 #include "StepBars.h"
 #include "CyberLook.h"
 
+// Oberfläche nach Benetts Vorlage: Hintergrund ist die bereinigte Vorlage (Assets/stepdelay_bg.jpg),
+// alle beweglichen Teile liegen exakt an den Stellen aus dem Entwurf.
 class StepDelayEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -15,25 +17,23 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
 
-    // Entwurf in 1000 x 500 Einheiten, Startgröße 1100 x 550
-    static constexpr int designW = 1000, designH = 500;
-    static constexpr int baseW = 1100, baseH = 550;
+    // Koordinaten = Pixel der Vorlage
+    static constexpr int designW = 1774, designH = 887;
+    static constexpr int baseW = 1240, baseH = 620;
 
 private:
     void timerCallback() override;
-    void renderBackground();
-    void paintHeader (juce::Graphics&);
-    void sectionLabel (juce::Graphics&, float x, float y, const juce::String& text);
     void stepPreset (int dir);
     juce::Rectangle<float> R (float x, float y, float w, float h) const { return { x * u, y * u, w * u, h * u }; }
+    juce::Rectangle<int> scannerArea (float pos) const;
 
     StepDelayProcessor& proc;
     sd::LookAndFeel lnf;
     StepBars bars;
-    juce::Image logo, background;
+    juce::Image bgSource, background;
 
     // Pattern Control
-    juce::TextButton prevBtn { juce::String::fromUTF8 ("\xe2\x97\x80") }, nextBtn { juce::String::fromUTF8 ("\xe2\x96\xb6") };
+    juce::TextButton prevBtn { "<" }, nextBtn { ">" };
     juce::TextButton syncBtn { "SYNC" };
     std::array<juce::TextButton, bb::stepgrid::kNumRates> rateBtns;
     std::array<juce::TextButton, bb::stepgrid::kNumModes> modeBtns;
@@ -44,11 +44,13 @@ private:
     std::array<juce::Slider, kNumKnobs> knobs;
     const std::array<const char*, kNumKnobs> knobIds { ParamIDs::steps, ParamIDs::timeMs, ParamIDs::mix,
                                                        ParamIDs::loCut, ParamIDs::hiCut, ParamIDs::out };
-    const std::array<const char*, kNumKnobs> knobNames { "STEPS", "TIME", "MIX", "LO CUT", "HI CUT", "OUTPUT" };
-    static constexpr std::array<float, kNumKnobs> knobX { 152, 295, 435, 575, 716, 860 };
+    static constexpr std::array<float, kNumKnobs> knobX { 268, 523, 772, 1020, 1270, 1525 };
+    static constexpr float knobY = 712;
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     std::array<std::unique_ptr<SA>, kNumKnobs> knobAtts;
 
+    // Scanner-Effekt: Lichtbalken, der durch den Hintergrund läuft
+    double scanPos = 0.0, lastMs = 0.0;
     float u = 1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StepDelayEditor)
