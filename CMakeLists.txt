@@ -30,4 +30,5 @@ add_subdirectory(Plugins/SnareHead)
 add_subdirectory(Plugins/BrainFuzz)
 add_subdirectory(Plugins/Prizm)
 add_subdirectory(Plugins/Braincut)
+add_subdirectory(Plugins/StepDelay)
 # Plugins/Phazer: Engine in Arbeit, wird noch nicht gebaut
