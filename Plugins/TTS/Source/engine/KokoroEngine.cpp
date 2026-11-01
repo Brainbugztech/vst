@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <unordered_map>
+#include <cstring>
 
 namespace tts
 {

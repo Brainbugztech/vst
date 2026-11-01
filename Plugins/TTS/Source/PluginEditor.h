@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <functional>
+#include <iterator>
 #include "PluginProcessor.h"
 #include "ui/TtsWidgets.h"
 

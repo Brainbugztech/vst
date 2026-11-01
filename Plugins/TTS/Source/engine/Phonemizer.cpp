@@ -6,6 +6,7 @@
 #include <cmath>
 #include <map>
 #include <sstream>
+#include <tuple>
 
 namespace tts
 {
