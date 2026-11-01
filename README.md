@@ -151,6 +151,18 @@ Gemeinsam für beide Modi im Processor: Bereichsweichen, Pegelausgleich, Strengt
 
 Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Learn, Tune, Noten-Map, Formant, Gewichtung, Mitte/Seite, Sidechain, Presets, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
 
+## Brainbugz TTS
+
+Text-to-Speech als Instrument (Englisch, Stimmen von Kokoro, läuft offline).
+
+- **Erster Start**: Button **DOWNLOAD VOICE ENGINE** lädt das Stimm-Modell (ca. 337 MB, kostenlos, direkt von GitHub) nach `%APPDATA%\Brainbugz\TTS`. Ladebalken mit MB/Prozent, Cancel, bei Fehlern Retry und Ordner öffnen. Danach braucht das Plugin kein Internet mehr.
+- **Voice**: 28 englische Kokoro-Stimmen (Female/Male), **Accent** US/UK. Unter dem Zahnrad: zweite Stimme beimischen (**Voice blend**, z. B. 70/30).
+- **Generate** spricht den Text, **Play/Stop** spielt ab, MIDI-Noten triggern die Stimme (C3 = Originaltonhöhe). Klick auf die Wellenform = Play/Stop, **Wellenform in Ableton ziehen** = WAV mit Effekten, **Save** speichert die WAV.
+- **Pitch** ±12 Halbtöne (PSOLA, Formanten bleiben), **Formant** 0.5–2x (Klangfarbe), **Speed** 0.001x–4x (0.5–2x macht Kokoro selbst, bis 0.125x PSOLA, darunter Paulstretch-Drone, max. 15 min), **Volume**. Pitch/Speed/Formant rechnen nach dem Loslassen automatisch neu.
+- **Effects** (Power-Taste): Reverb, Ping-Pong-Delay (punktierte Achtel im Songtempo), EQ als Tilt (dunkler/heller).
+- Das Projekt merkt sich Text, Stimme und Regler und erzeugt die Stimme beim Laden neu.
+- Engine-Test ohne DAW (Linux): `Plugins/TTS/tools` (Aussprache, Kokoro, Effekte, schreibt WAVs). Fremd-Bausteine und Lizenzen: `Plugins/TTS/THIRD_PARTY.md`.
+
 ## Bauen
 
 GitHub Actions baut bei jedem Push auf `main` automatisch die Windows-VST3 (`.github/workflows/build.yml`) und testet sie mit pluginval. Die fertigen Plugins liegen als Artefakt **Brainbugz-VST3** am jeweiligen Lauf und als ZIPs auf dem Branch `builds` (einzeln und als `Brainbugz-alle-VST3.zip`).
@@ -171,6 +183,7 @@ cmake --build build --config Release
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
 - `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Pitch Matrix in `PitchMatrix.*`, Modulation in `Modulation.h` und `ModPanel.*`, Learn in `KeyAnalyzer.h`, Sidechain in `ChordTracker.h`, Werkspresets in `Presets.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
+- `Plugins/TTS` – Text-to-Speech (Aussprache in `engine/Phonemizer.*`, Kokoro in `engine/KokoroEngine.*`, Download in `engine/EngineHolder.h`, Pitch/Speed/Formant in `dsp/VoiceFx.h`, Effekte in `dsp/PlaybackFx.h`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
