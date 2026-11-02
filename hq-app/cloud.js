@@ -18,7 +18,8 @@ const STRUKTUR = [
   '03_Samples/Vocals', '03_Samples/FX', '03_Samples/Eigene Aufnahmen', '03_Samples/Samplepacks',
   '04_Plugins', '04_Plugins/Brain Bugz Builds', '04_Plugins/Brain Bugz Builds/Brainbugz Haas', '04_Plugins/Brain Bugz Builds/Phazer',
   '04_Plugins/Brain Bugz Builds/Bleep Designer', '04_Plugins/Brain Bugz Builds/Bugz Align', '04_Plugins/Installer (Fremd-Plugins)',
-  '05_Tracks', '05_Tracks/Fertig (Master)', '05_Tracks/Stems', '05_Tracks/Demos und Previews', '05_Tracks/Releases (Artwork, Infos)'
+  '05_Tracks', '05_Tracks/Fertig (Master)', '05_Tracks/Stems', '05_Tracks/Demos und Previews', '05_Tracks/Releases (Artwork, Infos)',
+  '06_Promo', '06_Promo/Fotos', '06_Promo/Logos und Grafiken', '06_Promo/Videos', '06_Promo/Press Kit'
 ];
 const VERSTECKT = new Set(['desktop.ini', 'thumbs.db', '.ds_store', 'icon\r']);
 
@@ -163,7 +164,7 @@ async function copyOut(rel, target) {
 // Archiv: ein fertiges Projekt aus dem Board in den gewählten Cloud-Ordner legen.
 // Ziel ist <Ordner>/<Projektname>. Gibt es irgendwo in der Cloud (bis 3 Ebenen tief) genau einen Ordner mit dem Projektnamen,
 // wird er dorthin verschoben, sonst wird ein leerer Zielordner angelegt. Es wird nie etwas überschrieben oder gelöscht.
-const ARCHIV_ZIELE = ['01_Projekte/_Archiv', '02_Presets', '03_Samples', '04_Plugins/Brain Bugz Builds', '05_Tracks/Fertig (Master)', '_Inbox (zum Einsortieren)'];
+const ARCHIV_ZIELE = ['01_Projekte/_Archiv', '02_Presets', '03_Samples', '04_Plugins/Brain Bugz Builds', '05_Tracks/Fertig (Master)', '06_Promo', '_Inbox (zum Einsortieren)'];
 async function findeOrdner(name, ausser) {
   const gefunden = [];
   async function walk(dir, tiefe) {

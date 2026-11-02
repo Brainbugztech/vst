@@ -13,6 +13,7 @@
     plugin: '<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="12" cy="12" r="3.5"/><path d="M12 8.5V6"/>',
     track: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    promo: '<path d="M4 10v4l11 5V5z"/><path d="M15 9a3 3 0 0 1 0 6"/><path d="M7 15.5V20h3v-3.2"/>',
     audio: '<path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/>',
     file: '<path d="M6 3h8l4 4v14H6z M14 3v4h4"/>',
     zip: '<path d="M6 3h12v18H6z M12 3v2m0 2v2m0 2v2m-1 2h2v3h-2z"/>',
@@ -31,7 +32,8 @@
     { m: /^02_/, c: '#ffaa28', ico: 'preset', d: 'Racks, Synth-Presets und Presetpacks' },
     { m: /^03_/, c: '#b6ff1f', ico: 'sample', d: 'Drums, Bass, Melodie, Vocals, FX' },
     { m: /^04_/, c: '#33d6ff', ico: 'plugin', d: 'Brain-Bugz-Builds und Installer' },
-    { m: /^05_/, c: '#a77bff', ico: 'track', d: 'Master, Stems, Demos, Releases' }
+    { m: /^05_/, c: '#a77bff', ico: 'track', d: 'Master, Stems, Demos, Releases' },
+    { m: /^06_/, c: '#ff7a45', ico: 'promo', d: 'Fotos, Logos, Videos und Press Kit' }
   ];
   const haupt = name => HAUPT.find(h => h.m.test(name)) || { c: '#8c9a93', ico: 'folder', d: '' };
   const pretty = name => name.replace(/^\d+_/, '').replace(/^_(inbox)\b.*$/i, 'Inbox').replace(/^_hq-app$/i, 'HQ-App Updates').replace(/^_/, '');

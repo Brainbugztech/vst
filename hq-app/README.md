@@ -45,7 +45,7 @@ Die App lädt nichts selbst hoch, das macht Google Drive im Hintergrund.
 Tipp: Den Ordner in Google Drive für Desktop auf „Offline verfügbar“ stellen, damit Samples sofort laden.
 
 ### Was die Cloud-Ansicht kann
-- Übersicht mit Kacheln (Projekte, Presets, Samples, Plugins, Tracks, Inbox) inkl. Anzahl, Größe und „NEU“ für Dateien der letzten 24 h
+- Übersicht mit Kacheln (Projekte, Presets, Samples, Plugins, Tracks, Promo, Inbox) inkl. Anzahl, Größe und „NEU“ für Dateien der letzten 24 h
 - Ordnerbaum links, Inhalt rechts, Doppelklick öffnet Datei/Ordner
 - **Drag & Drop rein**: Dateien/Ordner aus dem Explorer auf den Inhalt, eine Kachel oder einen Ordner links ziehen
 - **Rausziehen**: Dateien direkt in Ableton oder den Explorer ziehen
