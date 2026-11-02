@@ -14,6 +14,7 @@ _Inbox (zum Einsortieren)  Alles Neue erstmal hier rein, wer Zeit hat sortiert e
    Brain Bugz Builds      Fertige .vst3-Builds unserer Plugins (Ordner pro Version, z.B. "v1.2")
    Installer              Installer von Fremd-Plugins (nur was ihr beide nutzen duerft)
 05_Tracks                 Fertige Master (WAV + MP3), Stems, Demos, Release-Material
+06_Promo                  Fotos, Logos und Grafiken, Videos, Press Kit
 
 ABLETON - WICHTIG
 -----------------

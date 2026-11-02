@@ -35,7 +35,12 @@ $struktur = @(
   '05_Tracks\Fertig (Master)',
   '05_Tracks\Stems',
   '05_Tracks\Demos und Previews',
-  '05_Tracks\Releases (Artwork, Infos)'
+  '05_Tracks\Releases (Artwork, Infos)',
+  '06_Promo',
+  '06_Promo\Fotos',
+  '06_Promo\Logos und Grafiken',
+  '06_Promo\Videos',
+  '06_Promo\Press Kit'
 )
 
 Write-Host ''
