@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <map>
 
 using namespace ttsparams;
 
@@ -22,6 +23,8 @@ void TtsChain::prepare (double rate, int maxBlock)
     clearFifo();
     volume.reset (hostRate, 0.03);
     grainMix.reset (innerRate, 0.03);
+    dryGain.reset (innerRate, 0.05);
+    dryGain.setCurrentAndTargetValue (1.0f);
 }
 
 void TtsChain::clearFifo()
@@ -51,28 +54,36 @@ void TtsChain::stop()
 void TtsChain::renderInternal (int n, const Settings& s)
 {
     const double pitch = std::pow (2.0, juce::jlimit (-36.0, 36.0, (double) (s.pitchSemis + noteSemis)) / 12.0);
+    const bool frozen = s.grainOn && s.grain.freeze;
     grainMix.setTargetValue (s.grainOn ? s.grainMix : 0.0f);
+    dryGain.setTargetValue (frozen ? 0.0f : 1.0f);  // bei Freeze nur die Körner hören
+    const double speed = frozen ? 0.0 : (double) s.speed;
+    const auto& src = voice.getSource();
     while (n > 0)
     {
         const int c = juce::jmin (n, 32);
         if (fifoCount + c > (int) fifoL.size()) break;
-        voice.render (mono.data(), c, (double) s.speed, pitch, (double) s.formant);
+        const double head = voice.getPosition();
+        const bool spawn = voice.isActive() && head < voice.getLength();
+        voice.render (mono.data(), c, speed, pitch, (double) s.formant);
         if (std::abs (noteGain - 1.0f) > 1.0e-6f) for (int i = 0; i < c; ++i) mono[(size_t) i] *= noteGain;
         float* oL = fifoL.data() + fifoCount;
         float* oR = fifoR.data() + fifoCount;
         if (s.grainOn || grainMix.isSmoothing() || grains.isBusy())
         {
-            grains.process (mono.data(), gL.data(), gR.data(), c, s.grain);
+            grains.process (src != nullptr ? &src->raw : nullptr, head, speed, pitch, spawn && s.grainOn,
+                            gL.data(), gR.data(), c, s.grain);
             for (int i = 0; i < c; ++i)
             {
                 const float m = grainMix.getNextValue();
-                oL[i] = mono[(size_t) i] * (1.0f - m) + gL[(size_t) i] * m;
-                oR[i] = mono[(size_t) i] * (1.0f - m) + gR[(size_t) i] * m;
+                const float d = mono[(size_t) i] * (1.0f - m) * dryGain.getNextValue();
+                oL[i] = d + gL[(size_t) i] * m * noteGain;
+                oR[i] = d + gR[(size_t) i] * m * noteGain;
             }
         }
         else
         {
-            for (int i = 0; i < c; ++i) oL[i] = oR[i] = mono[(size_t) i];
+            for (int i = 0; i < c; ++i) oL[i] = oR[i] = mono[(size_t) i] * dryGain.getNextValue();
             grainMix.skip (c);
         }
         fifoCount += c;
@@ -164,7 +175,111 @@ TtsProcessor::TtsProcessor()
       apvts (*this, nullptr, "TTS", createLayout())
 {
     renderThread = std::make_unique<RenderThread> (*this);
+    refreshUserPresets();
+    snapshotPreset();
     startTimer (60);
+}
+
+// ---------------------------------------------------------------- Presets
+
+juce::File TtsProcessor::getPresetFolder() const
+{
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+        .getChildFile ("Brain Bugz").getChildFile ("Brainbugz TTS").getChildFile ("Presets");
+}
+
+void TtsProcessor::refreshUserPresets()
+{
+    userPresets = getPresetFolder().findChildFiles (juce::File::findFiles, false, "*.bbtts");
+    std::sort (userPresets.begin(), userPresets.end(), [] (const juce::File& a, const juce::File& b)
+               { return a.getFileName().compareIgnoreCase (b.getFileName()) < 0; });
+    presetList.clear();
+    for (auto& f : ttspresets::factory()) presetList.push_back ({ f.name, f.group, false });
+    for (auto& f : userPresets) presetList.push_back ({ f.getFileNameWithoutExtension(), "Eigene", true });
+}
+
+void TtsProcessor::snapshotPreset()
+{
+    presetSnapshot.clear();
+    for (auto* p : getParameters()) presetSnapshot.push_back (p->getValue());
+}
+
+bool TtsProcessor::isPresetModified() const
+{
+    const auto& ps = getParameters();
+    if (presetSnapshot.size() != (size_t) ps.size()) return false;
+    for (int i = 0; i < ps.size(); ++i)
+        if (std::abs (ps[i]->getValue() - presetSnapshot[(size_t) i]) > 1e-4f) return true;
+    return false;
+}
+
+void TtsProcessor::loadPreset (int index)
+{
+    if (index < 0 || index >= (int) presetList.size()) return;
+    std::map<juce::String, float> target; // normierte Werte
+    for (auto* prm : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (prm)) target[r->getParameterID()] = r->getDefaultValue();
+    juce::String name;
+    if (index < getNumFactoryPresets())
+    {
+        const auto& fp = ttspresets::factory()[(size_t) index];
+        for (auto& [id, v] : fp.set)
+            if (auto* r = apvts.getParameter (id)) target[id] = r->convertTo0to1 (v);
+        name = fp.name;
+    }
+    else
+    {
+        const auto file = userPresets[index - getNumFactoryPresets()];
+        auto xml = juce::XmlDocument::parse (file);
+        if (xml == nullptr) return;
+        auto st = juce::ValueTree::fromXml (*xml);
+        if (! st.hasType (apvts.state.getType())) return;
+        for (auto& [id, v] : target)
+        {
+            auto child = st.getChildWithProperty ("id", id);
+            if (child.isValid())
+                if (auto* r = apvts.getParameter (id)) v = r->convertTo0to1 ((float) child.getProperty ("value"));
+        }
+        name = file.getFileNameWithoutExtension();
+    }
+    for (auto& [id, v] : target)
+        if (auto* r = apvts.getParameter (id))
+            if (std::abs (r->getValue() - v) > 1e-7f)
+            {
+                r->beginChangeGesture();
+                r->setValueNotifyingHost (v);
+                r->endChangeGesture();
+            }
+    currentPreset = index;
+    currentPresetName = name;
+    snapshotPreset();
+}
+
+bool TtsProcessor::saveUserPreset (const juce::String& name)
+{
+    const auto clean = juce::File::createLegalFileName (name.trim());
+    if (clean.isEmpty()) return false;
+    auto folder = getPresetFolder();
+    if (! folder.createDirectory()) return false;
+    const auto file = folder.getChildFile (clean + ".bbtts");
+    auto st = apvts.copyState();
+    auto xml = st.createXml();
+    if (xml == nullptr || ! xml->writeTo (file)) return false;
+    refreshUserPresets();
+    currentPreset = getNumFactoryPresets() + userPresets.indexOf (file);
+    currentPresetName = clean;
+    snapshotPreset();
+    return true;
+}
+
+bool TtsProcessor::deleteUserPreset (int index)
+{
+    const int u = index - getNumFactoryPresets();
+    if (u < 0 || u >= userPresets.size()) return false;
+    const bool ok = userPresets[u].moveToTrash() || userPresets[u].deleteFile();
+    refreshUserPresets();
+    if (ok && index == currentPreset) { currentPreset = -1; currentPresetName = "-"; }
+    return ok;
 }
 
 TtsProcessor::~TtsProcessor()
@@ -207,6 +322,10 @@ TtsChain::Settings TtsProcessor::readSettings (double bpm) const
     s.grain.width = param (grWidth) / 100.0f;
     s.grain.reverse = param (grReverse) / 100.0f;
     s.grain.freeze = param (grFreeze) > 0.5f;
+    s.grain.octave = param (grOctave) / 100.0f;
+    s.grain.drift = param (grDrift) / 100.0f;
+    s.grain.lfoRate = param (grLfoRate);
+    s.grain.lfoDepth = param (grLfoDepth) / 100.0f;
 
     auto& f = s.fx;
     f.eqOn = param (eqOn) > 0.5f;
@@ -512,11 +631,32 @@ bool TtsProcessor::exportWav (const juce::File& file, juce::String& error, std::
         out.copyFrom (0, (int) written, l.data(), n);
         out.copyFrom (1, (int) written, r.data(), n);
         written += n;
+        // Freeze klingt ewig: im Export 10 s Textur, dann 1 s ausblenden
+        if (s.grainOn && s.grain.freeze && written >= (juce::int64) (rate * 10.0))
+        {
+            const int fadeLen = (int) rate;
+            if (written + fadeLen > out.getNumSamples()) out.setSize (2, (int) written + fadeLen, true, true);
+            int done = 0;
+            while (done < fadeLen)
+            {
+                offline.process (l.data(), r.data(), block, s);
+                const int m = juce::jmin (block, fadeLen - done);
+                for (int i = 0; i < m; ++i)
+                {
+                    const float g = 1.0f - (float) (done + i) / (float) fadeLen;
+                    out.setSample (0, (int) written + done + i, l[(size_t) i] * g);
+                    out.setSample (1, (int) written + done + i, r[(size_t) i] * g);
+                }
+                done += m;
+            }
+            written += fadeLen;
+            break;
+        }
         if (! offline.voiceActive())
         {
             afterVoice += block;
             // Freeze würde ewig klingen: dann nach 4 s Schluss
-            if (afterVoice > tailMax || (s.grainOn && s.grain.freeze && afterVoice > (int) (rate * 4.0))) break;
+            if (afterVoice > tailMax) break;
             // Nachhall vorbei?
             float mx = 0.0f;
             for (int i = 0; i < n; ++i) mx = juce::jmax (mx, std::abs (l[(size_t) i]), std::abs (r[(size_t) i]));
@@ -553,6 +693,7 @@ void TtsProcessor::getStateInformation (juce::MemoryBlock& dest)
     st.setProperty ("blend", blend.load(), nullptr);
     st.setProperty ("generated", generatedOnce, nullptr);
     st.setProperty ("tab", uiTab.load(), nullptr);
+    st.setProperty ("presetName", currentPresetName, nullptr);
     if (auto xml = st.createXml()) copyXmlToBinary (*xml, dest);
 }
 
@@ -573,6 +714,11 @@ void TtsProcessor::setStateInformation (const void* data, int size)
     british = (bool) st.getProperty ("british", false);
     blend = (float) st.getProperty ("blend", 0.0f);
     uiTab = (int) st.getProperty ("tab", 0);
+    currentPresetName = st.getProperty ("presetName", "Init").toString();
+    currentPreset = -1;
+    for (int i = 0; i < (int) presetList.size(); ++i)
+        if (presetList[(size_t) i].name == currentPresetName) currentPreset = i;
+    snapshotPreset();
     if ((bool) st.getProperty ("generated", false) && getText().trim().isNotEmpty())
     {
         generatedOnce = true;

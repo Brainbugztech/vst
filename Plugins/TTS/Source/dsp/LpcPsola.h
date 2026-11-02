@@ -18,7 +18,6 @@
 namespace tts::dsp
 {
 constexpr int lpcOrder = 24;
-constexpr int envBins = 129;   // 0..Nyquist
 constexpr int frameHop = 120;  // 5 ms bei 24 kHz
 constexpr float preEmph = 0.9f;
 
@@ -59,11 +58,12 @@ struct VoiceAnalysis
 {
     int sampleRate = 24000;
     std::vector<float> residual;            // Anregung (vorverzerrt)
-    std::vector<int> marks;                 // Pitch-Marken (Sample-Position)
-    std::vector<int> periods;               // Periode je Marke
+    std::vector<double> marks;              // Pitch-Marken (Sample-Position, fein)
+    std::vector<double> periods;            // Periode je Marke
     std::vector<unsigned char> voiced;      // stimmhaft je Marke
     int numFrames = 0;
-    std::vector<float> env;                 // numFrames * envBins, Leistungs-Hüllkurve
+    std::vector<float> refl;                // numFrames * lpcOrder, Reflexionskoeffizienten k1..kp
+    std::vector<float> raw;                 // Originalstimme (für die Grain Engine)
     std::vector<float> peaks;               // für die Anzeige (Betrag, 0..1), 1 Wert je 120 Samples
     size_t length() const { return residual.size(); }
 };
@@ -168,7 +168,8 @@ inline std::shared_ptr<VoiceAnalysis> analyseVoice (const std::vector<float>& x,
     const int p = lpcOrder;
     const int win = 600;
     a->numFrames = n / frameHop + 1;
-    a->env.assign ((size_t) a->numFrames * envBins, 0.0f);
+    a->refl.assign ((size_t) a->numFrames * lpcOrder, 0.0f);
+    a->raw = x;
     std::vector<std::array<double, lpcOrder + 1>> coef ((size_t) a->numFrames);
     std::vector<double> w ((size_t) win);
     for (int i = 0; i < win; ++i) w[(size_t) i] = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (i + 0.5) / win);
@@ -196,21 +197,9 @@ inline std::shared_ptr<VoiceAnalysis> analyseVoice (const std::vector<float>& x,
         r[0] = r[0] * 1.0001 + 1e-9;
         double aa[lpcOrder + 1], kk[lpcOrder + 1];
         const double e = levinson (r, aa, kk, p);
+        juce::ignoreUnused (e);
         for (int m = 0; m <= p; ++m) coef[(size_t) f][(size_t) m] = aa[m];
-        // Leistungs-Hüllkurve E / |A|^2 (pro Sample normiert)
-        const double norm = e / win;
-        for (int b = 0; b < envBins; ++b)
-        {
-            double re = 0.0, im = 0.0;
-            for (int m = 0; m <= p; ++m)
-            {
-                const double ang = juce::MathConstants<double>::pi * b * m / (envBins - 1);
-                re += aa[m] * std::cos (ang);
-                im -= aa[m] * std::sin (ang);
-            }
-            const double mag2 = juce::jmax (1e-12, re * re + im * im);
-            a->env[(size_t) f * envBins + (size_t) b] = (float) (norm / mag2);
-        }
+        for (int m = 1; m <= p; ++m) a->refl[(size_t) f * lpcOrder + (size_t) (m - 1)] = (float) kk[m];
     }
 
     // Restsignal: inverse Filterung mit den Frame-Koeffizienten (blockweise, Übergang über 2 Frames gleitend)
@@ -236,45 +225,101 @@ inline std::shared_ptr<VoiceAnalysis> analyseVoice (const std::vector<float>& x,
     const int f0Hop = 120;
     auto f0 = detail::findF0 (x, sr, f0Hop);
     const int frames = (int) f0.size();
-    const int unvoicedPeriod = 120;
-    int t = 0;
+    auto f0At = [&] (double pos) -> double
+    {
+        // linear zwischen Frames, 0 = stimmlos
+        const double fp = pos / f0Hop;
+        const int i0 = juce::jlimit (0, frames - 1, (int) fp);
+        const int i1 = juce::jmin (frames - 1, i0 + 1);
+        const double a0 = f0[(size_t) i0], a1 = f0[(size_t) i1];
+        if (a0 <= 0) return 0.0;
+        if (a1 <= 0) return a0;
+        const double t = fp - i0;
+        return a0 + (a1 - a0) * t;
+    };
+    // tiefpassgefiltertes Signal (bis ca. 1 kHz) für den Periodenvergleich
+    std::vector<float> lp ((size_t) n);
+    {
+        juce::IIRFilter f1, f2;
+        const auto c = juce::IIRCoefficients::makeLowPass (sr, 1000.0, 0.7071);
+        f1.setCoefficients (c); f2.setCoefficients (c);
+        for (int i = 0; i < n; ++i) lp[(size_t) i] = f2.processSingleSampleRaw (f1.processSingleSampleRaw (x[(size_t) i]));
+    }
+    auto ncc = [&] (double posA, double posB, int len) -> double
+    {
+        // normierte Kreuzkorrelation zweier Abschnitte der Länge len um posA und posB
+        double sab = 0, saa = 0, sbb = 0;
+        const int ia = (int) posA - len / 2, ib = (int) posB - len / 2;
+        for (int k = 0; k < len; ++k)
+        {
+            const int pa = ia + k, pb = ib + k;
+            if (pa < 0 || pb < 0 || pa >= n || pb >= n) continue;
+            const double va = lp[(size_t) pa], vb = lp[(size_t) pb];
+            sab += va * vb; saa += va * va; sbb += vb * vb;
+        }
+        return saa > 0 && sbb > 0 ? sab / std::sqrt (saa * sbb) : 0.0;
+    };
+
+    // Pitch-Marken: im stimmhaften Bereich Periode für Periode per Korrelation weiterverfolgen
+    // (gleichmäßige Abstände = kein Knarzen), Einstieg auf der stärksten Anregungsspitze
+    auto refine = [&] (double from, double period) -> double
+    {
+        const double pred = from + period;
+        const int r = juce::jmax (2, (int) (period / 7.0));
+        const int len = (int) (period * 1.5);
+        const int cnt = juce::jmin (63, 2 * r + 1);
+        double sc[64], best = -2.0;
+        int bi = 0;
+        for (int k = 0; k < cnt; ++k)
+        {
+            sc[k] = ncc (from, pred + (k - r), len);
+            if (sc[k] > best) { best = sc[k]; bi = k; }
+        }
+        if (best < 0.4) return pred;
+        double off = bi - r;
+        if (bi > 0 && bi < cnt - 1)
+        {
+            const double y0 = sc[bi - 1], y1 = sc[bi], y2 = sc[bi + 1];
+            const double den = y0 - 2 * y1 + y2;
+            if (std::abs (den) > 1e-9) off += juce::jlimit (-0.5, 0.5, 0.5 * (y0 - y2) / den);
+        }
+        return pred + off;
+    };
+    const double unvoicedPeriod = 120.0;
+    double t = 0.0;
     while (t < n)
     {
-        const int f = juce::jlimit (0, frames - 1, t / f0Hop);
-        const float freq = f0[(size_t) f];
-        if (freq > 0)
-        {
-            const int period = juce::jlimit (40, 400, (int) std::lround (sr / freq));
-            int bestK = t;
-            float bestV = -1.0f;
-            const int rad = period / 4;
-            for (int k = juce::jmax (0, t - rad); k <= juce::jmin (n - 1, t + rad); ++k)
-            {
-                const float v = std::abs (a->residual[(size_t) k]);
-                if (v > bestV) { bestV = v; bestK = k; }
-            }
-            if (! a->marks.empty() && bestK < a->marks.back() + period * 2 / 3) bestK = a->marks.back() + period;
-            if (bestK >= n) break;
-            a->marks.push_back (bestK);
-            a->periods.push_back (period);
-            a->voiced.push_back (1);
-            t = bestK + period;
-        }
-        else
+        if (f0At (t) <= 0)
         {
             a->marks.push_back (t);
             a->periods.push_back (unvoicedPeriod);
             a->voiced.push_back (0);
             t += unvoicedPeriod;
+            continue;
         }
-    }
-    // Perioden aus den tatsächlichen Abständen (glatter)
-    for (size_t i = 0; i + 1 < a->marks.size(); ++i)
-        if (a->voiced[i] && a->voiced[i + 1])
+        const double p0 = juce::jlimit (40.0, 400.0, sr / f0At (t));
+        int bestK = (int) t;
+        float bestV = -1.0f;
+        for (int k = (int) t; k < juce::jmin (n, (int) (t + p0)); ++k)
         {
-            const int d = a->marks[i + 1] - a->marks[i];
-            if (d > 30 && d < 420) a->periods[i] = d;
+            const float v = std::abs (a->residual[(size_t) k]);
+            if (v > bestV) { bestV = v; bestK = k; }
         }
+        double m = bestK;
+        while (m < n)
+        {
+            const double fq = f0At (m);
+            if (fq <= 0) break;
+            const double P = juce::jlimit (40.0, 400.0, sr / fq);
+            a->marks.push_back (m);
+            a->voiced.push_back (1);
+            const double nx = (m + P < n) ? refine (m, P) : m + P;
+            const double d = nx - m;
+            a->periods.push_back (d > 30.0 && d < 420.0 ? d : P);
+            m = m + a->periods.back();
+        }
+        t = m;
+    }
 
     // Anzeige-Spitzen
     const int pk = (n + frameHop - 1) / frameHop;
@@ -290,19 +335,17 @@ inline std::shared_ptr<VoiceAnalysis> analyseVoice (const std::vector<float>& x,
 }
 
 // ---------------------------------------------------------------- Synthese (Echtzeit, 24 kHz)
+// Jedes Korn = Anregung (2 Perioden) durch das Mundraum-Filter seines Frames geschickt, inkl. Nachklingen.
+// Tonhöhe: Abstand der Körner. Formant: Korn wird gestaucht/gedehnt (wie klassische Formant-Shifter),
+// Tonhöhe bleibt, weil der Abstand gleich bleibt. Das Nachklingen füllt beim Runterpitchen die Lücken.
 
 class VoiceSynth
 {
 public:
     VoiceSynth()
     {
-        for (int b = 0; b < envBins; ++b)
-        {
-            const double wb = (b == 0 || b == envBins - 1) ? 0.5 : 1.0;
-            for (int m = 0; m <= lpcOrder; ++m)
-                cosTab[b][m] = wb * std::cos (juce::MathConstants<double>::pi * b * m / (envBins - 1));
-        }
         acc.assign (accSize, 0.0f);
+        grain.assign (maxGrainLen, 0.0f);
     }
 
     void setSource (std::shared_ptr<const VoiceAnalysis> s) { src = std::move (s); stop(); }
@@ -315,9 +358,6 @@ public:
         tg = 0.0;
         srcPos = pos;
         active = src != nullptr && src->length() > 0;
-        for (auto& v : g) v = 0.0;
-        deemph = 0.0;
-        coefCountdown = 0;
         tailLeft = 2400;
     }
 
@@ -326,7 +366,7 @@ public:
     double getPosition() const { return srcPos; }
     double getLength() const { return src != nullptr ? (double) src->length() : 0.0; }
 
-    // speed: 0.001..4, pitch: Faktor, formant: 0.5..2
+    // speed: 0..4 (0 = Position eingefroren), pitch: Faktor, formant: 0.5..2
     void render (float* out, int num, double speed, double pitch, double formant)
     {
         if (! active || src == nullptr)
@@ -336,152 +376,148 @@ public:
         }
         const auto& S = *src;
         const double len = (double) S.length();
-        const double maxP = 420.0;
+        const double ahead = 900.0; // Körner so weit im Voraus planen (Kornanfang liegt bis P/formant vor der Mitte)
         for (int i = 0; i < num; ++i)
         {
-            // Grains vorausplanen
-            while (tg <= (double) t + maxP && srcPos < len)
-                scheduleGrain (S, speed, pitch);
-            // Filter-Koeffizienten regelmäßig erneuern
-            if (--coefCountdown <= 0)
-            {
-                updateFilter (S, formant);
-                coefCountdown = 48;
-            }
+            while (tg <= (double) t + ahead && srcPos < len)
+                scheduleGrain (S, speed, pitch, formant);
             const size_t idx = (size_t) (t & (accSize - 1));
-            const double e = acc[idx];
+            out[i] = juce::jlimit (-4.0f, 4.0f, acc[idx]);
             acc[idx] = 0.0f;
             ++t;
-            // Gitterfilter (Allpol) mit Reflexionskoeffizienten
-            double f = e * gain;
-            for (int m = lpcOrder; m >= 1; --m)
-            {
-                f -= k[m] * g[m - 1];
-                g[m] = k[m] * f + g[m - 1];
-            }
-            g[0] = f;
-            // Entzerrung der Vorverzerrung
-            deemph = f + preEmph * deemph;
-            if (! std::isfinite (deemph)) { deemph = 0.0; for (auto& v : g) v = 0.0; }
-            out[i] = (float) juce::jlimit (-4.0, 4.0, deemph);
             if (srcPos < len) srcPos += speed;
             else if (--tailLeft <= 0) { active = false; std::fill (out + i + 1, out + num, 0.0f); return; }
         }
     }
 
 private:
-    void scheduleGrain (const VoiceAnalysis& S, double speed, double pitch)
+    void scheduleGrain (const VoiceAnalysis& S, double speed, double pitch, double formant)
     {
-        // Quellposition zum Zeitpunkt des Grains
         const double sp = juce::jlimit (0.0, (double) S.length() - 1.0, srcPos + (tg - (double) t) * speed);
-        auto it = std::lower_bound (S.marks.begin(), S.marks.end(), (int) sp);
+        auto it = std::lower_bound (S.marks.begin(), S.marks.end(), sp);
         int mi = (int) (it - S.marks.begin());
         if (mi >= (int) S.marks.size()) mi = (int) S.marks.size() - 1;
         if (mi > 0 && std::abs (S.marks[(size_t) mi - 1] - sp) < std::abs (S.marks[(size_t) mi] - sp)) --mi;
         if (mi < 0) { tg += 120.0; return; }
         const bool v = S.voiced[(size_t) mi] != 0;
-        // sehr langsam: leicht streuen, damit es nicht maschinell brummt
         if (v && speed < 0.35)
         {
             const int j = mi + (int) (rng() % 3) - 1;
             if (j >= 0 && j < (int) S.marks.size() && S.voiced[(size_t) j]) mi = j;
         }
-        const int P = juce::jmax (16, S.periods[(size_t) mi]);
-        double centre = (double) S.marks[(size_t) mi];
-        double weight = 1.0;
-        double hop = P;
+        const double P = juce::jmax (16.0, S.periods[(size_t) mi]);
+        double centre = S.marks[(size_t) mi];
+        double hop = P, weight = 1.0;
         if (v)
         {
-            hop = (double) P / pitch;
+            hop = P / pitch;
             weight = std::sqrt (1.0 / pitch);
         }
         else
-        {
-            // stimmlos: zufällige Stelle in der Nähe -> Rauschen statt Brummen
-            centre = sp + (double) ((int) (rng() % (unsigned) (2 * P)) - P);
-            hop = P;
-        }
-        addGrain (S, centre, P, tg, weight);
+            centre = sp + (double) ((int) (rng() % (unsigned) (2 * (int) P)) - (int) P);
+        addGrain (S, centre, P, tg, weight, formant);
         tg += juce::jmax (8.0, hop);
     }
 
-    void addGrain (const VoiceAnalysis& S, double centre, int P, double at, double weight)
+    static inline double cubic (const float* x, int n, double pos)
     {
-        const auto& r = S.residual;
-        const int n = (int) r.size();
-        const int j0 = (int) std::ceil (at - P), j1 = (int) std::floor (at + P);
-        const double invP = 1.0 / P;
-        for (int j = juce::jmax ((int) t, j0); j <= j1; ++j)
+        // Catmull-Rom: deutlich weniger Höhenverlust als linear
+        const int i1 = (int) std::floor (pos);
+        if (i1 < 1 || i1 + 2 >= n)
         {
-            const double u = (double) j - at;
-            const double sPos = centre + u;
-            const int s0 = (int) std::floor (sPos);
-            if (s0 < 0 || s0 + 1 >= n) continue;
-            const double fr = sPos - s0;
-            const double val = r[(size_t) s0] + fr * (r[(size_t) s0 + 1] - r[(size_t) s0]);
-            const double w = 0.5 + 0.5 * std::cos (juce::MathConstants<double>::pi * u * invP);
-            acc[(size_t) (j & (accSize - 1))] += (float) (val * w * weight);
+            if (i1 < 0 || i1 + 1 >= n) return 0.0;
+            const double f = pos - i1;
+            return x[i1] + f * (x[i1 + 1] - x[i1]);
         }
+        const double f = pos - i1;
+        const double y0 = x[i1 - 1], y1 = x[i1], y2 = x[i1 + 1], y3 = x[i1 + 2];
+        const double c1 = 0.5 * (y2 - y0), c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3, c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+        return ((c3 * f + c2) * f + c1) * f + y1;
     }
 
-    void updateFilter (const VoiceAnalysis& S, double formant)
+    void addGrain (const VoiceAnalysis& S, double centre, double P, double at, double weight, double formant)
     {
-        const double fpos = juce::jlimit (0.0, (double) (S.numFrames - 1), srcPos / frameHop);
-        const int f0 = (int) fpos;
-        const int f1 = juce::jmin (S.numFrames - 1, f0 + 1);
-        const double ft = fpos - f0;
-        const float* e0 = &S.env[(size_t) f0 * envBins];
-        const float* e1 = &S.env[(size_t) f1 * envBins];
-        double env[envBins];
-        for (int b = 0; b < envBins; ++b) env[b] = e0[b] * (1.0 - ft) + e1[b] * ft;
-
-        double r0[lpcOrder + 1], aTmp[lpcOrder + 1], kTmp[lpcOrder + 1];
-        autocorr (env, r0);
-        const double eOrig = levinson (r0, aTmp, kTmp, lpcOrder);
-        if (std::abs (formant - 1.0) < 1e-3)
+        const float* r = S.residual.data();
+        const int n = (int) S.residual.size();
+        const double fmt = juce::jlimit (0.5, 2.0, formant);
+        const bool direct = std::abs (fmt - 1.0) < 1e-3;
+        // Ohne Formant: Korn direkt im Ausgangsraster berechnen (nur eine Interpolation)
+        const double outStart0 = at - P / fmt;
+        const double phase = direct ? std::ceil (outStart0) - outStart0 : 0.0;
+        const int body = (int) std::ceil (2.0 * P);
+        const int len = juce::jmin (maxGrainLen, body + tailLen);
+        const double start = centre - P + phase;
+        const int fr = juce::jlimit (0, S.numFrames - 1, (int) std::lround (centre / frameHop));
+        const float* k = &S.refl[(size_t) fr * lpcOrder];
+        double gst[lpcOrder + 1] {};
+        double de = 0.0;
+        for (int i = 0; i < len; ++i)
         {
-            for (int m = 1; m <= lpcOrder; ++m) k[m] = kTmp[m];
-            gain = 1.0;
+            double e = 0.0;
+            const double u = (i + phase - P) / P;
+            if (u < 1.0)
+                e = cubic (r, n, start + i) * (0.5 + 0.5 * std::cos (juce::MathConstants<double>::pi * u));
+            double f = e;
+            for (int m = lpcOrder; m >= 1; --m)
+            {
+                f -= k[m - 1] * gst[m - 1];
+                gst[m] = k[m - 1] * f + gst[m - 1];
+            }
+            gst[0] = f;
+            de = f + preEmph * de;
+            float g = (float) de;
+            if (i >= len - fadeLen) g *= (float) (len - i) / (float) fadeLen;
+            grain[(size_t) i] = g;
+        }
+        const double gain = weight * std::sqrt (fmt);
+        if (direct)
+        {
+            const int j0 = (int) std::ceil (outStart0);
+            for (int i = 0; i < len; ++i)
+            {
+                const int j = j0 + i;
+                if (j < t) continue;
+                acc[(size_t) (j & (accSize - 1))] += (float) (grain[(size_t) i] * gain);
+            }
             return;
         }
-        double warped[envBins];
-        for (int b = 0; b < envBins; ++b)
+        if (fmt > 1.1)
         {
-            const double sb = b / formant;
-            if (sb >= envBins - 1) { warped[b] = env[envBins - 1]; continue; }
-            const int i0 = (int) sb;
-            const double fr = sb - i0;
-            warped[b] = env[i0] * (1.0 - fr) + env[i0 + 1] * fr;
+            // Tiefpass gegen Aliasing beim Stauchen (Butterworth 2. Ordnung bei 0.9 * Nyquist / fmt)
+            const double fc = 0.45 / fmt; // relativ zur Samplerate
+            const double w0 = juce::MathConstants<double>::twoPi * fc, cw = std::cos (w0), al = std::sin (w0) / (2.0 * 0.7071);
+            const double b0 = (1 - cw) / 2, b1 = 1 - cw, b2 = (1 - cw) / 2, a0 = 1 + al, a1 = -2 * cw, a2 = 1 - al;
+            double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+            for (int i = 0; i < len; ++i)
+            {
+                const double x0 = grain[(size_t) i];
+                const double y0 = (b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+                x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+                grain[(size_t) i] = (float) y0;
+            }
         }
-        double rw[lpcOrder + 1];
-        autocorr (warped, rw);
-        const double eW = levinson (rw, aTmp, kTmp, lpcOrder);
-        for (int m = 1; m <= lpcOrder; ++m) k[m] = kTmp[m];
-        gain = juce::jlimit (0.05, 20.0, std::sqrt (eW / juce::jmax (1e-15, eOrig)));
+        // gestaucht/gedehnt (Formant) ins Ausgangssignal legen, Mitte (Anregung) bei 'at'
+        const double outEnd = outStart0 + (len - 1) / fmt;
+        const int j0 = juce::jmax ((int) t, (int) std::ceil (outStart0));
+        const int j1 = (int) std::floor (outEnd);
+        for (int j = j0; j <= j1; ++j)
+        {
+            const double gp = (j - outStart0) * fmt;
+            acc[(size_t) (j & (accSize - 1))] += (float) (cubic (grain.data(), len, gp) * gain);
+        }
     }
 
-    void autocorr (const double* env, double* r) const
-    {
-        for (int m = 0; m <= lpcOrder; ++m)
-        {
-            double s = 0.0;
-            for (int b = 0; b < envBins; ++b) s += env[b] * cosTab[b][m];
-            r[m] = s;
-        }
-        r[0] *= 1.0001;
-    }
-
-    static constexpr int accSize = 4096;
+    static constexpr int accSize = 8192;
+    static constexpr int tailLen = 480;   // 20 ms Nachklingen
+    static constexpr int fadeLen = 96;
+    static constexpr int maxGrainLen = 2 * 420 + tailLen + 8;
     std::shared_ptr<const VoiceAnalysis> src;
-    std::vector<float> acc;
+    std::vector<float> acc, grain;
     juce::int64 t = 0;
     double tg = 0.0, srcPos = 0.0;
     bool active = false;
     int tailLeft = 0;
-    double k[lpcOrder + 1] {}, g[lpcOrder + 1] {};
-    double gain = 1.0, deemph = 0.0;
-    int coefCountdown = 0;
-    double cosTab[envBins][lpcOrder + 1];
     std::minstd_rand rng { 1234 };
 };
+
 } // namespace tts::dsp

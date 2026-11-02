@@ -23,6 +23,10 @@ inline constexpr const char* grPitch = "grPitch";
 inline constexpr const char* grWidth = "grWidth";
 inline constexpr const char* grReverse = "grReverse";
 inline constexpr const char* grFreeze = "grFreeze";
+inline constexpr const char* grOctave = "grOctave";
+inline constexpr const char* grDrift = "grDrift";
+inline constexpr const char* grLfoRate = "grLfoRate";
+inline constexpr const char* grLfoDepth = "grLfoDepth";
 // FX
 inline constexpr const char* eqOn = "eqOn";
 inline juce::String eqId (int band, const char* what) { return "eq" + juce::String (band + 1) + what; } // On, Type, Freq, Gain, Q
@@ -130,6 +134,10 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addF (grWidth, "Grain Width", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f, pct);
     addF (grReverse, "Grain Reverse", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f, pct);
     addB (grFreeze, "Grain Freeze", false);
+    addF (grOctave, "Grain Octave", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f, pct);
+    addF (grDrift, "Grain Drift", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f, pct);
+    addF (grLfoRate, "Grain LFO Rate", logRange (0.05f, 12.0f), 0.5f, [] (float v) { return String (v, v < 1.0f ? 2 : 1) + " Hz"; });
+    addF (grLfoDepth, "Grain LFO Depth", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f, pct);
 
     // EQ
     addB (eqOn, "EQ On", true);

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <memory>
 #include "Params.h"
+#include "Presets.h"
 #include "engine/EngineHolder.h"
 #include "dsp/LpcPsola.h"
 #include "dsp/GrainEngine.h"
@@ -75,7 +76,7 @@ private:
     std::vector<float> fifoL, fifoR, mono, gL, gR;
     int fifoCount = 0;
     float noteSemis = 0.0f, noteGain = 1.0f;
-    juce::SmoothedValue<float> volume, grainMix;
+    juce::SmoothedValue<float> volume, grainMix, dryGain;
 };
 
 class TtsProcessor : public juce::AudioProcessor, private juce::Timer
@@ -153,6 +154,19 @@ public:
 
     TtsChain::Settings readSettings (double bpm) const;
 
+    // ---- Presets (Message-Thread)
+    struct PresetEntry { juce::String name, group; bool user; };
+    const std::vector<PresetEntry>& getPresetList() const { return presetList; }
+    int getNumFactoryPresets() const { return (int) ttspresets::factory().size(); }
+    int getCurrentPreset() const { return currentPreset; }
+    juce::String getCurrentPresetName() const { return currentPresetName; }
+    bool isPresetModified() const;
+    void loadPreset (int index);
+    bool saveUserPreset (const juce::String& name);
+    bool deleteUserPreset (int index);
+    void refreshUserPresets();
+    juce::File getPresetFolder() const;
+
 private:
     class RenderThread;
     struct Job { tts::SynthRequest req; };
@@ -186,6 +200,13 @@ private:
     std::atomic<float> exportProgress { 0.0f };
     juce::File exportFile;
     juce::String exportKeyStr, exportError;
+
+    std::vector<PresetEntry> presetList;
+    juce::Array<juce::File> userPresets;
+    int currentPreset = 0;
+    juce::String currentPresetName { "Init" };
+    std::vector<float> presetSnapshot;
+    void snapshotPreset();
 
     TtsChain chain;
     double hostRate = 48000.0;

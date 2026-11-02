@@ -143,6 +143,35 @@ TtsEditor::TtsEditor (TtsProcessor& p) : juce::AudioProcessorEditor (p), proc (p
         b.setBounds (440 + i * 112, 433, 104, 30);
     }
 
+    // ---------------- Presets (rechts neben den Tabs)
+    for (auto* b : { &prevPreset, &nextPreset, &savePresetBtn, &presetMenuBtn })
+    {
+        b->getProperties().set ("tab", true);
+        b->getProperties().set ("textScale", 0.6);
+        b->setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        content.addAndMakeVisible (b);
+    }
+    savePresetBtn.getProperties().set ("purple", true);
+    presetMenuBtn.getProperties().set ("purple", true);
+    presetBox.getProperties().set ("framed", true);
+    presetBox.setTextWhenNothingSelected ("-");
+    content.addAndMakeVisible (presetBox);
+    prevPreset.setBounds (800, 433, 34, 30);
+    presetBox.setBounds (838, 433, 352, 30);
+    nextPreset.setBounds (1194, 433, 34, 30);
+    savePresetBtn.setBounds (1238, 433, 92, 30);
+    presetMenuBtn.setBounds (1336, 433, 46, 30);
+    prevPreset.onClick = [this] { stepPreset (-1); };
+    nextPreset.onClick = [this] { stepPreset (1); };
+    savePresetBtn.onClick = [this] { savePreset (proc.getCurrentPreset() < proc.getNumFactoryPresets()); };
+    presetMenuBtn.onClick = [this] { showPresetMenu(); };
+    presetBox.onChange = [this]
+    {
+        const int id = presetBox.getSelectedId();
+        if (id > 0 && id - 1 != proc.getCurrentPreset()) { proc.loadPreset (id - 1); refreshPresetBox (true); }
+    };
+    refreshPresetBox (true);
+
     for (auto* pg : { &mainPage, &grainPage, &fxPage })
     {
         content.addChildComponent (pg);
@@ -214,17 +243,20 @@ TtsEditor::TtsEditor (TtsProcessor& p) : juce::AudioProcessorEditor (p), proc (p
     freezeA = std::make_unique<BA> (s, grFreeze, freezeBtn);
     grainPage.addAndMakeVisible (cloud);
     cloud.setBounds (cloudRect.toNearestInt());
-    const int cx[] = { 930, 1090, 1250, 1410 };
     auto gk = [&] (std::unique_ptr<ParamKnob>& k, const char* id, const char* label, int col, int row)
-    { addParamKnob (grainPage, k, id, label, juce::Rectangle<int> (cx[col] - 70, row == 0 ? 474 : 616, 140, 140), false, 30.0f); };
+    { addParamKnob (grainPage, k, id, label, juce::Rectangle<int> (856 + col * 106, row == 0 ? 474 : 616, 106, 140), false, 27.0f); };
     gk (gSize, grSize, "SIZE", 0, 0);
     gk (gFlux, grFlux, "FLUX", 1, 0);
     gk (gDensity, grDensity, "DENSITY", 2, 0);
     gk (gSpray, grSpray, "SPRAY", 3, 0);
+    gk (gDrift, grDrift, "DRIFT", 4, 0);
+    gk (gMix, grMix, "MIX", 5, 0);
     gk (gPitch, grPitch, "PITCH", 0, 1);
-    gk (gWidth, grWidth, "WIDTH", 1, 1);
-    gk (gReverse, grReverse, "REVERSE", 2, 1);
-    gk (gMix, grMix, "MIX", 3, 1);
+    gk (gOctave, grOctave, "OCTAVE", 1, 1);
+    gk (gWidth, grWidth, "WIDTH", 2, 1);
+    gk (gReverse, grReverse, "REVERSE", 3, 1);
+    gk (gLfoRate, grLfoRate, "LFO RATE", 4, 1);
+    gk (gLfoDepth, grLfoDepth, "LFO DEPTH", 5, 1);
 
     // ---------------- FX: EQ
     fxPage.addAndMakeVisible (eqPower);
@@ -413,7 +445,8 @@ void TtsEditor::updateSectionAlpha()
     const float r = rvPower.getToggleState() ? 1.0f : off;
     for (auto* c : { rSize.get(), rDamp.get(), rMix.get(), rPre.get(), rWidth.get(), rLow.get() }) c->setAlpha (r);
     const float g = grainPower.getToggleState() ? 1.0f : off;
-    for (auto* c : { gSize.get(), gFlux.get(), gDensity.get(), gSpray.get(), gPitch.get(), gWidth.get(), gReverse.get(), gMix.get() })
+    for (auto* c : { gSize.get(), gFlux.get(), gDensity.get(), gSpray.get(), gDrift.get(), gMix.get(), gPitch.get(), gOctave.get(),
+                      gWidth.get(), gReverse.get(), gLfoRate.get(), gLfoDepth.get() })
         c->setAlpha (g);
     freezeBtn.setAlpha (g);
     fxPage.repaint();
@@ -462,6 +495,7 @@ void TtsEditor::timerCallback()
 
     syncFromProcessor();
     updateStatusButtons();
+    refreshPresetBox();
 
     genBtn.busy = proc.isRendering();
     genBtn.busyPhase = (float) (timeSec * 8.0);
@@ -490,6 +524,94 @@ void TtsEditor::timerCallback()
     content.repaint (1260, 300, 120, 30);  // Zeichenzähler
     if (tab == 1) cloud.repaint();
     if (toastUntil > 0.0) content.repaint (400, 0, 736, 70);
+}
+
+// ================================================================ Presets
+
+void TtsEditor::refreshPresetBox (bool force)
+{
+    const auto& list = proc.getPresetList();
+    const bool modified = proc.isPresetModified();
+    if (! force && (int) list.size() == shownPresetCount && proc.getCurrentPreset() == shownPreset && modified == shownModified) return;
+    if (force || (int) list.size() != shownPresetCount)
+    {
+        presetBox.clear (juce::dontSendNotification);
+        juce::String group;
+        for (int i = 0; i < (int) list.size(); ++i)
+        {
+            if (list[(size_t) i].group != group)
+            {
+                group = list[(size_t) i].group;
+                presetBox.addSectionHeading (group.toUpperCase());
+            }
+            presetBox.addItem (list[(size_t) i].name, i + 1);
+        }
+        shownPresetCount = (int) list.size();
+    }
+    shownPreset = proc.getCurrentPreset();
+    shownModified = modified;
+    presetBox.setSelectedId (shownPreset + 1, juce::dontSendNotification);
+    presetBox.setText (proc.getCurrentPresetName() + (modified ? " *" : ""), juce::dontSendNotification);
+}
+
+void TtsEditor::stepPreset (int d)
+{
+    const int total = (int) proc.getPresetList().size();
+    if (total == 0) return;
+    const int cur = proc.getCurrentPreset();
+    proc.loadPreset (((cur < 0 ? 0 : cur + d) % total + total) % total);
+    refreshPresetBox (true);
+}
+
+void TtsEditor::savePreset (bool askName)
+{
+    if (! askName)
+    {
+        proc.saveUserPreset (proc.getCurrentPresetName());
+        toast = "Preset saved";
+        toastUntil = timeSec + 1.5;
+        refreshPresetBox (true);
+        return;
+    }
+    auto* w = new juce::AlertWindow ("Save preset", "Name for your preset:", juce::MessageBoxIconType::NoIcon, this);
+    w->setLookAndFeel (&lnf);
+    const bool factory = proc.getCurrentPreset() >= 0 && proc.getCurrentPreset() < proc.getNumFactoryPresets();
+    w->addTextEditor ("name", proc.getCurrentPresetName() + (factory ? " (mine)" : ""));
+    w->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<TtsEditor> safe (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int r)
+    {
+        if (safe == nullptr || r != 1) return;
+        const auto name = w->getTextEditorContents ("name");
+        if (safe->proc.saveUserPreset (name)) { safe->toast = "Preset saved: " + name; }
+        else safe->toast = "Could not save the preset";
+        safe->toastUntil = safe->timeSec + 2.0;
+        safe->refreshPresetBox (true);
+    }), true);
+}
+
+void TtsEditor::showPresetMenu()
+{
+    juce::PopupMenu m;
+    const bool isUser = proc.getCurrentPreset() >= proc.getNumFactoryPresets();
+    m.addItem (1, "Save preset as ...");
+    m.addItem (2, "Delete preset", isUser);
+    m.addItem (3, "Open preset folder");
+    m.addItem (4, "Reload preset list");
+    m.addSeparator();
+    m.addItem (5, "Brainbugz TTS " JucePlugin_VersionString " - Brain Bugz", false);
+    juce::Component::SafePointer<TtsEditor> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetMenuBtn), [safe] (int r)
+    {
+        if (safe == nullptr || r <= 0) return;
+        auto& pr = safe->proc;
+        if (r == 1) safe->savePreset (true);
+        else if (r == 2) pr.deleteUserPreset (pr.getCurrentPreset());
+        else if (r == 3) { auto f = pr.getPresetFolder(); f.createDirectory(); f.startAsProcess(); }
+        else if (r == 4) pr.refreshUserPresets();
+        safe->refreshPresetBox (true);
+    });
 }
 
 // ================================================================ Zeichnen
@@ -656,33 +778,52 @@ void TtsEditor::GrainCloud::paint (juce::Graphics& g)
     auto r = getLocalBounds().toFloat();
     g.setColour (juce::Colour (0xff07050f));
     g.fillRoundedRectangle (r, 8.0f);
-    // Raster: x = wie weit zurück (rechts = jetzt), y = Tonhöhe
     g.setColour (juce::Colour (0x18785adc));
-    for (float x = r.getRight(); x > r.getX(); x -= r.getWidth() / 8.0f) g.drawVerticalLine ((int) x, r.getY(), r.getBottom());
+    for (int i = 1; i < 8; ++i) g.drawVerticalLine ((int) (r.getX() + r.getWidth() * i / 8.0f), r.getY(), r.getBottom());
     for (int i = 1; i < 6; ++i) g.drawHorizontalLine ((int) (r.getY() + r.getHeight() * i / 6.0f), r.getX(), r.getRight());
+
+    // die Stimme als Hintergrund (x = Position in der Stimme)
+    const auto& pk = ed.peaks;
+    const float cy = r.getCentreY();
+    if (! pk.empty())
+    {
+        const int n = (int) pk.size();
+        g.setColour (col::purple.withAlpha (0.28f));
+        for (int i = 0; i < n; ++i)
+        {
+            const float x = r.getX() + 6.0f + (r.getWidth() - 12.0f) * (float) i / (float) n;
+            const float h = pk[(size_t) i] * r.getHeight() * 0.42f;
+            g.fillRect (x, cy - h, juce::jmax (1.0f, (r.getWidth() - 12.0f) / (float) n - 1.0f), h * 2.0f);
+        }
+    }
     g.setColour (col::purple.withAlpha (0.4f));
-    g.fillRect (r.getX(), r.getCentreY() - 0.75f, r.getWidth(), 1.5f);
+    g.fillRect (r.getX(), cy - 0.75f, r.getWidth(), 1.5f);
 
     const bool on = ed.param (grOn) > 0.5f;
     const bool frozen = ed.param (grFreeze) > 0.5f;
+    auto xFor = [&] (float pos) { return r.getX() + 6.0f + juce::jlimit (0.0f, 1.0f, pos) * (r.getWidth() - 12.0f); };
+    if (ed.proc.isVoicePlaying())
+    {
+        const float x = xFor (ed.proc.getPlayhead());
+        g.setColour ((frozen ? col::pink : col::cyan).withAlpha (0.35f));
+        g.fillRect (x - 3.0f, r.getY() + 4.0f, 6.0f, r.getHeight() - 8.0f);
+        g.setColour (frozen ? col::pink : col::cyan);
+        g.fillRect (x - 1.0f, r.getY() + 4.0f, 2.0f, r.getHeight() - 8.0f);
+    }
     tts::dsp::GrainVis vis[tts::dsp::GrainEngine::maxGrains];
     const int n = on ? ed.proc.grainSnapshot (vis, tts::dsp::GrainEngine::maxGrains) : 0;
     for (int i = 0; i < n; ++i)
     {
         const auto& v = vis[i];
-        const float x = r.getRight() - 6.0f - juce::jlimit (0.0f, 1.0f, v.age) * (r.getWidth() - 12.0f);
-        const float y = r.getCentreY() - juce::jlimit (-1.0f, 1.0f, v.pitch / 24.0f) * (r.getHeight() * 0.42f) + v.pan * 10.0f;
-        const float rad = 3.0f + 16.0f * juce::jlimit (0.0f, 1.0f, v.size);
+        const float x = xFor (v.pos);
+        const float y = cy - juce::jlimit (-1.0f, 1.0f, v.pitch / 24.0f) * (r.getHeight() * 0.42f) + v.pan * 12.0f;
+        const float rad = 4.0f + 18.0f * juce::jlimit (0.0f, 1.0f, v.size);
         const auto c = v.reverse ? col::pink : col::cyan;
         g.setColour (c.withAlpha (0.12f * v.amp));
         g.fillEllipse (x - rad * 1.8f, y - rad * 1.8f, rad * 3.6f, rad * 3.6f);
         g.setColour (c.withAlpha (0.25f + 0.65f * v.amp));
         g.fillEllipse (x - rad * 0.5f, y - rad * 0.5f, rad, rad);
     }
-    g.setFont (mono (13.0f));
-    g.setColour (col::dim);
-    g.drawText ("past", r.reduced (8.0f, 4.0f), juce::Justification::bottomLeft, false);
-    g.drawText ("now", r.reduced (8.0f, 4.0f), juce::Justification::bottomRight, false);
     if (! on)
     {
         g.setFont (mono (17.0f));

@@ -120,6 +120,14 @@ private:
     ttsui::GlowButton playBtn { "play", ttsui::col::cyan }, stopBtn { "stop", ttsui::col::purple },
                       genBtn { "generate", ttsui::col::cyan }, saveBtn { "save", ttsui::col::cyan2 };
     juce::TextButton tabBtn[3];
+    juce::TextButton prevPreset { "<" }, nextPreset { ">" }, savePresetBtn { "SAVE" }, presetMenuBtn { "..." };
+    juce::ComboBox presetBox;
+    int shownPresetCount = -1, shownPreset = -2;
+    bool shownModified = false;
+    void refreshPresetBox (bool force = false);
+    void stepPreset (int d);
+    void savePreset (bool askName);
+    void showPresetMenu();
     WaveView wave { *this };
     juce::TextButton downloadBtn, cancelBtn { "CANCEL" }, retryBtn { "RETRY" }, folderBtn { "OPEN FOLDER" };
     Settings settings { *this };
@@ -137,7 +145,7 @@ private:
     ttsui::PowerButton grainPower;
     juce::TextButton freezeBtn { "FREEZE" };
     std::unique_ptr<BA> grainPowerA, freezeA;
-    std::unique_ptr<ttsui::ParamKnob> gSize, gFlux, gDensity, gSpray, gPitch, gWidth, gReverse, gMix;
+    std::unique_ptr<ttsui::ParamKnob> gSize, gFlux, gDensity, gSpray, gDrift, gMix, gPitch, gOctave, gWidth, gReverse, gLfoRate, gLfoDepth;
     GrainCloud cloud { *this };
 
     // ---- FX
