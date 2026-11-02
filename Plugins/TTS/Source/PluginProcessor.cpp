@@ -2,7 +2,113 @@
 #include "PluginEditor.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 
-// ---------------------------------------------------------------- Render-Thread
+using namespace ttsparams;
+
+// ================================================================ Echtzeit-Kette
+
+void TtsChain::prepare (double rate, int maxBlock)
+{
+    hostRate = rate > 0 ? rate : 48000.0;
+    grains.prepare (innerRate);
+    fx.prepare (hostRate, juce::jmax (1, maxBlock));
+    rsL.prepare (innerRate, hostRate);
+    rsR.prepare (innerRate, hostRate);
+    const int fifoSize = (int) std::ceil (1024.0 * innerRate / juce::jmin (hostRate, (double) innerRate)) + 512;
+    fifoL.assign ((size_t) fifoSize, 0.0f);
+    fifoR.assign ((size_t) fifoSize, 0.0f);
+    mono.assign (64, 0.0f);
+    gL.assign (64, 0.0f);
+    gR.assign (64, 0.0f);
+    clearFifo();
+    volume.reset (hostRate, 0.03);
+    grainMix.reset (innerRate, 0.03);
+}
+
+void TtsChain::clearFifo()
+{
+    // Vorlauf für den Resampler
+    std::fill (fifoL.begin(), fifoL.end(), 0.0f);
+    std::fill (fifoR.begin(), fifoR.end(), 0.0f);
+    fifoCount = tts::dsp::SincResampler::half;
+    rsL.reset();
+    rsR.reset();
+}
+
+void TtsChain::start (float semis, float velGain)
+{
+    noteSemis = semis;
+    noteGain = velGain;
+    voice.start();
+}
+
+void TtsChain::stop()
+{
+    voice.stop();
+    grains.reset();
+    clearFifo();
+}
+
+void TtsChain::renderInternal (int n, const Settings& s)
+{
+    const double pitch = std::pow (2.0, juce::jlimit (-36.0, 36.0, (double) (s.pitchSemis + noteSemis)) / 12.0);
+    grainMix.setTargetValue (s.grainOn ? s.grainMix : 0.0f);
+    while (n > 0)
+    {
+        const int c = juce::jmin (n, 32);
+        if (fifoCount + c > (int) fifoL.size()) break;
+        voice.render (mono.data(), c, (double) s.speed, pitch, (double) s.formant);
+        if (std::abs (noteGain - 1.0f) > 1.0e-6f) for (int i = 0; i < c; ++i) mono[(size_t) i] *= noteGain;
+        float* oL = fifoL.data() + fifoCount;
+        float* oR = fifoR.data() + fifoCount;
+        if (s.grainOn || grainMix.isSmoothing() || grains.isBusy())
+        {
+            grains.process (mono.data(), gL.data(), gR.data(), c, s.grain);
+            for (int i = 0; i < c; ++i)
+            {
+                const float m = grainMix.getNextValue();
+                oL[i] = mono[(size_t) i] * (1.0f - m) + gL[(size_t) i] * m;
+                oR[i] = mono[(size_t) i] * (1.0f - m) + gR[(size_t) i] * m;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < c; ++i) oL[i] = oR[i] = mono[(size_t) i];
+            grainMix.skip (c);
+        }
+        fifoCount += c;
+        n -= c;
+    }
+}
+
+void TtsChain::process (float* L, float* R, int num, const Settings& s)
+{
+    // in Stücken, damit der Puffer nie überläuft
+    int done = 0;
+    while (done < num)
+    {
+        const int n = juce::jmin (num - done, 1024);
+        const int need = rsL.inputNeeded (n);
+        if (fifoCount < need) renderInternal (need - fifoCount, s);
+        if (fifoCount < need) { std::fill (L + done, L + done + n, 0.0f); std::fill (R + done, R + done + n, 0.0f); done += n; continue; }
+        rsR.process (fifoR.data(), R + done, n);
+        const int drop = juce::jlimit (0, fifoCount, rsL.process (fifoL.data(), L + done, n));
+        std::memmove (fifoL.data(), fifoL.data() + drop, sizeof (float) * (size_t) (fifoCount - drop));
+        std::memmove (fifoR.data(), fifoR.data() + drop, sizeof (float) * (size_t) (fifoCount - drop));
+        fifoCount -= drop;
+        done += n;
+    }
+
+    volume.setTargetValue (juce::Decibels::decibelsToGain (s.volumeDb, -60.0f));
+    for (int i = 0; i < num; ++i)
+    {
+        const float g = volume.getNextValue();
+        L[i] *= g;
+        R[i] *= g;
+    }
+    fx.process (L, R, num, s.fx);
+}
+
+// ================================================================ Render-Thread
 
 class TtsProcessor::RenderThread : public juce::Thread
 {
@@ -16,13 +122,13 @@ public:
         stopThread (10000);
     }
 
-    void submit (const RenderJob& job)
+    void submit (const Job& job)
     {
         {
             const juce::ScopedLock sl (lock);
-            next = std::make_unique<RenderJob> (job);
+            next = std::make_unique<Job> (job);
         }
-        cancel = true; // laufenden Job abbrechen, der neue ist wichtiger
+        cancel = true;
         wake.signal();
     }
 
@@ -33,7 +139,7 @@ public:
         while (! threadShouldExit())
         {
             wake.wait (200);
-            std::unique_ptr<RenderJob> job;
+            std::unique_ptr<Job> job;
             {
                 const juce::ScopedLock sl (lock);
                 job = std::move (next);
@@ -47,72 +153,16 @@ public:
 private:
     TtsProcessor& owner;
     juce::CriticalSection lock;
-    std::unique_ptr<RenderJob> next;
+    std::unique_ptr<Job> next;
     juce::WaitableEvent wake;
 };
 
-// ---------------------------------------------------------------- Parameter
-
-namespace
-{
-float speedFrom01 (float n) { return n < 0.5f ? std::pow (10.0f, -3.0f + 6.0f * n) : std::pow (4.0f, (n - 0.5f) * 2.0f); }
-float speedTo01 (float v)
-{
-    v = juce::jlimit (0.001f, 4.0f, v);
-    return v < 1.0f ? (std::log10 (v) + 3.0f) / 6.0f : 0.5f + std::log (v) / std::log (4.0f) * 0.5f;
-}
-juce::String speedText (float v)
-{
-    if (v < 0.1f) return juce::String (v, 3) + " x";
-    return juce::String (v, 2) + " x";
-}
-juce::String signedText (float v, int decimals, const char* unit)
-{
-    if (std::abs (v) < 0.5f * std::pow (10.0f, (float) -decimals)) return juce::String (0.0f, decimals) + unit;
-    return (v > 0 ? "+" : "") + juce::String (v, decimals) + unit;
-}
-} // namespace
-
-juce::AudioProcessorValueTreeState::ParameterLayout TtsProcessor::createLayout()
-{
-    using namespace juce;
-    std::vector<std::unique_ptr<RangedAudioParameter>> p;
-    auto txt = [] (std::function<String (float)> f)
-    { return AudioParameterFloatAttributes().withStringFromValueFunction ([f] (float v, int) { return f (v); }); };
-
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { pPitch, 1 }, "Pitch", NormalisableRange<float> (-12.0f, 12.0f, 0.01f), 0.0f,
-                                                       txt ([] (float v) { return signedText (v, 2, " st"); })));
-    NormalisableRange<float> speedRange (0.001f, 4.0f,
-        [] (float, float, float n) { return speedFrom01 (n); },
-        [] (float, float, float v) { return speedTo01 (v); },
-        [] (float, float, float v) { return juce::jlimit (0.001f, 4.0f, v); });
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { pSpeed, 1 }, "Speed", speedRange, 1.0f, txt (speedText)));
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { pVolume, 1 }, "Volume", NormalisableRange<float> (-24.0f, 6.0f, 0.1f), 0.0f,
-                                                       txt ([] (float v) { return signedText (v, 1, " dB"); })));
-    NormalisableRange<float> formantRange (0.5f, 2.0f,
-        [] (float, float, float n) { return std::pow (2.0f, (n - 0.5f) * 2.0f); },
-        [] (float, float, float v) { return 0.5f + std::log2 (juce::jlimit (0.5f, 2.0f, v)) * 0.5f; },
-        [] (float, float, float v) { return juce::jlimit (0.5f, 2.0f, v); });
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { pFormant, 1 }, "Formant", formantRange, 1.0f,
-                                                       txt ([] (float v) { return juce::String (v, 2) + " x"; })));
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { pReverb, 1 }, "Reverb", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 20.0f,
-                                                       txt ([] (float v) { return juce::String (juce::roundToInt (v)) + "%"; })));
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { pDelay, 1 }, "Delay", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 15.0f,
-                                                       txt ([] (float v) { return juce::String (juce::roundToInt (v)) + "%"; })));
-    p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { pEq, 1 }, "EQ", NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f,
-                                                       txt ([] (float v) { return signedText (v, 1, " dB"); })));
-    p.push_back (std::make_unique<AudioParameterBool> (ParameterID { pFxOn, 1 }, "Effects", true));
-    return { p.begin(), p.end() };
-}
-
-// ---------------------------------------------------------------- Lebenszyklus
+// ================================================================ Processor
 
 TtsProcessor::TtsProcessor()
     : juce::AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "TTS", createLayout())
 {
-    for (auto* id : { pPitch, pSpeed, pFormant })
-        apvts.addParameterListener (id, this);
     renderThread = std::make_unique<RenderThread> (*this);
     startTimer (60);
 }
@@ -120,8 +170,8 @@ TtsProcessor::TtsProcessor()
 TtsProcessor::~TtsProcessor()
 {
     stopTimer();
-    for (auto* id : { pPitch, pSpeed, pFormant })
-        apvts.removeParameterListener (id, this);
+    exportCancel = true;
+    if (exportThread != nullptr) exportThread->stopThread (10000);
     renderThread.reset();
 }
 
@@ -135,66 +185,81 @@ void TtsProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     hostRate = sampleRate > 0 ? sampleRate : 48000.0;
     work.setSize (2, juce::jmax (1, samplesPerBlock), false, true, true);
-    fx.prepare (hostRate, samplesPerBlock);
-    gainSmooth.reset (hostRate, 0.03);
-    gainSmooth.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (param (pVolume)));
+    chain.prepare (hostRate, samplesPerBlock);
+    appliedVersion = -1; // Stimme neu übergeben
 }
 
-void TtsProcessor::setVoice (const juce::String& v) { const juce::ScopedLock sl (stateLock); voice = v; }
-void TtsProcessor::setBritish (bool b) { british = b; }
-void TtsProcessor::setBlendVoice (const juce::String& v) { const juce::ScopedLock sl (stateLock); blendVoice = v; }
-void TtsProcessor::setBlend (float b) { blend = juce::jlimit (0.0f, 1.0f, b); }
-
-// ---------------------------------------------------------------- Rendern
-
-tts::fx::VoiceParams TtsProcessor::currentVoiceParams() const
+TtsChain::Settings TtsProcessor::readSettings (double bpm) const
 {
-    tts::fx::VoiceParams p;
-    p.pitchSemis = param (pPitch);
-    p.formant = param (pFormant);
-    p.speed = param (pSpeed);
-    return p;
-}
+    TtsChain::Settings s;
+    s.pitchSemis = param (pitch);
+    s.speed = param (speed);
+    s.volumeDb = param (volume);
+    s.formant = param (formant);
 
-tts::SynthRequest TtsProcessor::currentRequest() const
-{
-    tts::SynthRequest r;
+    s.grainOn = param (grOn) > 0.5f;
+    s.grainMix = param (grMix) / 100.0f;
+    s.grain.sizeMs = param (grSize);
+    s.grain.flux = param (grFlux) / 100.0f;
+    s.grain.density = param (grDensity);
+    s.grain.sprayMs = param (grSpray);
+    s.grain.pitchSpread = param (grPitch);
+    s.grain.width = param (grWidth) / 100.0f;
+    s.grain.reverse = param (grReverse) / 100.0f;
+    s.grain.freeze = param (grFreeze) > 0.5f;
+
+    auto& f = s.fx;
+    f.eqOn = param (eqOn) > 0.5f;
+    for (int b = 0; b < 3; ++b)
     {
-        const juce::ScopedLock sl (stateLock);
-        r.text = text;
-        r.voiceA = voice;
-        r.voiceB = blendVoice;
+        f.band[b].on = param (eqId (b, "On")) > 0.5f;
+        f.band[b].type = (tts::dsp::EqType) juce::roundToInt (param (eqId (b, "Type")));
+        f.band[b].freq = param (eqId (b, "Freq"));
+        f.band[b].gainDb = param (eqId (b, "Gain"));
+        f.band[b].q = param (eqId (b, "Q"));
     }
-    r.blend = blend.load();
-    r.british = british.load();
-    r.speed = tts::fx::kokoroSpeedFor (param (pSpeed));
-    return r;
+    f.dlOn = param (dlOn) > 0.5f;
+    const double b = (bpm > 20.0 && bpm < 400.0) ? bpm : 120.0;
+    f.dlTimeMs = param (dlSync) > 0.5f ? (float) (delayDivBeats (juce::roundToInt (param (dlDiv))) * 60000.0 / b)
+                                       : param (dlTime);
+    f.dlFeedback = param (dlFeedback) / 100.0f;
+    f.dlPing = param (dlPing) > 0.5f;
+    f.dlLow = param (dlLow);
+    f.dlHigh = param (dlHigh);
+    f.dlMix = param (dlMix) / 100.0f;
+    f.rvOn = param (rvOn) > 0.5f;
+    f.rvSize = param (rvSize) / 100.0f;
+    f.rvDamp = param (rvDamp) / 100.0f;
+    f.rvPreMs = param (rvPre);
+    f.rvWidth = param (rvWidth) / 100.0f;
+    f.rvLow = param (rvLow);
+    f.rvMix = param (rvMix) / 100.0f;
+    return s;
 }
+
+// ---------------------------------------------------------------- Generate
 
 void TtsProcessor::generate()
 {
     generatedOnce = true;
-    if (! holder->isReady())
+    if (! holder->isReady()) { pendingRender = true; return; }
+    Job job;
     {
-        pendingRender = true; // sobald die Engine bereit ist
-        return;
+        const juce::ScopedLock sl (stateLock);
+        job.req.text = text;
+        job.req.voiceA = voice;
+        job.req.voiceB = blendVoice;
     }
-    startJob (true);
-}
-
-void TtsProcessor::startJob (bool resynth)
-{
-    RenderJob job;
-    job.req = currentRequest();
-    job.params = currentVoiceParams();
-    job.needsSynth = resynth;
+    job.req.blend = blend.load();
+    job.req.british = british.load();
+    job.req.speed = 1.0f; // Tempo macht die Echtzeit-Engine
     if (job.req.text.trim().isEmpty()) return;
     rendering = true;
     renderProgress = 0.0f;
     renderThread->submit (job);
 }
 
-void TtsProcessor::runJob (const RenderJob& job)
+void TtsProcessor::runJob (const Job& job)
 {
     rendering = true;
     {
@@ -202,189 +267,128 @@ void TtsProcessor::runJob (const RenderJob& job)
         renderError.clear();
     }
     auto& cancel = renderThread->cancel;
-    const juce::String key = job.req.text + "|" + job.req.voiceA + "|" + job.req.voiceB + "|" + juce::String (job.req.blend, 3)
-                           + "|" + (job.req.british ? "gb" : "us") + "|" + juce::String (job.req.speed, 3);
-    const bool synthNeeded = rawCache.empty() || key != rawKey;
     juce::String err;
-    if (synthNeeded)
+    auto raw = holder->getEngine().synthesize (job.req, [this] (float f) { renderProgress = f * 0.85f; }, cancel, err);
+    if (cancel.load()) { rendering = false; return; }
+    if (raw.empty())
     {
-        auto raw = holder->getEngine().synthesize (job.req, [this] (float f) { renderProgress = f * 0.8f; }, cancel, err);
-        if (cancel.load()) { rendering = false; return; }
-        if (raw.empty())
-        {
-            const juce::ScopedLock sl (stateLock);
-            renderError = err;
-            rendering = false;
-            return;
-        }
-        rawCache = std::move (raw);
-        rawKey = key;
+        const juce::ScopedLock sl (stateLock);
+        renderError = err;
+        rendering = false;
+        return;
     }
-    const float base = synthNeeded ? 0.8f : 0.0f;
-    auto processed = tts::fx::processVoice (rawCache, tts::KokoroEngine::sampleRate, job.params,
-                                            [this, base] (float f) { renderProgress = base + (1.0f - base) * f; }, &cancel);
-    if (cancel.load() || processed.empty()) { rendering = false; return; }
-
-    auto fresh = std::make_shared<Rendered>();
-    fresh->audio = std::move (processed);
-    std::shared_ptr<Rendered> old;
+    // Pegel angleichen
+    float peak = 0.0f;
+    for (auto v : raw) peak = juce::jmax (peak, std::abs (v));
+    if (peak > 1e-6f) for (auto& v : raw) v *= 0.8f / peak;
+    auto analysis = tts::dsp::analyseVoice (raw, tts::KokoroEngine::sampleRate, &cancel);
+    if (cancel.load() || analysis == nullptr) { rendering = false; return; }
     {
-        const juce::SpinLock::ScopedLockType sl (swapLock);
-        old = std::move (current);
-        current = std::move (fresh);
-        readPos = 0.0;
-        playing = false; // neue Version: nicht mitten im alten Abspielen weiterspielen
+        const juce::SpinLock::ScopedLockType sl (sourceLock);
+        if (current != nullptr) retired.push_back (current);
+        current = analysis;
     }
-    old.reset(); // großer Puffer wird hier freigegeben, nicht im Audio-Thread
-    ++audioVersion;
+    ++sourceVersion;
     renderProgress = 1.0f;
     rendering = false;
 }
 
-void TtsProcessor::parameterChanged (const juce::String&, float)
-{
-    paramsDirtyAt = juce::Time::getMillisecondCounter();
-}
-
 void TtsProcessor::timerCallback()
 {
-    // Engine wurde bereit und es wartet ein Auftrag (z. B. Projekt geladen)
     if (pendingRender && holder->isReady())
     {
         pendingRender = false;
-        startJob (true);
+        generate();
     }
-    // Pitch/Speed/Formant geändert: kurz warten, dann neu rechnen
-    const auto dirty = paramsDirtyAt.load();
-    if (dirty != 0 && juce::Time::getMillisecondCounter() - dirty > 450)
+    // alte Stimmen erst freigeben, wenn der Audio-Thread umgeschaltet hat (oder gar nicht läuft)
+    if (appliedVersion.load() == sourceVersion.load() || juce::Time::getMillisecondCounter() - lastProcessMs.load() > 1500)
     {
-        paramsDirtyAt = 0;
-        if (generatedOnce && holder->isReady() && getText().trim().isNotEmpty())
-            startJob (true);
+        std::vector<std::shared_ptr<const tts::dsp::VoiceAnalysis>> toFree;
+        {
+            const juce::SpinLock::ScopedLockType sl (sourceLock);
+            toFree.swap (retired);
+        }
     }
 }
 
 bool TtsProcessor::hasAudio() const
 {
-    const juce::SpinLock::ScopedLockType sl (swapLock);
-    return current != nullptr && ! current->audio.empty();
+    const juce::SpinLock::ScopedLockType sl (sourceLock);
+    return current != nullptr && current->length() > 0;
 }
 
 double TtsProcessor::getAudioSeconds() const
 {
-    const juce::SpinLock::ScopedLockType sl (swapLock);
-    return current != nullptr ? (double) current->audio.size() / tts::KokoroEngine::sampleRate : 0.0;
+    const juce::SpinLock::ScopedLockType sl (sourceLock);
+    if (current == nullptr) return 0.0;
+    return (double) current->length() / tts::KokoroEngine::sampleRate / juce::jmax (0.001, (double) param (speed));
 }
 
 std::vector<float> TtsProcessor::getPeaks (int count) const
 {
-    std::vector<float> peaks ((size_t) juce::jmax (1, count), 0.0f);
-    std::shared_ptr<Rendered> r;
+    std::shared_ptr<const tts::dsp::VoiceAnalysis> a;
     {
-        const juce::SpinLock::ScopedLockType sl (swapLock);
-        r = current;
+        const juce::SpinLock::ScopedLockType sl (sourceLock);
+        a = current;
     }
-    if (r == nullptr || r->audio.empty()) return {};
-    const size_t n = r->audio.size();
+    if (a == nullptr || a->peaks.empty() || count <= 0) return {};
+    std::vector<float> out ((size_t) count, 0.0f);
+    const size_t n = a->peaks.size();
     for (int i = 0; i < count; ++i)
     {
-        const size_t a = n * (size_t) i / (size_t) count, b = juce::jmax (a + 1, n * (size_t) (i + 1) / (size_t) count);
+        const size_t s = n * (size_t) i / (size_t) count, e = juce::jmax (s + 1, n * (size_t) (i + 1) / (size_t) count);
         float m = 0.0f;
-        const size_t step = juce::jmax<size_t> (1, (b - a) / 512);
-        for (size_t k = a; k < b && k < n; k += step) m = juce::jmax (m, std::abs (r->audio[k]));
-        peaks[(size_t) i] = m;
+        for (size_t k = s; k < e && k < n; ++k) m = juce::jmax (m, a->peaks[k]);
+        out[(size_t) i] = m;
     }
-    return peaks;
+    return out;
 }
 
-// ---------------------------------------------------------------- Wiedergabe
-
-void TtsProcessor::play()
-{
-    if (! hasAudio()) return;
-    noteRatio = 1.0;
-    noteGain = 1.0f;
-    startRequest = true;
-}
-
-void TtsProcessor::stop() { stopRequest = true; }
-
-void TtsProcessor::applyFx (juce::AudioBuffer<float>& b, int start, int num, double bpm)
-{
-    if (param (pFxOn) > 0.5f)
-        fx.process (b, start, num, param (pEq), param (pDelay) / 100.0f, param (pReverb) / 100.0f, bpm);
-}
+// ---------------------------------------------------------------- Audio
 
 void TtsProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
     const int num = buffer.getNumSamples();
     buffer.clear();
+    lastProcessMs = juce::Time::getMillisecondCounter();
     if (work.getNumSamples() < num) work.setSize (2, num, false, false, true);
-    work.clear();
+
+    // neue Stimme übernehmen
+    if (appliedVersion.load() != sourceVersion.load())
+    {
+        const juce::SpinLock::ScopedTryLockType sl (sourceLock);
+        if (sl.isLocked())
+        {
+            chain.setSource (current);
+            appliedVersion = sourceVersion.load();
+        }
+    }
 
     double bpm = 120.0;
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
             if (auto b = pos->getBpm()) bpm = *b;
+    lastBpm = bpm;
+    const auto s = readSettings (bpm);
 
-    if (stopRequest.exchange (false)) playing = false;
-    if (startRequest.exchange (false)) { readPos = 0.0; playing = true; }
+    if (stopRequest.exchange (false)) chain.stop();
+    if (startRequest.exchange (false) && chain.getSource() != nullptr) chain.start (0.0f, 1.0f);
 
-    gainSmooth.setTargetValue (juce::Decibels::decibelsToGain (param (pVolume)));
-
-    const juce::SpinLock::ScopedTryLockType lock (swapLock);
-    const std::vector<float>* audio = (lock.isLocked() && current != nullptr) ? &current->audio : nullptr;
-
-    // MIDI: jede Note startet die Stimme neu, Tonhöhe relativ zu C3 (60)
-    int cursor = 0;
-    auto renderTo = [&] (int end)
-    {
-        if (audio == nullptr || ! playing.load() || end <= cursor) { cursor = end; return; }
-        const auto& a = *audio;
-        const double n = (double) a.size();
-        const double step = (double) tts::KokoroEngine::sampleRate / hostRate * noteRatio;
-        auto* L = work.getWritePointer (0);
-        auto* R = work.getWritePointer (1);
-        for (int i = cursor; i < end; ++i)
-        {
-            if (readPos >= n - 1) { playing = false; break; }
-            const int i1 = (int) readPos;
-            const float fr = (float) (readPos - i1);
-            const float y0 = a[(size_t) juce::jmax (0, i1 - 1)], y1 = a[(size_t) i1];
-            const float y2 = a[(size_t) juce::jmin ((int) n - 1, i1 + 1)], y3 = a[(size_t) juce::jmin ((int) n - 1, i1 + 2)];
-            // kubisch (Catmull-Rom)
-            const float c1 = 0.5f * (y2 - y0), c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3, c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
-            const float s = ((c3 * fr + c2) * fr + c1) * fr + y1;
-            L[i] = R[i] = s * noteGain;
-            readPos += step;
-        }
-        cursor = end;
-    };
+    auto* L = work.getWritePointer (0);
+    auto* R = work.getWritePointer (1);
+    int pos = 0;
     for (const auto meta : midi)
     {
+        const int at = juce::jlimit (pos, num, meta.samplePosition);
+        if (at > pos) { chain.process (L + pos, R + pos, at - pos, s); pos = at; }
         const auto msg = meta.getMessage();
-        renderTo (juce::jlimit (0, num, meta.samplePosition));
-        if (msg.isNoteOn() && audio != nullptr)
-        {
-            noteRatio = std::pow (2.0, (msg.getNoteNumber() - 60) / 12.0);
-            noteGain = 0.35f + 0.65f * msg.getFloatVelocity();
-            readPos = 0.0;
-            playing = true;
-        }
+        if (msg.isNoteOn() && chain.getSource() != nullptr)
+            chain.start ((float) (msg.getNoteNumber() - 60), 0.35f + 0.65f * msg.getFloatVelocity());
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
-            playing = false;
+            chain.stop();
     }
-    renderTo (num);
-
-    // Lautstärke + Effekte
-    for (int i = 0; i < num; ++i)
-    {
-        const float g = gainSmooth.getNextValue();
-        work.getWritePointer (0)[i] *= g;
-        work.getWritePointer (1)[i] *= g;
-    }
-    applyFx (work, 0, num, bpm);
+    if (pos < num) chain.process (L + pos, R + pos, num - pos, s);
 
     const int outCh = buffer.getNumChannels();
     if (outCh >= 2)
@@ -399,12 +403,13 @@ void TtsProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuf
         buffer.applyGain (0.5f);
     }
 
-    // Anzeige
-    if (audio != nullptr && ! audio->empty())
-        playhead = playing.load() ? (float) (readPos / (double) audio->size()) : 0.0f;
+    voiceFlag = chain.voiceActive();
+    playingFlag = chain.anyActive();
+    playhead = chain.voiceActive() && chain.length() > 0 ? (float) (chain.position() / chain.length()) : 0.0f;
     float rms = 0.0f;
     for (int ch = 0; ch < juce::jmin (2, outCh); ++ch) rms = juce::jmax (rms, buffer.getRMSLevel (ch, 0, num));
     level = juce::jmax (rms * 2.2f, level.load() * 0.85f);
+    chain.grainEngine().updateVis();
 }
 
 // ---------------------------------------------------------------- Export
@@ -420,38 +425,108 @@ juce::String TtsProcessor::suggestedFileName() const
     return "Brainbugz TTS - " + s + " (" + (v != nullptr ? v->name : "voice") + ").wav";
 }
 
-bool TtsProcessor::exportWav (const juce::File& file, juce::String& error)
+juce::String TtsProcessor::exportKey() const
 {
-    std::shared_ptr<Rendered> r;
-    {
-        const juce::SpinLock::ScopedLockType sl (swapLock);
-        r = current;
-    }
-    if (r == nullptr || r->audio.empty()) { error = "Nothing generated yet"; return false; }
+    juce::String k (sourceVersion.load());
+    for (auto* prm : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (prm)) k << "|" << juce::String (r->getValue(), 5);
+    return juce::String::toHexString (k.hashCode64());
+}
 
-    const double outRate = hostRate > 0 ? hostRate : 48000.0;
-    auto up = tts::fx::resample (r->audio, (double) tts::KokoroEngine::sampleRate / outRate);
-    const bool fxOn = param (pFxOn) > 0.5f;
-    const int tail = fxOn && (param (pReverb) > 0.5f || param (pDelay) > 0.5f) ? (int) (outRate * 3.5) : 0;
-    const int total = (int) up.size() + tail;
-    juce::AudioBuffer<float> out (2, total);
-    out.clear();
-    const float gain = juce::Decibels::decibelsToGain (param (pVolume));
-    for (int i = 0; i < (int) up.size(); ++i)
-        out.setSample (0, i, up[(size_t) i] * gain), out.setSample (1, i, up[(size_t) i] * gain);
-    if (fxOn)
+namespace
+{
+struct LambdaThread : public juce::Thread
+{
+    explicit LambdaThread (std::function<void()> f) : juce::Thread ("BrainbugzTTS export"), fn (std::move (f)) {}
+    void run() override { fn(); }
+    std::function<void()> fn;
+};
+} // namespace
+
+void TtsProcessor::startExport (const juce::File& file, const juce::String& key)
+{
+    if (exporting.load()) return;
+    if (exportThread != nullptr) exportThread->stopThread (5000);
+    exporting = true;
+    exportFinished = false;
+    exportCancel = false;
+    exportProgress = 0.0f;
+    exportFile = file;
+    exportKeyStr = key;
+    exportThread = std::make_unique<LambdaThread> ([this, file]
     {
-        tts::PlaybackFx offline;
-        offline.prepare (outRate, 4096);
-        double bpm = 120.0;
-        for (int pos = 0; pos < total; pos += 4096)
-            offline.process (out, pos, juce::jmin (4096, total - pos), param (pEq), param (pDelay) / 100.0f, param (pReverb) / 100.0f, bpm);
-        // Ende des Nachhalls abschneiden, wenn er leise genug ist
-        int end = total;
-        while (end > (int) up.size() && std::abs (out.getSample (0, end - 1)) < 1.0e-4f && std::abs (out.getSample (1, end - 1)) < 1.0e-4f) --end;
-        out.setSize (2, end, true);
+        juce::String err;
+        exportWav (file, err, &exportProgress, &exportCancel);
+        {
+            const juce::ScopedLock sl (stateLock);
+            exportError = err;
+        }
+        exporting = false;
+        exportFinished = true;
+    });
+    exportThread->startThread();
+}
+
+bool TtsProcessor::takeExportResult (juce::File& file, juce::String& key, juce::String& error)
+{
+    if (! exportFinished.exchange (false)) return false;
+    const juce::ScopedLock sl (stateLock);
+    file = exportFile;
+    key = exportKeyStr;
+    error = exportError;
+    return true;
+}
+
+bool TtsProcessor::exportWav (const juce::File& file, juce::String& error, std::atomic<float>* progress, const std::atomic<bool>* cancel)
+{
+    std::shared_ptr<const tts::dsp::VoiceAnalysis> src;
+    {
+        const juce::SpinLock::ScopedLockType sl (sourceLock);
+        src = current;
     }
-    // nicht übersteuern
+    if (src == nullptr || src->length() == 0) { error = "Nothing generated yet"; return false; }
+
+    const double rate = hostRate > 0 ? hostRate : 48000.0;
+    const int block = 2048;
+    TtsChain offline;
+    offline.prepare (rate, block);
+    offline.setSource (src);
+    offline.start (0.0f, 1.0f);
+    const auto s = readSettings (lastBpm.load());
+
+    const juce::int64 maxLen = (juce::int64) (rate * 60.0 * 10.0); // höchstens 10 Minuten
+    const int tailMax = (int) (rate * 6.0);
+    juce::AudioBuffer<float> out (2, (int) std::min (maxLen, (juce::int64) (rate * 20.0)));
+    juce::int64 written = 0;
+    int afterVoice = 0;
+    std::vector<float> l ((size_t) block), r ((size_t) block);
+    const double expected = juce::jmin ((double) maxLen, (double) src->length() / tts::KokoroEngine::sampleRate / juce::jmax (0.001, (double) s.speed) * rate);
+    while (written < maxLen)
+    {
+        if (cancel != nullptr && cancel->load()) { error = "cancelled"; return false; }
+        if (progress != nullptr) *progress = (float) juce::jlimit (0.0, 0.99, (double) written / juce::jmax (1.0, expected));
+        offline.process (l.data(), r.data(), block, s);
+        if (written + block > out.getNumSamples())
+            out.setSize (2, (int) juce::jmin (maxLen, (juce::int64) out.getNumSamples() * 2), true, true);
+        const int n = (int) std::min ((juce::int64) block, maxLen - written);
+        out.copyFrom (0, (int) written, l.data(), n);
+        out.copyFrom (1, (int) written, r.data(), n);
+        written += n;
+        if (! offline.voiceActive())
+        {
+            afterVoice += block;
+            // Freeze würde ewig klingen: dann nach 4 s Schluss
+            if (afterVoice > tailMax || (s.grainOn && s.grain.freeze && afterVoice > (int) (rate * 4.0))) break;
+            // Nachhall vorbei?
+            float mx = 0.0f;
+            for (int i = 0; i < n; ++i) mx = juce::jmax (mx, std::abs (l[(size_t) i]), std::abs (r[(size_t) i]));
+            if (afterVoice > (int) (rate * 0.3) && mx < 1.0e-4f && ! offline.anyActive()) break;
+        }
+    }
+    // Stille am Ende kürzen
+    int end = (int) written;
+    while (end > 1 && std::abs (out.getSample (0, end - 1)) < 1.0e-4f && std::abs (out.getSample (1, end - 1)) < 1.0e-4f) --end;
+    out.setSize (2, juce::jmax (1, end), true);
     const float peak = out.getMagnitude (0, out.getNumSamples());
     if (peak > 0.99f) out.applyGain (0.99f / peak);
 
@@ -459,9 +534,11 @@ bool TtsProcessor::exportWav (const juce::File& file, juce::String& error)
     juce::WavAudioFormat wav;
     std::unique_ptr<juce::OutputStream> os (file.createOutputStream().release());
     if (os == nullptr) { error = "Cannot write the file"; return false; }
-    auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (outRate).withNumChannels (2).withBitsPerSample (24));
+    auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (rate).withNumChannels (2).withBitsPerSample (24));
     if (w == nullptr) { error = "WAV error"; return false; }
-    return w->writeFromAudioSampleBuffer (out, 0, out.getNumSamples());
+    const bool ok = w->writeFromAudioSampleBuffer (out, 0, out.getNumSamples());
+    if (progress != nullptr) *progress = 1.0f;
+    return ok;
 }
 
 // ---------------------------------------------------------------- Zustand
@@ -475,6 +552,7 @@ void TtsProcessor::getStateInformation (juce::MemoryBlock& dest)
     st.setProperty ("blendVoice", getBlendVoice(), nullptr);
     st.setProperty ("blend", blend.load(), nullptr);
     st.setProperty ("generated", generatedOnce, nullptr);
+    st.setProperty ("tab", uiTab.load(), nullptr);
     if (auto xml = st.createXml()) copyXmlToBinary (*xml, dest);
 }
 
@@ -494,9 +572,8 @@ void TtsProcessor::setStateInformation (const void* data, int size)
     }
     british = (bool) st.getProperty ("british", false);
     blend = (float) st.getProperty ("blend", 0.0f);
-    paramsDirtyAt = 0;
-    // Stimme beim Laden des Projekts automatisch wieder erzeugen
-    if ((bool) st.getProperty ("generated", false) && text.trim().isNotEmpty())
+    uiTab = (int) st.getProperty ("tab", 0);
+    if ((bool) st.getProperty ("generated", false) && getText().trim().isNotEmpty())
     {
         generatedOnce = true;
         pendingRender = true;

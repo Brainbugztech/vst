@@ -3,9 +3,12 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <atomic>
 #include <memory>
+#include "Params.h"
 #include "engine/EngineHolder.h"
-#include "dsp/PlaybackFx.h"
-#include "dsp/VoiceFx.h"
+#include "dsp/LpcPsola.h"
+#include "dsp/GrainEngine.h"
+#include "dsp/FxChain.h"
+#include "dsp/Resampler.h"
 
 // Eine Stimme aus der Kokoro-Liste
 struct TtsVoice
@@ -34,9 +37,48 @@ inline const TtsVoice* findVoice (const juce::String& id)
     return nullptr;
 }
 
-class TtsProcessor : public juce::AudioProcessor,
-                     private juce::AudioProcessorValueTreeState::Listener,
-                     private juce::Timer
+// Die komplette Echtzeit-Kette (Stimme -> Grain -> 24k->Host -> Volume -> FX). Wird im Audio-Thread und für den Export benutzt.
+class TtsChain
+{
+public:
+    struct Settings
+    {
+        float pitchSemis = 0, speed = 1, volumeDb = 0, formant = 1;
+        bool grainOn = false;
+        float grainMix = 0.7f;
+        tts::dsp::GrainParams grain;
+        tts::dsp::FxParams fx;
+    };
+
+    void prepare (double hostRate, int maxBlock);
+    void setSource (std::shared_ptr<const tts::dsp::VoiceAnalysis> s) { voice.setSource (std::move (s)); }
+    const std::shared_ptr<const tts::dsp::VoiceAnalysis>& getSource() const { return voice.getSource(); }
+    void start (float noteSemis, float velocityGain);
+    void stop();
+    void process (float* L, float* R, int num, const Settings& s);
+    bool voiceActive() const { return voice.isActive(); }
+    bool anyActive() const { return voice.isActive() || grains.isBusy(); }
+    double position() const { return voice.getPosition(); }
+    double length() const { return voice.getLength(); }
+    tts::dsp::GrainEngine& grainEngine() { return grains; }
+
+private:
+    void renderInternal (int n, const Settings& s);
+
+    double hostRate = 48000.0;
+    static constexpr int innerRate = 24000;
+    tts::dsp::VoiceSynth voice;
+    tts::dsp::GrainEngine grains;
+    tts::dsp::FxChain fx;
+    tts::dsp::SincResampler rsL, rsR;
+    void clearFifo();
+    std::vector<float> fifoL, fifoR, mono, gL, gR;
+    int fifoCount = 0;
+    float noteSemis = 0.0f, noteGain = 1.0f;
+    juce::SmoothedValue<float> volume, grainMix;
+};
+
+class TtsProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     TtsProcessor();
@@ -54,7 +96,7 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 4.0; }
+    double getTailLengthSeconds() const override { return 5.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -72,69 +114,53 @@ public:
     juce::String getText() const { const juce::ScopedLock sl (stateLock); return text; }
     void setText (const juce::String& t) { const juce::ScopedLock sl (stateLock); text = t; }
     juce::String getVoice() const { const juce::ScopedLock sl (stateLock); return voice; }
-    void setVoice (const juce::String& v);
+    void setVoice (const juce::String& v) { const juce::ScopedLock sl (stateLock); voice = v; }
     bool isBritish() const { return british.load(); }
-    void setBritish (bool b);
+    void setBritish (bool b) { british = b; }
     juce::String getBlendVoice() const { const juce::ScopedLock sl (stateLock); return blendVoice; }
-    void setBlendVoice (const juce::String& v);
+    void setBlendVoice (const juce::String& v) { const juce::ScopedLock sl (stateLock); blendVoice = v; }
     float getBlend() const { return blend.load(); }
-    void setBlend (float b);
+    void setBlend (float b) { blend = juce::jlimit (0.0f, 1.0f, b); }
+    int getUiTab() const { return uiTab.load(); }
+    void setUiTab (int t) { uiTab = t; }
 
-    // Text sprechen lassen (komplett neu) bzw. nur die Effekte neu rechnen
     void generate();
     bool isRendering() const { return rendering.load(); }
     float getRenderProgress() const { return renderProgress.load(); }
     juce::String getRenderError() const { const juce::ScopedLock sl (stateLock); return renderError; }
 
-    void play();
-    void stop();
-    bool isPlaying() const { return playing.load(); }
-    float getPlayhead() const { return playhead.load(); }   // 0..1
+    void play() { if (hasAudio()) startRequest = true; }
+    void stop() { stopRequest = true; }
+    bool isPlaying() const { return playingFlag.load(); }
+    bool isVoicePlaying() const { return voiceFlag.load(); }
+    float getPlayhead() const { return playhead.load(); }
     float getLevel() const { return level.load(); }
     bool hasAudio() const;
     double getAudioSeconds() const;
-
-    // Wellenform-Vorschau (Beträge, 0..1) und Versionszähler, damit die GUI weiß, wann neu zu zeichnen ist
     std::vector<float> getPeaks (int count) const;
-    int getAudioVersion() const { return audioVersion.load(); }
+    int getAudioVersion() const { return sourceVersion.load(); }
+    int grainSnapshot (tts::dsp::GrainVis* out, int maxCount) { return chain.grainEngine().snapshot (out, maxCount); }
 
-    // WAV mit Effekten (für Save und Drag & Drop)
-    bool exportWav (const juce::File& file, juce::String& error);
+    bool exportWav (const juce::File& file, juce::String& error, std::atomic<float>* progress = nullptr, const std::atomic<bool>* cancel = nullptr);
+    // Export im Hintergrund (lange WAVs bei sehr langsamem Speed)
+    void startExport (const juce::File& file, const juce::String& key);
+    bool isExporting() const { return exporting.load(); }
+    float getExportProgress() const { return exportProgress.load(); }
+    // liefert true genau einmal, wenn ein Hintergrund-Export fertig ist
+    bool takeExportResult (juce::File& file, juce::String& key, juce::String& error);
+    juce::String exportKey() const;
     juce::String suggestedFileName() const;
 
-    static constexpr const char* pPitch = "pitch";
-    static constexpr const char* pSpeed = "speed";
-    static constexpr const char* pVolume = "volume";
-    static constexpr const char* pFormant = "formant";
-    static constexpr const char* pReverb = "reverb";
-    static constexpr const char* pDelay = "delay";
-    static constexpr const char* pEq = "eq";
-    static constexpr const char* pFxOn = "fxOn";
+    TtsChain::Settings readSettings (double bpm) const;
 
 private:
-    struct Rendered
-    {
-        std::vector<float> audio; // 24 kHz mono, bearbeitet
-    };
-
-    struct RenderJob
-    {
-        tts::SynthRequest req;
-        tts::fx::VoiceParams params;
-        bool needsSynth = true;
-    };
-
     class RenderThread;
+    struct Job { tts::SynthRequest req; };
 
-    static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
-    void parameterChanged (const juce::String& id, float) override;
     void timerCallback() override;
-    void startJob (bool resynth);
-    void runJob (const RenderJob& job);
-    tts::fx::VoiceParams currentVoiceParams() const;
-    tts::SynthRequest currentRequest() const;
+    void runJob (const Job& job);
     float param (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
-    void applyFx (juce::AudioBuffer<float>& b, int start, int num, double bpm);
+    float param (const juce::String& id) const { return apvts.getRawParameterValue (id)->load(); }
 
     juce::SharedResourcePointer<tts::EngineHolder> holder;
 
@@ -142,28 +168,33 @@ private:
     juce::String text, voice { "af_heart" }, blendVoice, renderError;
     std::atomic<bool> british { false };
     std::atomic<float> blend { 0.0f };
+    std::atomic<int> uiTab { 0 };
 
-    // Render
     std::unique_ptr<RenderThread> renderThread;
     std::atomic<bool> rendering { false }, pendingRender { false };
     std::atomic<float> renderProgress { 0.0f };
-    std::vector<float> rawCache;            // nur im Render-Thread benutzt
-    juce::String rawKey;
-    std::atomic<int> audioVersion { 0 };
-    std::atomic<juce::uint32> paramsDirtyAt { 0 };
     bool generatedOnce = false;
 
-    // Wiedergabe
-    juce::SpinLock swapLock;
-    std::shared_ptr<Rendered> current;      // nur unter swapLock tauschen
-    std::atomic<bool> playing { false }, startRequest { false }, stopRequest { false };
-    double readPos = 0.0, rate = 1.0, noteRatio = 1.0;
-    float noteGain = 1.0f;
-    std::atomic<float> playhead { 0.0f }, level { 0.0f };
+    // neue Stimme an den Audio-Thread übergeben (alte erst im Timer freigeben)
+    juce::SpinLock sourceLock;
+    std::shared_ptr<const tts::dsp::VoiceAnalysis> current;
+    std::vector<std::shared_ptr<const tts::dsp::VoiceAnalysis>> retired;
+    std::atomic<int> sourceVersion { 0 }, appliedVersion { 0 };
+
+    std::unique_ptr<juce::Thread> exportThread;
+    std::atomic<bool> exporting { false }, exportFinished { false }, exportCancel { false };
+    std::atomic<float> exportProgress { 0.0f };
+    juce::File exportFile;
+    juce::String exportKeyStr, exportError;
+
+    TtsChain chain;
     double hostRate = 48000.0;
+    std::atomic<bool> startRequest { false }, stopRequest { false };
+    std::atomic<bool> playingFlag { false }, voiceFlag { false };
+    std::atomic<float> playhead { 0.0f }, level { 0.0f };
+    std::atomic<juce::uint32> lastProcessMs { 0 };
+    std::atomic<double> lastBpm { 120.0 };
     juce::AudioBuffer<float> work;
-    tts::PlaybackFx fx;
-    juce::SmoothedValue<float> gainSmooth;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TtsProcessor)
 };

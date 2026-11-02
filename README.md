@@ -153,15 +153,15 @@ Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test`
 
 ## Brainbugz TTS
 
-Text-to-Speech als Instrument (Englisch, Stimmen von Kokoro, läuft offline).
+Text-to-Speech als Instrument (Englisch, Stimmen von Kokoro, läuft offline). Alle Regler laufen in Echtzeit und lassen sich in der DAW automatisieren.
 
 - **Erster Start**: Button **DOWNLOAD VOICE ENGINE** lädt das Stimm-Modell (ca. 337 MB, kostenlos, direkt von GitHub) nach `%APPDATA%\Brainbugz\TTS`. Ladebalken mit MB/Prozent, Cancel, bei Fehlern Retry und Ordner öffnen. Danach braucht das Plugin kein Internet mehr.
-- **Voice**: 28 englische Kokoro-Stimmen (Female/Male), **Accent** US/UK. Unter dem Zahnrad: zweite Stimme beimischen (**Voice blend**, z. B. 70/30).
-- **Generate** spricht den Text, **Play/Stop** spielt ab, MIDI-Noten triggern die Stimme (C3 = Originaltonhöhe). Klick auf die Wellenform = Play/Stop, **Wellenform in Ableton ziehen** = WAV mit Effekten, **Save** speichert die WAV.
-- **Pitch** ±12 Halbtöne (PSOLA, Formanten bleiben), **Formant** 0.5–2x (Klangfarbe), **Speed** 0.001x–4x (0.5–2x macht Kokoro selbst, bis 0.125x PSOLA, darunter Paulstretch-Drone, max. 15 min), **Volume**. Pitch/Speed/Formant rechnen nach dem Loslassen automatisch neu.
-- **Effects** (Power-Taste): Reverb, Ping-Pong-Delay (punktierte Achtel im Songtempo), EQ als Tilt (dunkler/heller).
-- Das Projekt merkt sich Text, Stimme und Regler und erzeugt die Stimme beim Laden neu.
-- Engine-Test ohne DAW (Linux): `Plugins/TTS/tools` (Aussprache, Kokoro, Effekte, schreibt WAVs). Fremd-Bausteine und Lizenzen: `Plugins/TTS/THIRD_PARTY.md`.
+- **Generate** erzeugt einmal die reine Stimme, alles danach passiert live. **Play/Stop**, MIDI-Noten triggern die Stimme und verschieben nur die Tonhöhe (C3 = Original). Klick auf die Wellenform = Play/Stop, **Wellenform in Ableton ziehen** = WAV mit allen Effekten, **Save** speichert die WAV (lange WAVs werden im Hintergrund gerendert).
+- **Tab MAIN**: Voice (28 englische Stimmen), Accent US/UK, **Pitch** ±24 st, **Speed** 0.001x–4x, **Volume**, **Formant** 0.5–2x. Pitch/Formant per LPC-PSOLA: Mundraum (Hüllkurve) und Tonhöhe werden getrennt, dadurch klingt Runterpitchen voll statt knarzig. Rechts **Voice Mix**: zweite Stimme beimischen.
+- **Tab GRAIN** (wie Abletons Warp-Modus Texture): **Size**, **Flux** (Zufall), **Density**, **Spray**, **Pitch** (Streuung), **Width**, **Reverse**, **Mix**, **FREEZE** und eine Anzeige der fliegenden Körner.
+- **Tab FX**: **EQ** mit 3 Bändern (Low Cut, Low Shelf, Bell, High Shelf, High Cut; Hz, dB, Q), Punkte in der Kurve ziehen, Mausrad = Q, Doppelklick = Band an/aus. **Delay** (Songtempo inkl. punktiert/triolisch oder ms, Feedback, Ping-Pong, Low/High Cut, Mix). **Reverb** (Size, Damping, Pre-Delay, Width, Low Cut, Mix).
+- Das Projekt merkt sich Text, Stimme, Regler und Tab und erzeugt die Stimme beim Laden neu.
+- Engine-Test ohne DAW (Linux): `Plugins/TTS/tools` (Aussprache, Kokoro, Echtzeit-Engine, schreibt WAVs). Fremd-Bausteine und Lizenzen: `Plugins/TTS/THIRD_PARTY.md`.
 
 ## Bauen
 
@@ -183,7 +183,7 @@ cmake --build build --config Release
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
 - `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Pitch Matrix in `PitchMatrix.*`, Modulation in `Modulation.h` und `ModPanel.*`, Learn in `KeyAnalyzer.h`, Sidechain in `ChordTracker.h`, Werkspresets in `Presets.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
-- `Plugins/TTS` – Text-to-Speech (Aussprache in `engine/Phonemizer.*`, Kokoro in `engine/KokoroEngine.*`, Download in `engine/EngineHolder.h`, Pitch/Speed/Formant in `dsp/VoiceFx.h`, Effekte in `dsp/PlaybackFx.h`)
+- `Plugins/TTS` – Text-to-Speech (Aussprache in `engine/Phonemizer.*`, Kokoro in `engine/KokoroEngine.*`, Download in `engine/EngineHolder.h`, Echtzeit-Stimme (LPC-PSOLA) in `dsp/LpcPsola.h`, Grain Engine in `dsp/GrainEngine.h`, Effekte in `dsp/FxChain.h`, Parameter in `Params.h`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)

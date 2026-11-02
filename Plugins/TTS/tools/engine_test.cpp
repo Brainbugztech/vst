@@ -3,7 +3,7 @@
 #include <juce_core/juce_core.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "engine/KokoroEngine.h"
-#include "dsp/VoiceFx.h"
+#include "dsp/LpcPsola.h"
 #include <iostream>
 
 static std::string gunzip (const juce::File& f)
@@ -40,37 +40,45 @@ int main (int argc, char** argv)
     const juce::String text = "Welcome to the Brain Bugz lab. Your bass is now perfectly aligned, and it's 10:30 PM!";
     std::cout << "US: " << eng.phonemize (text, false) << "\nGB: " << eng.phonemize (text, true) << "\n";
     std::atomic<bool> cancel { false };
-    struct Case { const char* name; juce::String a, b; float blend; bool gb; tts::fx::VoiceParams p; };
+    // Rohstimme erzeugen, analysieren und mit der Echtzeit-Engine in verschiedenen Einstellungen abspielen
+    struct Case { const char* name; juce::String a, b; float blend; bool gb; double pitch, formant, speed; };
     Case cases[] = {
-        { "heart", "af_heart", "", 0, false, {} },
-        { "george_gb", "bm_george", "", 0, true, {} },
-        { "mix_heart_adam", "af_heart", "am_adam", 0.4f, false, {} },
-        { "pitch_up7", "af_heart", "", 0, false, { 7.0f, 1.0f, 1.0f } },
-        { "pitch_down12", "am_michael", "", 0, false, { -12.0f, 1.0f, 1.0f } },
-        { "formant_up", "af_heart", "", 0, false, { 0.0f, 1.35f, 1.0f } },
-        { "formant_down", "af_heart", "", 0, false, { 0.0f, 0.7f, 1.0f } },
-        { "speed_4x", "af_heart", "", 0, false, { 0.0f, 1.0f, 4.0f } },
-        { "speed_0_25", "af_heart", "", 0, false, { 0.0f, 1.0f, 0.25f } },
-        { "speed_0_01", "af_heart", "", 0, false, { 0.0f, 1.0f, 0.01f } },
+        { "heart", "af_heart", "", 0, false, 0, 1, 1 },
+        { "george_gb", "bm_george", "", 0, true, 0, 1, 1 },
+        { "mix_heart_adam", "af_heart", "am_adam", 0.4f, false, 0, 1, 1 },
+        { "pitch_up7", "af_heart", "", 0, false, 7, 1, 1 },
+        { "pitch_down12", "am_michael", "", 0, false, -12, 1, 1 },
+        { "formant_up", "af_heart", "", 0, false, 0, 1.35, 1 },
+        { "formant_down", "af_heart", "", 0, false, 0, 0.7, 1 },
+        { "speed_4x", "af_heart", "", 0, false, 0, 1, 4 },
+        { "speed_0_25", "af_heart", "", 0, false, 0, 1, 0.25 },
+        { "speed_0_01", "af_heart", "", 0, false, 0, 1, 0.01 },
     };
-    std::map<juce::String, std::vector<float>> rawCache;
     for (auto& c : cases)
     {
         tts::SynthRequest r;
-        r.text = text; r.voiceA = c.a; r.voiceB = c.b; r.blend = c.blend; r.british = c.gb;
-        r.speed = tts::fx::kokoroSpeedFor (c.p.speed);
+        r.text = text; r.voiceA = c.a; r.voiceB = c.b; r.blend = c.blend; r.british = c.gb; r.speed = 1.0f;
         t0 = juce::Time::getMillisecondCounterHiRes();
         auto raw = eng.synthesize (r, {}, cancel, err);
         const double tSynth = juce::Time::getMillisecondCounterHiRes() - t0;
         if (raw.empty()) { std::cerr << c.name << " failed: " << err << "\n"; return 1; }
         t0 = juce::Time::getMillisecondCounterHiRes();
-        auto out = tts::fx::processVoice (raw, tts::KokoroEngine::sampleRate, c.p, {}, &cancel);
-        const double tFx = juce::Time::getMillisecondCounterHiRes() - t0;
-        float peak = 0; double rms = 0;
-        for (auto v : out) { peak = std::max (peak, std::abs (v)); rms += v * v; }
-        rms = std::sqrt (rms / std::max<size_t> (1, out.size()));
-        std::cout << c.name << ": raw " << raw.size() / 24000.0 << " s (" << tSynth << " ms), out " << out.size() / 24000.0
-                  << " s (fx " << tFx << " ms) peak " << peak << " rms " << rms << "\n";
+        auto an = tts::dsp::analyseVoice (raw, tts::KokoroEngine::sampleRate);
+        const double tAn = juce::Time::getMillisecondCounterHiRes() - t0;
+        tts::dsp::VoiceSynth s;
+        s.setSource (an);
+        s.start();
+        std::vector<float> out, blk (256);
+        const size_t cap = (size_t) tts::KokoroEngine::sampleRate * 30;
+        while (s.isActive() && out.size() < cap)
+        {
+            s.render (blk.data(), 256, c.speed, std::pow (2.0, c.pitch / 12.0), c.formant);
+            out.insert (out.end(), blk.begin(), blk.end());
+        }
+        float peak = 0;
+        for (auto v : out) peak = std::max (peak, std::abs (v));
+        std::cout << c.name << ": raw " << raw.size() / 24000.0 << " s (" << tSynth << " ms), analysis " << tAn
+                  << " ms, out " << out.size() / 24000.0 << " s, peak " << peak << "\n";
         writeWav (outDir.getChildFile (juce::String (c.name) + ".wav"), out, 24000);
     }
     return 0;
