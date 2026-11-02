@@ -61,6 +61,24 @@ Bei jeder Kick misst Bugz Align im Punch-Fenster, wie gut Kick-Sub und Bass-Sub 
 - **HOLD** friert den aktuellen Winkel ein, **A/B VORHER** schaltet die Korrektur zum Vergleichen aus, **SUB CHECK** spielt nur den Sub von Bass + Kick (mono) zum Gegenhören.
 - **Anzeige**: Verlauf über die ganze Breite (bis 8 s) mit Sub von Kick (grün), Bass vorher (grau, per **VORHER** ein/aus) und nachher (pink), genau so, wie es im Ausgang ankommt. Darunter die Phasen-Spur, grüne Linien = erkannte Kicks. **Mausrad** oder **+/−** = Zoom (10 ms bis 8 s), **PAUSE** hält an, dann mit der Maus ziehen = zurückscrollen, **Doppelklick** = zurück zu Live. Unten: Kick-LED, Phase jetzt/erkannt, Korrelation vorher/nachher.
 
+## Brainbugz Kick Transmuter
+
+Transient-Designer für Kicks, Vorbild ist der Transient Processor aus FL Studio. Attack und Sustain reagieren auf die Steilheit der Hüllkurve statt auf den Pegel: kein Threshold, keine Ratio, die Regler greifen bei leisen und lauten Kicks gleich. Feste Latenz von ca. 2 ms (1,5 ms Lookahead + Oversampling), die Ableton automatisch ausgleicht.
+
+**Clean:** Stehen alle Regler neutral, kommt das Signal bit-genau wieder raus. Attack und Sustain ändern nur die Lautstärke, die Phase bleibt unberührt.
+
+- **Attack** (±100 %): Anschlag lauter oder leiser, die Mitte ändert nichts.
+- **Sustain** (±100 %): Ausklang länger oder kürzer, die Mitte ändert nichts. Ganz am Ende läuft die Anhebung aus, damit kein Rauschen hochgezogen wird.
+- **Punch**: mehr Druck um 130 Hz (etwa 80–200 Hz), nur direkt nach dem Anschlag.
+- **Saturation**: dichter und auf kleinen Boxen besser hörbar. Greift bei jedem Eingangspegel gleich und rundet die Spitzen ab, die Attack erzeugt (4x-Oversampling).
+- **Low End**: hebt den Sub an (bis +10 dB, Shelf bei 75 Hz) und macht ihn unter 120 Hz mono. Die Stereobreite darüber bleibt erhalten.
+- **Mix**: Original und Bearbeitung, zeitgleich und ohne Kammfilter.
+- **Output**: −18 bis +18 dB, wirkt nach Auto Gain.
+- **AUTO GAIN**: vergleicht pro Kick die Lautheit von Eingang und Ausgang (angelehnt an K-Weighting) und gleicht aus, damit du den Unterschied im Klang hörst, nicht in der Lautstärke. Nur der Schlag selbst wird gemessen, Pausen zählen nicht und der Wert bleibt in Pausen stehen. Die Korrektur bewegt sich nur im Ausklang und in Pausen, nie im Körper der Kick, und ist auf ±12 dB begrenzt. Nach ein bis zwei Kicks ist sie angeglichen. Der aktuelle Wert steht über dem OUTPUT-Schriftzug und wird mit dem Projekt gespeichert.
+- **Peak-Schutz**: Über +3 dBFS werden Spitzen weich abgefangen, Grenze ca. +6 dBFS. Darunter passiert nichts, die Ausgangsspitzen können also über 0 dBFS liegen. Bei Bedarf Output absenken oder Saturation aufdrehen.
+- **Anzeigen**: Das Gehirn pulsiert bei jeder erkannten Kick. Linker Balken: was Attack und Sustain gerade tun (Mitte = 0, rechts pink = lauter, links grün = leiser). Mittlerer Balken: Ausgangspegel, ab 0 dB pink.
+- Beim Überfahren oder Drehen steht der Wert auf dem Regler, Doppelklick = Standardwert. Das Fenster lässt sich skalieren.
+
 ## Brainbugz Snare Head
 
 Snare-Synth für metallisch klingende Psy/Hitech-Snares (Instrument, per MIDI anschlagen, jede Note = Snare). Kein tiefer Körper, sondern ein klingender Ton-Cluster + Rauschen + eckige Block-Hüllkurve. Signalweg: Ring + Noise → Res-EQ → Xtreme Noisy → Reverb mit Gate → Width/Out.
@@ -171,6 +189,7 @@ cmake --build build --config Release
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
 - `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Pitch Matrix in `PitchMatrix.*`, Modulation in `Modulation.h` und `ModPanel.*`, Learn in `KeyAnalyzer.h`, Sidechain in `ChordTracker.h`, Werkspresets in `Presets.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
+- `Plugins/KickTransmuter` – Transient-Designer für Kicks (DSP in `Source/dsp/TransmuterEngine.h`, Tests und Bild-Aufbereitung in `tools`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
