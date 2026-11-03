@@ -151,6 +151,19 @@ Gemeinsam für beide Modi im Processor: Bereichsweichen, Pegelausgleich, Strengt
 
 Test ohne DAW: `cmake -B build -DPRIZM_BUILD_TESTS=ON`, dann `prizm_render_test` bauen und starten (prüft u. a. dass beide Modi übereinstimmen, Tonhöhe, Bereich, Gate, Learn, Tune, Noten-Map, Formant, Gewichtung, Mitte/Seite, Sidechain, Presets, Latenz, MIDI-Tonart, Pegel, Stabilität und schreibt Hörbeispiele nach `renders/`, darunter `compare_*_zl.wav` / `compare_*_hq.wav` zum direkten Vergleich). Der Hintergrund wird mit `Plugins/Prizm/tools/make_backdrop.py` erzeugt.
 
+## Brainbugz TTS
+
+Text-to-Speech als Instrument (Englisch, Stimmen von Kokoro, läuft offline). Alle Regler laufen in Echtzeit und lassen sich in der DAW automatisieren.
+
+- **Erster Start**: Button **DOWNLOAD VOICE ENGINE** lädt das Stimm-Modell (ca. 337 MB, kostenlos, direkt von GitHub) nach `%APPDATA%\Brainbugz\TTS`. Ladebalken mit MB/Prozent, Cancel, bei Fehlern Retry und Ordner öffnen. Danach braucht das Plugin kein Internet mehr.
+- **Generate** erzeugt einmal die reine Stimme, alles danach passiert live. **Play/Stop**, MIDI-Noten triggern die Stimme und verschieben nur die Tonhöhe (C3 = Original). Klick auf die Wellenform = Play/Stop, **Wellenform in Ableton ziehen** = WAV mit allen Effekten, **Save** speichert die WAV (lange WAVs werden im Hintergrund gerendert).
+- **Tab MAIN**: Voice (28 englische Stimmen), Accent US/UK, **Pitch** ±24 st, **Speed** 0.001x–4x, **Volume**, **Formant** 0.5–2x. Pitch/Formant per LPC-PSOLA: jedes Korn ist die Anregung durch das Mundraum-Filter inkl. Nachklingen (füllt beim Runterpitchen die Lücken), Pitch-Marken werden Periode für Periode per Korrelation verfolgt (kein Knarzen), Formant staucht/dehnt die Körner wie klassische Formant-Shifter. Rechts **Voice Mix**: zweite Stimme beimischen.
+- **Tab GRAIN** (wie Abletons Warp-Modus Texture, Körner direkt aus der Stimme an der Abspielposition, Speed dehnt die Textur): **Size**, **Flux** (Zufall), **Density**, **Spray**, **Drift** (Leseposition wandert), **Mix**, **Pitch** (Streuung), **Octave** (Shimmer), **Width**, **Reverse**, **LFO Rate/Depth** (Scan vor/zurück), **FREEZE** hält die Position fest. Anzeige: Stimme, Abspielposition und fliegende Körner.
+- **Presets** (Leiste neben den Tabs): 16 Werkspresets (Basics, Characters, FX, Texture), eigene speichern mit **SAVE**, Menü **...** zum Speichern unter, Löschen, Ordner öffnen. Eigene Presets liegen in `Dokumente\Brain Bugz\Brainbugz TTS\Presets` (.bbtts). Presets speichern nur den Sound, nicht Text und Stimme.
+- **Tab FX**: **EQ** mit 3 Bändern (Low Cut, Low Shelf, Bell, High Shelf, High Cut; Hz, dB, Q), Punkte in der Kurve ziehen, Mausrad = Q, Doppelklick = Band an/aus. **Delay** (Songtempo inkl. punktiert/triolisch oder ms, Feedback, Ping-Pong, Low/High Cut, Mix). **Reverb** (Size, Damping, Pre-Delay, Width, Low Cut, Mix).
+- Das Projekt merkt sich Text, Stimme, Regler und Tab und erzeugt die Stimme beim Laden neu.
+- Engine-Test ohne DAW (Linux): `Plugins/TTS/tools` (Aussprache, Kokoro, Echtzeit-Engine, schreibt WAVs). Fremd-Bausteine und Lizenzen: `Plugins/TTS/THIRD_PARTY.md`.
+
 ## Bauen
 
 GitHub Actions baut bei jedem Push auf `main` automatisch die Windows-VST3 (`.github/workflows/build.yml`) und testet sie mit pluginval. Die fertigen Plugins liegen als Artefakt **Brainbugz-VST3** am jeweiligen Lauf und als ZIPs auf dem Branch `builds` (einzeln und als `Brainbugz-alle-VST3.zip`).
@@ -171,6 +184,7 @@ cmake --build build --config Release
 - `Plugins/SnareHead` – Snare-Synth (DSP in `SnareEngine.h`, Presets in `Presets.h`)
 - `Plugins/BrainFuzz` – 4-Band-Sättigung (DSP in `Source/dsp`, Oberfläche in `Source/ui`, Tests in `tools`)
 - `Plugins/Prizm` – Harmonic Sweetener (gemeinsamer Filter-Kern in `ResponseModel.h`, Notenerkennung in `NoteGrouper.h`, Pitch Matrix in `PitchMatrix.*`, Modulation in `Modulation.h` und `ModPanel.*`, Learn in `KeyAnalyzer.h`, Sidechain in `ChordTracker.h`, Werkspresets in `Presets.h`, Zero Latency in `FilterBankEngine.*`, High Quality in `SpectralEngine.*`, Test in `tools`)
+- `Plugins/TTS` – Text-to-Speech (Aussprache in `engine/Phonemizer.*`, Kokoro in `engine/KokoroEngine.*`, Download in `engine/EngineHolder.h`, Echtzeit-Stimme (LPC-PSOLA) in `dsp/LpcPsola.h`, Werkspresets in `Presets.h`, Grain Engine in `dsp/GrainEngine.h`, Effekte in `dsp/FxChain.h`, Parameter in `Params.h`)
 - `Plugins/Phazer` – Phaser-Engine, noch in Arbeit, wird nicht gebaut
 - `Shared` – gemeinsamer Look (Farben, Schriften, Regler)
 - `Assets` – Grafiken (zerlegter Logo-Käfer, Labor-Hintergrund)
