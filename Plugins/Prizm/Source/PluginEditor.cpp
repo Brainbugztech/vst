@@ -39,54 +39,73 @@ namespace
 } // namespace
 
 //==============================================================================
+namespace
+{
+    struct PrismGeo { juce::Point<float> apex, left, right, entry, exit; };
+    PrismGeo prismGeo (juce::Rectangle<float> b)
+    {
+        const float h = b.getHeight() * 0.84f;
+        const float side = h / 0.866f;
+        const float cx = b.getX() + b.getWidth() * 0.30f;
+        const float top = b.getCentreY() - h * 0.5f;
+        PrismGeo p;
+        p.apex = { cx, top };
+        p.left = { cx - side * 0.5f, top + h };
+        p.right = { cx + side * 0.5f, top + h };
+        p.entry = p.apex + (p.left - p.apex) * 0.58f;
+        p.exit = p.apex + (p.right - p.apex) * 0.46f;
+        return p;
+    }
+}
+
+juce::Point<float> PrismGlyph::exitPoint (juce::Rectangle<float> b) { return prismGeo (b).exit; }
+juce::Point<float> PrismGlyph::entryPoint (juce::Rectangle<float> b) { return prismGeo (b).entry; }
+
 void PrismGlyph::paint (juce::Graphics& g)
 {
+    // Ein weißer Strahl fällt ins Prisma und fächert in 12 Strahlen auf, einen pro Note (C rot ... B violett).
+    // Jeder Strahl leuchtet so stark, wie die Note gerade rauskommt; in Ruhe atmet der Fächer leise.
     using namespace juce;
     const auto b = getLocalBounds().toFloat();
-    const float h = b.getHeight() * 0.84f;
-    const float side = h / 0.866f;
-    const float cx = b.getX() + b.getWidth() * 0.36f;
-    const float top = b.getCentreY() - h * 0.5f;
-
-    const Point<float> apex (cx, top), left (cx - side * 0.5f, top + h), right (cx + side * 0.5f, top + h);
+    const auto geo = prismGeo (b);
     Path tri;
-    tri.addTriangle (apex, left, right);
+    tri.addTriangle (geo.apex, geo.left, geo.right);
 
-    const Point<float> beamStart (b.getX(), top + h * 0.70f);
-    const Point<float> entry = apex + (left - apex) * 0.58f;
-    const Point<float> exit = apex + (right - apex) * 0.46f;
-
-    // white beam in
-    g.setColour (Col::holoBright.withAlpha (0.15f));
-    g.drawLine ({ beamStart, entry }, 5.0f);
+    const Point<float> beamStart (b.getX(), geo.entry.y + 2.0f);
+    g.setColour (Col::crystal.withAlpha (0.12f));
+    g.drawLine ({ beamStart, geo.entry }, 5.0f);
     g.setColour (juce::Colours::white.withAlpha (0.9f));
-    g.drawLine ({ beamStart, entry }, 1.4f);
+    g.drawLine ({ beamStart, geo.entry }, 1.3f);
 
-    // spectrum out, gently breathing
-    const std::array<Colour, 5> rays { Col::pink, Col::amber, Col::tox, Col::cyan, Col::violet };
-    for (size_t i = 0; i < rays.size(); ++i)
+    float total = 0.0f;
+    for (auto e : energy)
+        total += e;
+    const bool idle = total < 0.02f;
+    for (int i = 0; i < 12; ++i)
     {
         const float fi = (float) i;
-        const float angle = 0.08f + (fi - 2.0f) * 0.11f;
-        const float len = (b.getRight() - exit.x) * (0.84f + 0.14f * std::sin (phase * 1.3f + fi * 1.1f));
-        const float alpha = 0.5f + 0.4f * (0.5f + 0.5f * std::sin (phase * 2.1f + fi * 0.9f));
-        const Point<float> end (exit.x + len * std::cos (angle), exit.y + len * std::sin (angle));
-        g.setColour (rays[i].withAlpha (alpha * 0.22f));
-        g.drawLine ({ exit, end }, 4.5f);
-        g.setColour (rays[i].withAlpha (alpha));
-        g.drawLine ({ exit, end }, 1.5f);
+        const float angle = -0.30f + fi * (0.62f / 11.0f) + 0.10f;
+        const float breathe = 0.5f + 0.5f * std::sin (phase * 1.4f + fi * 0.7f);
+        const float e = idle ? 0.18f + 0.12f * breathe : jlimit (0.0f, 1.0f, energy[(size_t) i]);
+        const float len = (b.getRight() - geo.exit.x) * (0.55f + 0.45f * (idle ? 0.75f + 0.25f * breathe : 0.35f + 0.65f * e));
+        const Point<float> end (geo.exit.x + len * std::cos (angle), geo.exit.y + len * std::sin (angle));
+        const auto col = Col::noteHue (i);
+        g.setColour (col.withAlpha (0.08f + 0.22f * e));
+        g.drawLine ({ geo.exit, end }, 2.5f + 3.5f * e);
+        g.setColour (col.withAlpha (0.25f + 0.75f * e));
+        g.drawLine ({ geo.exit, end }, 0.8f + 0.8f * e);
     }
 
-    // hologram glass prism
-    ColourGradient glass (Col::holo.withAlpha (0.28f), apex.x, apex.y, Col::holo.withAlpha (0.04f), cx, top + h, false);
+    // Glasprisma: Füllung, Kanten, Lichtkante
+    ColourGradient glass (Col::crystal.withAlpha (0.30f), geo.apex.x, geo.apex.y, Col::holo.withAlpha (0.05f), geo.apex.x, geo.left.y, false);
     g.setGradientFill (glass);
     g.fillPath (tri);
-    g.setColour (juce::Colours::white.withAlpha (0.4f));
-    g.drawLine ({ entry, exit }, 1.0f);
+    g.setColour (juce::Colours::white.withAlpha (0.45f));
+    g.drawLine ({ geo.entry, geo.exit }, 1.0f);
     g.setColour (Col::holo.withAlpha (0.25f));
     g.strokePath (tri, PathStrokeType (4.0f, PathStrokeType::curved, PathStrokeType::rounded));
-    g.setColour (Col::holoBright);
-    g.strokePath (tri, PathStrokeType (1.4f, PathStrokeType::curved, PathStrokeType::rounded));
+    g.setColour (Col::crystal);
+    g.strokePath (tri, PathStrokeType (1.3f, PathStrokeType::curved, PathStrokeType::rounded));
 }
 
 //==============================================================================
@@ -186,64 +205,63 @@ int KeyStrip::cellAt (int x) const
 
 void KeyStrip::paint (juce::Graphics& g)
 {
+    // Glastasten: in der Tonart leuchtet Licht im Glas (Füllhöhe = Gewichtung), die Note leuchtet
+    // diffus auf, wenn sie gerade gespielt wird.
     using namespace juce;
-    const auto onColour = source == 1 ? Col::pink : (source == 2 ? Col::cyan : Col::tox);
-    const auto onInk = source == 1 ? juce::Colours::white : Col::toxInk;
+    const auto onColour = source == 1 ? Col::violet : (source == 2 ? Col::cyan : Col::holo.interpolatedWith (Col::crystal, 0.45f));
 
     for (int pc = 0; pc < 12; ++pc)
     {
         const auto cell = cellBounds (pc);
         const bool on = (mask >> pc) & 1u;
         const float e = jlimit (0.0f, 1.0f, energy[(size_t) pc]);
-        const float corner = 3.0f;
+        const float corner = 4.0f;
 
         if (e > 0.02f)
-            softGlow (g, cell, corner, on ? onColour : Col::pink, e, 4);
+            softGlow (g, cell, corner, on ? Col::noteHue (pc).interpolatedWith (onColour, 0.5f) : Col::fringeWarm, e, 4);
 
+        const float wgt = (on && getWeight) ? jlimit (0.0f, 1.0f, getWeight (pc)) : 1.0f;
         if (on)
-        {
-            // Gewichtung: Füllhöhe der Taste (darüber dunkles Glas)
-            const float wgt = getWeight ? jlimit (0.0f, 1.0f, getWeight (pc)) : 1.0f;
-            if (wgt < 0.999f)
-                holo::box (g, cell, 1.0f, false);
-            const auto filled = cell.withTop (cell.getBottom() - cell.getHeight() * jmax (0.08f, wgt));
-            ColourGradient fill (onColour.brighter (0.15f + 0.3f * e), 0.0f, cell.getY(), onColour.darker (0.45f), 0.0f, cell.getBottom(), false);
-            g.setGradientFill (fill);
-            g.fillRoundedRectangle (filled, corner);
-            if (wgt < 0.999f)
-            {
-                g.setFont (mono (10.0f));
-                g.setColour (Col::ink);
-                g.drawText (String (roundToInt (wgt * 100.0f)) + "%", cell.withHeight (14.0f).translated (0.0f, 3.0f), Justification::centred);
-            }
-            g.setColour (juce::Colours::white.withAlpha (0.45f)); // wet highlight
-            g.fillRoundedRectangle (cell.reduced (3.0f, 0.0f).withHeight (1.5f).translated (0.0f, 2.0f), 0.75f);
-            g.setColour (onColour.darker (0.2f));
-            g.drawRoundedRectangle (cell.reduced (0.5f), corner, 1.0f);
-        }
+            holo::glassTile (g, cell, onColour, 0.55f + 0.45f * e, 0.22f + 0.65f * e, onColour, jmax (0.08f, wgt), corner);
         else
         {
-            holo::box (g, cell, isSharp (pc) ? 0.7f : 1.0f, pc == hover);
+            holo::glassTile (g, cell, Col::holo, pc == hover ? 0.12f : 0.0f, 0.35f * e, Col::holo, 1.0f, corner);
+            if (isSharp (pc))
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.18f));
+                g.fillRoundedRectangle (cell, corner);
+            }
+        }
+        if (on && wgt < 0.999f)
+        {
+            g.setFont (mono (10.0f));
+            g.setColour (Col::ink);
+            g.drawText (String (roundToInt (wgt * 100.0f)) + "%", cell.withHeight (14.0f).translated (0.0f, 3.0f), Justification::centred);
         }
 
         if (pc == root)
         {
-            g.setColour (Col::pink.withAlpha (0.3f));
+            g.setColour (Col::amber.withAlpha (0.3f));
             g.drawRoundedRectangle (cell.expanded (1.5f), corner + 1.5f, 3.0f);
-            g.setColour (Col::pink);
+            g.setColour (Col::amber);
             g.drawRoundedRectangle (cell.reduced (0.5f), corner, 1.6f);
         }
 
-        // Notenname: auf teilweise gefüllten Tasten hell, damit er auf dem dunklen Teil lesbar bleibt
-        const float nameWeight = (on && getWeight) ? getWeight (pc) : 1.0f;
-        g.setColour (on ? (nameWeight > 0.6f ? onInk : Col::ink) : (isSharp (pc) ? Col::dim : Col::muted));
+        // Notenname mit leichtem Schatten, damit er auf hellem Glas lesbar bleibt
+        const auto nameArea = cell.withTrimmedBottom (8.0f);
         g.setFont (display (18.0f, true));
-        g.drawText (kNoteNames[(size_t) pc], cell.withTrimmedBottom (8.0f), Justification::centred);
+        if (on)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.drawText (kNoteNames[(size_t) pc], nameArea.translated (0.0f, 1.0f), Justification::centred);
+        }
+        g.setColour (on ? juce::Colours::white : (isSharp (pc) ? Col::dim : Col::muted));
+        g.drawText (kNoteNames[(size_t) pc], nameArea, Justification::centred);
 
         if (pc == root)
         {
             g.setFont (mono (10.0f));
-            g.setColour (on ? onInk.withAlpha (0.75f) : Col::pink);
+            g.setColour (Col::amber);
             g.drawText ("ROOT", cell.withTrimmedTop (cell.getHeight() * 0.60f).withTrimmedBottom (8.0f), Justification::centred);
         }
 
@@ -251,7 +269,7 @@ void KeyStrip::paint (juce::Graphics& g)
         if (barW > 0.5f)
         {
             const auto bar = Rectangle<float> (cell.getCentreX() - barW * 0.5f, cell.getBottom() - 7.0f, barW, 3.0f);
-            g.setColour (on ? onInk.withAlpha (0.55f) : Col::pink);
+            g.setColour (Col::noteHue (pc, on ? 0.95f : 0.8f)); // Spektralfarbe der Note
             g.fillRoundedRectangle (bar, 1.5f);
         }
     }
@@ -634,7 +652,7 @@ PrizmAudioProcessorEditor::PrizmAudioProcessorEditor (PrizmAudioProcessor& p)
     setLookAndFeel (&lnf);
     auto& apvts = processor.apvts;
 
-    logo = juce::ImageCache::getFromMemory (BBAssets::logo_text_png, BBAssets::logo_text_pngSize);
+    logo = juce::ImageCache::getFromMemory (PrizmAssets::prizm_logo_png, PrizmAssets::prizm_logo_pngSize);
     texture = juce::ImageCache::getFromMemory (PrizmAssets::prizm_backdrop_jpg, PrizmAssets::prizm_backdrop_jpgSize);
 
     // Bereiche: Reihenfolge = Reihenfolge im Fenster
@@ -1454,10 +1472,26 @@ juce::String PrizmAudioProcessorEditor::sectionSummary (int index) const
 }
 
 //==============================================================================
+// Glitch der Scan-Linie: nur in manchen Durchläufen (ca. 40 %) und nur kurz, Wert 0..1
+static float scanGlitchAmount (float phase)
+{
+    const float period = 22.0f;
+    const float cyc = std::floor (phase / period);
+    const float t = std::fmod (phase, period);
+    const float h = std::fabs (std::fmod (std::sin (cyc * 12.9898f) * 43758.5453f, 1.0f));
+    if (h > 0.4f)
+        return 0.0f;
+    const float start = 6.0f + 8.0f * std::fmod (h * 7.0f, 1.0f);
+    const float len = 0.45f;
+    if (t < start || t > start + len)
+        return 0.0f;
+    return std::sin (juce::MathConstants<float>::pi * (t - start) / len);
+}
+
 juce::Rectangle<int> PrizmAudioProcessorEditor::scanBand (juce::Rectangle<int> panel, float phase) const
 {
-    // a soft scan line that sweeps slowly down a hologram panel
-    const float period = 6.0f;
+    // eine weiche Scan-Linie wandert selten (alle 22 s) durch ein Hologramm-Panel
+    const float period = 22.0f;
     const float t = std::fmod (phase, period) / period;
     const int bandH = 46;
     const int y = panel.getY() - bandH + juce::roundToInt (t * (float) (panel.getHeight() + bandH));
@@ -1522,6 +1556,12 @@ void PrizmAudioProcessorEditor::timerCallback()
         b->setAlpha (mode == highQuality ? 1.0f : 0.45f);
 
     animPhase += dt;
+    if (sections[secSignal].body.isVisible())
+        for (auto& k : knobs)
+            k.slider.repaint(); // Lichter im Glas wabern
+    keyStrip.setPhase (animPhase);
+    updateEnergy();
+    prism.setEnergies (shownEnergy);
     prism.setPhase (animPhase);
 
     // Scan-Linien über den offenen Panels: nur alte und neue Streifen neu zeichnen
@@ -1547,7 +1587,6 @@ void PrizmAudioProcessorEditor::timerCallback()
         const bool chromatic = scaleIndex >= 0 && scaleIndex < (int) kScales.size() && kScales[(size_t) scaleIndex].mask == kAllPitches;
         const int root = (source != 0 || scaleIndex == kCustomScaleIndex || chromatic) ? -1 : key;
         keyStrip.setState (processor.getScaleMask(), root, source); // Tasten = gewählte Tonleiter, Umleitungen zeigt die Matrix
-        updateEnergy();
         updateMatrix (mode);
         pitchMatrix.setLevels (shownInput, shownEnergy, animPhase);
     }
@@ -1641,6 +1680,25 @@ void PrizmAudioProcessorEditor::drawHoloPanel (juce::Graphics& g, juce::Rectangl
     edge.addColour (0.5, Col::holoBright);
     g.setGradientFill (edge);
     g.fillRect (r.getX(), r.getY(), r.getWidth(), 1.5f);
+    // feine Spektrumlinie unter der Oberkante, zur Mitte hin am stärksten
+    {
+        Graphics::ScopedSaveState s (g);
+        g.reduceClipRegion (r.toNearestInt());
+        g.setGradientFill (Col::spectrum (r.getX() + r.getWidth() * 0.25f, r.getY(), r.getRight() - r.getWidth() * 0.25f, 0.45f));
+        g.fillRect (r.getX() + r.getWidth() * 0.25f, r.getY() + 2.0f, r.getWidth() * 0.5f, 1.0f);
+        // Kristallfacetten in den Ecken
+        g.setColour (Col::crystal.withAlpha (0.10f));
+        for (float d : { 26.0f, 40.0f })
+        {
+            g.drawLine (r.getX(), r.getY() + d, r.getX() + d, r.getY(), 1.0f);
+            g.drawLine (r.getRight() - d, r.getBottom(), r.getRight(), r.getBottom() - d, 1.0f);
+        }
+        ColourGradient facet (Col::crystal.withAlpha (0.05f), r.getX(), r.getY(), Col::crystal.withAlpha (0.0f), r.getX() + 30.0f, r.getY() + 30.0f, false);
+        g.setGradientFill (facet);
+        Path f;
+        f.addTriangle (r.getX(), r.getY(), r.getX() + 40.0f, r.getY(), r.getX(), r.getY() + 40.0f);
+        g.fillPath (f);
+    }
     holo::cornerBrackets (g, r, juce::jmin (16.0f, r.getHeight() * 0.4f), Col::holoBright, 2.0f);
 
     // bright projector line along the bottom edge
@@ -1680,8 +1738,18 @@ void PrizmAudioProcessorEditor::renderStaticLayer (float scale)
 
     // logo
     if (logo.isValid())
-        g.drawImageWithin (logo, logoArea.getX(), logoArea.getY(), logoArea.getWidth(), logoArea.getHeight(),
+    {
+        // das Logo hat einen transparenten Glow-Rand: etwas größer zeichnen, damit die Schrift die Fläche füllt
+        const auto la = logoArea.expanded (10, 8);
+        // Schrittweise halbieren (Mip-Kette), damit die Kanten beim Verkleinern glatt bleiben und nicht pixeln
+        auto logoSmall = logo;
+        const int targetW = roundToInt ((float) la.getWidth() * scale);
+        while (logoSmall.getWidth() >= targetW * 2 && logoSmall.getWidth() > 64)
+            logoSmall = logoSmall.rescaled (logoSmall.getWidth() / 2, logoSmall.getHeight() / 2, Graphics::highResamplingQuality);
+        g.setImageResamplingQuality (Graphics::highResamplingQuality);
+        g.drawImageWithin (logoSmall, la.getX(), la.getY(), la.getWidth(), la.getHeight(),
                            RectanglePlacement::centred | RectanglePlacement::onlyReduceInSize);
+    }
 
     ColourGradient vline (Col::holo.withAlpha (0.0f), 0.0f, 20.0f, Col::holo.withAlpha (0.0f), 0.0f, 84.0f, false);
     vline.addColour (0.5, Col::holo.withAlpha (0.7f));
@@ -1764,7 +1832,7 @@ void PrizmAudioProcessorEditor::paintKeyBody (juce::Graphics& g)
         const auto box = r.withTrimmedTop (2).removeFromRight (62).withHeight (34).toFloat();
         holo::box (g, box);
         g.setFont (mono (18.0f));
-        g.setColour (sourceShown == 1 ? Col::pink : (sourceShown == 2 ? Col::cyan : Col::ink));
+        g.setColour (sourceShown == 1 ? Col::violet : (sourceShown == 2 ? Col::cyan : Col::ink));
         g.drawText (String (count) + "/12", box, Justification::centred);
     }
 
@@ -1800,7 +1868,7 @@ void PrizmAudioProcessorEditor::paintKeyBody (juce::Graphics& g)
             g.drawText (text, r.withLeft (r.getX() + 24.0f).withWidth (w + 4.0f), Justification::centredLeft);
             r.removeFromLeft (24.0f + w + 16.0f);
         };
-        item (Col::tox, "STAYS", 0);
+        item (Col::lit, "STAYS", 0);
         item (Col::cyan, "SHIFT", 1);
         item (Col::pink, hqMode ? "MAP" : "MAP (HQ)", 1);
         item (Col::muted, "FILTERED / OFF", 2);
@@ -1824,12 +1892,12 @@ void PrizmAudioProcessorEditor::paintKeyBody (juce::Graphics& g)
     g.setFont (display (12.5f, true).withExtraKerningFactor (0.1f));
     if (learnMessage.isNotEmpty())
     {
-        g.setColour (Col::tox);
+        g.setColour (Col::lit);
         g.drawText (learnMessage, stripLabelArea, Justification::centredLeft);
     }
     else
     {
-        g.setColour (sourceShown == 1 ? Col::pink : (sourceShown == 2 ? Col::cyan : Col::muted));
+        g.setColour (sourceShown == 1 ? Col::violet : (sourceShown == 2 ? Col::cyan : Col::muted));
         g.drawText (sourceShown == 1 ? "KEY SET BY MIDI  -  LAST CHORD"
                     : sourceShown == 2 ? "KEY SET BY SIDECHAIN  -  NOTES OF THE OTHER TRACK"
                                        : "NOTES IN  -  CLICK = ON/OFF, DRAG UP/DOWN = WEIGHT  //  PITCH MATRIX: DRAG A BEAM TO RE-ROUTE",
@@ -1922,7 +1990,7 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
     g.drawText ("PROCESS", stereoBox.getX() - 70, stereoBox.getY(), 64, stereoBox.getHeight(), Justification::centredRight);
 
     // scan sweeps over the hologram panels
-    auto drawScan = [&g] (Rectangle<int> panel, Rectangle<int> band)
+    auto drawScan = [&g] (Rectangle<int> panel, Rectangle<int> band, float glitch)
     {
         if (band.isEmpty())
             return;
@@ -1934,11 +2002,27 @@ void PrizmAudioProcessorEditor::paint (juce::Graphics& g)
         sweep.addColour (0.97, Col::holoBright.withAlpha (0.16f));
         g.setGradientFill (sweep);
         g.fillRect (b);
+
+        if (glitch > 0.01f)
+        {
+            // Glitch: horizontale Scheiben werden seitlich versetzt, dazu ein Farbsplit
+            const int slices = 6;
+            const float sh = b.getHeight() / (float) slices;
+            for (int k = 0; k < slices; ++k)
+            {
+                const float off = std::sin ((float) (k * 37 + 11) * 1.7f) * 16.0f * glitch;
+                const Rectangle<float> slice (b.getX() + off, b.getY() + (float) k * sh, b.getWidth(), sh);
+                g.setColour (((k & 1) ? Col::cyan : Col::violet).withAlpha (0.10f * glitch));
+                g.fillRect (slice.translated (-3.0f * glitch, 0.0f));
+                g.setColour (Col::holoBright.withAlpha (0.12f * glitch));
+                g.fillRect (slice);
+            }
+        }
     };
     if (sections[secKey].open && sections[secKey].phase == Section::idle)
-        drawScan (sections[secKey].bounds, scanBand (sections[secKey].bounds, animPhase));
+        drawScan (sections[secKey].bounds, scanBand (sections[secKey].bounds, animPhase), scanGlitchAmount (animPhase));
     if (sections[secSignal].open && sections[secSignal].phase == Section::idle)
-        drawScan (sections[secSignal].bounds, scanBand (sections[secSignal].bounds, animPhase + 3.0f));
+        drawScan (sections[secSignal].bounds, scanBand (sections[secSignal].bounds, animPhase + 3.0f), scanGlitchAmount (animPhase + 3.0f));
 
     // latency under the mode switch
     g.setFont (mono (12.0f));

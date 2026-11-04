@@ -14,10 +14,15 @@ class PrismGlyph : public juce::Component
 {
 public:
     void setPhase (float newPhase) { phase = newPhase; repaint(); }
+    void setEnergies (const std::array<float, 12>& e) { energy = e; }
     void paint (juce::Graphics& g) override;
+    // Geometrie des Prismas in einer Fläche (für den Lichtfächer im Hintergrund)
+    static juce::Point<float> exitPoint (juce::Rectangle<float> b);
+    static juce::Point<float> entryPoint (juce::Rectangle<float> b);
 
 private:
     float phase = 0.0f;
+    std::array<float, 12> energy {};
 };
 
 // Pill-shaped two-way switch with a sliding thumb.
@@ -48,6 +53,7 @@ public:
 
     void setState (prizm::PitchMask newMask, int newRoot, int newSource); // Quelle: 0 = Tasten, 1 = MIDI, 2 = Sidechain
     void setEnergy (const std::array<float, 12>& e) { energy = e; repaint(); }
+    void setPhase (float p) { phase = p; } // für das wandernde Brechungsband
     void paint (juce::Graphics& g) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseDrag (const juce::MouseEvent& e) override;
@@ -69,6 +75,7 @@ private:
     float dragStartWeight = 1.0f;
     bool dragging = false;
     std::array<float, 12> energy {};
+    float phase = 0.0f;
 };
 
 // Regler, auf den man eine Modulationsquelle ziehen kann. Wie in Serum: je Zuweisung ein farbiger Bogen
