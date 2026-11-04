@@ -12,26 +12,32 @@ namespace
     }
 
     // Module liegen frei auf dem Bild (Kette: 1 Slicer, 2 Stretch, 3 Repeat, 4 Glitch).
-    // Die Slice-Anzeige sitzt auf dem Vortex in der Bildmitte, unten rechts und links bleiben die Bugs frei.
-    const juce::Rectangle<float> slicerCard  { 60.0f, 128.0f, 292.0f, 300.0f };
-    const juce::Rectangle<float> stretchCard { 610.0f, 128.0f, 290.0f, 300.0f };
-    const juce::Rectangle<float> repeatCard  { 104.0f, 438.0f, 336.0f, 180.0f };
-    const juce::Rectangle<float> glitchCard  { 448.0f, 438.0f, 290.0f, 180.0f };
+    // In der Mitte sitzen Dichte-Schalter und Step-Raster, unten rechts und links bleiben die Bugs frei.
+    const juce::Rectangle<float> slicerCard  { 60.0f, 128.0f, 292.0f, 316.0f };
+    const juce::Rectangle<float> stretchCard { 610.0f, 128.0f, 290.0f, 316.0f };
+    const juce::Rectangle<float> repeatCard  { 104.0f, 452.0f, 336.0f, 168.0f };
+    const juce::Rectangle<float> glitchCard  { 448.0f, 452.0f, 290.0f, 168.0f };
     const juce::Rectangle<float> masterCard  { 832.0f, 40.0f, 106.0f, 84.0f };
 }
 
 BraincutEditor::BraincutEditor (BraincutProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), sliceView (p),
+    : AudioProcessorEditor (&p), proc (p), stepGrid (p),
       repeatK (p.apvts, ParamIDs::repeat, "AMOUNT", col::slicer),
-      loopK (p.apvts, ParamIDs::loop, "LOOP", col::slicer),
-      subdivK (p.apvts, ParamIDs::subdiv, "SUB", col::slicer),
       seedK (p.apvts, ParamIDs::seed, "SEED", col::slicer),
+      slRevK (p.apvts, ParamIDs::slRev, "REVERSE", col::slicer),
+      slJumpK (p.apvts, ParamIDs::slJump, "JUMP", col::slicer),
+      slFadeK (p.apvts, ParamIDs::slFade, "SMOOTH", col::slicer),
       phMinB (p.apvts, ParamIDs::phMin, "MIN PHRASE", col::slicer, "BAR"),
       phMaxB (p.apvts, ParamIDs::phMax, "MAX PHRASE", col::slicer, "BAR"),
       repMinB (p.apvts, ParamIDs::repMin, "MIN REP", col::slicer, "REP"),
       repMaxB (p.apvts, ParamIDs::repMax, "MAX REP", col::slicer, "REP"),
+      loopB (p.apvts, ParamIDs::loop, "LOOP", col::slicer, {}),
+      subdivB (p.apvts, ParamIDs::subdiv, "SUB", col::slicer, {}),
       strAmtK (p.apvts, ParamIDs::strAmt, "AMOUNT", col::stretch),
       strMixK (p.apvts, ParamIDs::strMix, "MIX", col::stretch),
+      strChanceK (p.apvts, ParamIDs::strChance, "CHANCE", col::stretch),
+      strGrainK (p.apvts, ParamIDs::strGrain, "GRAIN", col::stretch),
+      strGlideK (p.apvts, ParamIDs::strGlide, "GLIDE", col::stretch),
       repChanceK (p.apvts, ParamIDs::repChance, "CHANCE", col::repeat),
       repRateK (p.apvts, ParamIDs::repRate, "RATE", col::repeat),
       repGateK (p.apvts, ParamIDs::repGate, "GATE", col::repeat),
@@ -47,11 +53,11 @@ BraincutEditor::BraincutEditor (BraincutProcessor& p)
     content.painter = [this] (juce::Graphics& g) { paintContent (g); };
     addAndMakeVisible (content);
 
-    content.addAndMakeVisible (sliceView);
-    for (auto* k : { &repeatK, &loopK, &subdivK, &seedK, &strAmtK, &strMixK, &repChanceK, &repRateK, &repGateK, &repDecayK,
-                     &gliAmtK, &gliMixK, &mixK, &outK })
+    content.addAndMakeVisible (stepGrid);
+    for (auto* k : { &repeatK, &seedK, &slRevK, &slJumpK, &slFadeK, &strAmtK, &strMixK, &strChanceK, &strGrainK, &strGlideK,
+                     &repChanceK, &repRateK, &repGateK, &repDecayK, &gliAmtK, &gliMixK, &mixK, &outK })
         content.addAndMakeVisible (*k);
-    for (auto* v : { &phMinB, &phMaxB, &repMinB, &repMaxB })
+    for (auto* v : { &phMinB, &phMaxB, &repMinB, &repMaxB, &loopB, &subdivB })
         content.addAndMakeVisible (*v);
 
     // Feste Standardwerte per Doppelklick kommen aus den Parametern (SliderAttachment)
@@ -74,15 +80,19 @@ BraincutEditor::BraincutEditor (BraincutProcessor& p)
     toggle (frzBtn, col::glitch, ParamIDs::gFrz, frzAtt);
     toggle (pitBtn, col::glitch, ParamIDs::gPit, pitAtt);
 
-    // CUT / WARP als Umschalter
-    for (auto* b : { &cutBtn, &warpBtn })
-    {
-        b->setClickingTogglesState (false);
-        setAccent (*b, col::slicer);
-        content.addAndMakeVisible (*b);
-    }
-    cutBtn.onClick  = [this] { proc.setParam (ParamIDs::mode, 0.0f); };
-    warpBtn.onClick = [this] { proc.setParam (ParamIDs::mode, 1.0f); };
+    // Umschalter (eine Wahl aus mehreren)
+    radio (cutBtn, ParamIDs::mode, 0, col::slicer);
+    radio (warpBtn, ParamIDs::mode, 1, col::slicer);
+    radio (decentBtn, ParamIDs::density, 0, col::master);
+    radio (mediumBtn, ParamIDs::density, 1, col::master);
+    radio (nutsBtn, ParamIDs::density, 2, col::master);
+    radio (slowBtn, ParamIDs::strDir, 0, col::stretch);
+    radio (bothBtn, ParamIDs::strDir, 1, col::stretch);
+    radio (fastBtn, ParamIDs::strDir, 2, col::stretch);
+    radio (keepBtn, ParamIDs::strPitch, 0, col::stretch);
+    radio (tapeBtn, ParamIDs::strPitch, 1, col::stretch);
+    radio (freeBtn, ParamIDs::strGrid, 0, col::stretch);
+    radio (musicBtn, ParamIDs::strGrid, 1, col::stretch);
 
     // Würfel: neuer Seed
     setAccent (rollBtn, col::master);
@@ -108,41 +118,58 @@ BraincutEditor::BraincutEditor (BraincutProcessor& p)
     nextBtn.onClick = [this] { proc.applyPreset ((proc.getPresetIndex() + 1) % bcpresets::kNumPresets); };
 
     // Positionen (in Basis-Pixeln, Fenster skaliert alles)
-    sliceView.setBounds (356, 176, 250, 254);
 
-    // 1 Slicer (x 60, y 128, 292 x 300)
+    // Mitte: Dichte und Step-Raster
+    decentBtn.setBounds (360, 134, 78, 30);
+    mediumBtn.setBounds (442, 134, 78, 30);
+    nutsBtn.setBounds (524, 134, 78, 30);
+    stepGrid.setBounds (356, 172, 250, 272);
+
+    // 1 Slicer (x 60, y 128, 292 x 316)
     cutBtn.setBounds (60 + 154, 128 + 7, 64, 24);
     warpBtn.setBounds (60 + 222, 128 + 7, 64, 24);
-    repeatK.setBounds (60 + 8, 128 + 44, 120, 150);
-    phMaxB.setBounds (60 + 140, 128 + 52, 144, 26);
-    phMinB.setBounds (60 + 140, 128 + 86, 144, 26);
-    repMaxB.setBounds (60 + 140, 128 + 120, 144, 26);
-    repMinB.setBounds (60 + 140, 128 + 154, 144, 26);
-    loopK.setBounds (60 + 26, 128 + 204, 70, 86);
-    subdivK.setBounds (60 + 111, 128 + 204, 70, 86);
-    seedK.setBounds (60 + 196, 128 + 204, 70, 86);
+    repeatK.setBounds (60 + 6, 128 + 42, 124, 152);
+    {
+        bcui::ValueBar* bars[6] { &phMaxB, &phMinB, &repMaxB, &repMinB, &loopB, &subdivB };
+        for (int k = 0; k < 6; ++k)
+            bars[k]->setBounds (60 + 138, 128 + 44 + k * 30, 146, 26);
+    }
+    seedK.setBounds (60 + 8, 128 + 226, 68, 86);
+    slRevK.setBounds (60 + 78, 128 + 226, 68, 86);
+    slJumpK.setBounds (60 + 148, 128 + 226, 68, 86);
+    slFadeK.setBounds (60 + 218, 128 + 226, 68, 86);
 
-    // 2 Stretch (x 610, y 128, 290 x 300)
+    // 2 Stretch (x 610, y 128, 290 x 316)
     strOnBtn.setBounds (610 + 290 - 50, 128 + 7, 42, 24);
-    strAmtK.setBounds (610 + 18, 128 + 70, 130, 162);
-    strMixK.setBounds (610 + 164, 128 + 86, 108, 140);
+    strAmtK.setBounds (610 + 6, 128 + 42, 124, 152);
+    strChanceK.setBounds (610 + 138, 128 + 40, 70, 86);
+    strMixK.setBounds (610 + 212, 128 + 40, 70, 86);
+    strGrainK.setBounds (610 + 138, 128 + 130, 70, 86);
+    strGlideK.setBounds (610 + 212, 128 + 130, 70, 86);
+    slowBtn.setBounds (610 + 62, 128 + 226, 70, 24);
+    bothBtn.setBounds (610 + 136, 128 + 226, 70, 24);
+    fastBtn.setBounds (610 + 210, 128 + 226, 70, 24);
+    keepBtn.setBounds (610 + 62, 128 + 256, 107, 24);
+    tapeBtn.setBounds (610 + 173, 128 + 256, 107, 24);
+    freeBtn.setBounds (610 + 62, 128 + 286, 107, 24);
+    musicBtn.setBounds (610 + 173, 128 + 286, 107, 24);
 
-    // 3 Repeat (x 104, y 438, 336 x 180)
-    repOnBtn.setBounds (104 + 336 - 50, 438 + 7, 42, 24);
-    repChanceK.setBounds (104 + 6, 438 + 30, 120, 148);
-    repRateK.setBounds (104 + 136, 438 + 56, 64, 86);
-    repGateK.setBounds (104 + 201, 438 + 56, 64, 86);
-    repDecayK.setBounds (104 + 266, 438 + 56, 64, 86);
+    // 3 Repeat (x 104, y 452, 336 x 168)
+    repOnBtn.setBounds (104 + 336 - 50, 452 + 7, 42, 24);
+    repChanceK.setBounds (104 + 6, 452 + 28, 116, 140);
+    repRateK.setBounds (104 + 136, 452 + 46, 64, 86);
+    repGateK.setBounds (104 + 201, 452 + 46, 64, 86);
+    repDecayK.setBounds (104 + 266, 452 + 46, 64, 86);
 
-    // 4 Glitch (x 448, y 438, 290 x 180)
-    gliOnBtn.setBounds (448 + 290 - 50, 438 + 7, 42, 24);
-    gliAmtK.setBounds (448 + 6, 438 + 30, 120, 148);
-    bitBtn.setBounds (448 + 136, 438 + 40, 46, 26);
-    revBtn.setBounds (448 + 186, 438 + 40, 46, 26);
-    stopBtn.setBounds (448 + 236, 438 + 40, 46, 26);
-    frzBtn.setBounds (448 + 136, 438 + 70, 72, 26);
-    pitBtn.setBounds (448 + 212, 438 + 70, 70, 26);
-    gliMixK.setBounds (448 + 170, 438 + 100, 72, 76);
+    // 4 Glitch (x 448, y 452, 290 x 168)
+    gliOnBtn.setBounds (448 + 290 - 50, 452 + 7, 42, 24);
+    gliAmtK.setBounds (448 + 6, 452 + 28, 116, 140);
+    bitBtn.setBounds (448 + 136, 452 + 38, 46, 26);
+    revBtn.setBounds (448 + 186, 452 + 38, 46, 26);
+    stopBtn.setBounds (448 + 236, 452 + 38, 46, 26);
+    frzBtn.setBounds (448 + 136, 452 + 68, 72, 26);
+    pitBtn.setBounds (448 + 212, 452 + 68, 70, 26);
+    gliMixK.setBounds (448 + 172, 452 + 98, 70, 70);
 
     // Preset-Zeile oben (links oben steckt das Logo im Bild), Ausgang oben rechts
     prevBtn.setBounds (422, 52, 30, 32);
@@ -178,11 +205,28 @@ void BraincutEditor::resized()
 }
 
 //==============================================================================
+void BraincutEditor::radio (juce::TextButton& b, const char* id, int value, juce::Colour accent)
+{
+    b.setClickingTogglesState (false);
+    b.getProperties().set ("rid", juce::String (id));
+    b.getProperties().set ("rval", value);
+    setAccent (b, accent);
+    content.addAndMakeVisible (b);
+    b.onClick = [this, id, value] { proc.setParam (id, (float) value); };
+}
+
+void BraincutEditor::syncRadio (juce::TextButton& b)
+{
+    const auto id = b.getProperties()["rid"].toString();
+    const int v = (int) std::lround (proc.apvts.getRawParameterValue (id)->load());
+    b.setToggleState (v == (int) b.getProperties()["rval"], juce::dontSendNotification);
+}
+
 void BraincutEditor::syncFromParams()
 {
-    const int mode = (int) std::lround (proc.apvts.getRawParameterValue (ParamIDs::mode)->load());
-    cutBtn.setToggleState (mode == 0, juce::dontSendNotification);
-    warpBtn.setToggleState (mode == 1, juce::dontSendNotification);
+    for (auto* b : { &cutBtn, &warpBtn, &decentBtn, &mediumBtn, &nutsBtn, &slowBtn, &bothBtn, &fastBtn,
+                     &keepBtn, &tapeBtn, &freeBtn, &musicBtn })
+        syncRadio (*b);
 
     const int pi = proc.getPresetIndex();
     if (presetBox.getSelectedItemIndex() != pi)
@@ -192,7 +236,10 @@ void BraincutEditor::syncFromParams()
     const float aStr = flag (ParamIDs::strOn) ? 1.0f : 0.4f;
     const float aRep = flag (ParamIDs::repOn) ? 1.0f : 0.4f;
     const float aGli = flag (ParamIDs::gliOn) ? 1.0f : 0.4f;
-    for (auto* c : { (juce::Component*) &strAmtK, (juce::Component*) &strMixK }) c->setAlpha (aStr);
+    for (auto* c : { (juce::Component*) &strAmtK, (juce::Component*) &strMixK, (juce::Component*) &strChanceK,
+                     (juce::Component*) &strGrainK, (juce::Component*) &strGlideK, (juce::Component*) &slowBtn,
+                     (juce::Component*) &bothBtn, (juce::Component*) &fastBtn, (juce::Component*) &keepBtn,
+                     (juce::Component*) &tapeBtn, (juce::Component*) &freeBtn, (juce::Component*) &musicBtn }) c->setAlpha (aStr);
     for (auto* c : { (juce::Component*) &repChanceK, (juce::Component*) &repRateK, (juce::Component*) &repGateK, (juce::Component*) &repDecayK }) c->setAlpha (aRep);
     for (auto* c : { (juce::Component*) &gliAmtK, (juce::Component*) &gliMixK, (juce::Component*) &bitBtn, (juce::Component*) &revBtn,
                      (juce::Component*) &stopBtn, (juce::Component*) &frzBtn, (juce::Component*) &pitBtn }) c->setAlpha (aGli);
@@ -325,4 +372,12 @@ void BraincutEditor::paintContent (juce::Graphics& g)
     paintCard (g, repeatCard, "3  REPEAT", col::repeat, flag (ParamIDs::repOn));
     paintCard (g, glitchCard, "4  GLITCH", col::glitch, flag (ParamIDs::gliOn));
     paintCard (g, masterCard, {}, col::master, true);
+
+    // Beschriftung der Stretch-Umschalter
+    g.setFont (bb::fonts::display (11.0f, true));
+    g.setColour (flag (ParamIDs::strOn) ? col::inkDim : col::inkDim.withAlpha (0.4f));
+    const int sx = (int) stretchCard.getX() + 16, sy = (int) stretchCard.getY();
+    g.drawText ("DIR", sx, sy + 226, 44, 24, juce::Justification::centredLeft);
+    g.drawText ("PITCH", sx, sy + 256, 44, 24, juce::Justification::centredLeft);
+    g.drawText ("GRID", sx, sy + 286, 44, 24, juce::Justification::centredLeft);
 }

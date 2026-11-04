@@ -26,13 +26,25 @@ struct SlicerParams
     float repeatProb = 0.4f; // 0..1: wie oft ein Beat umgebaut wird
     int   seed = 1;          // 0..9999
     bool  lock = false;      // an: jede Runde spielt dasselbe Muster
+    float reverse = 0.3f;    // 0..1: wie oft umgebaute Stücke rückwärts laufen
+    float jump = 0.5f;       // 0..1: wie oft aus einem anderen Beat/einer anderen Stelle gelesen wird
+    float fadeMs = 2.5f;     // Überblendung zwischen Slices in ms (0.5..20)
 };
+
+// Richtung der Streckung
+enum StretchDir { kDirSlow = 0, kDirBoth = 1, kDirFast = 2 };
 
 struct StretchParams
 {
     bool  on = true;
     float amount = 0.5f;     // 0..1 -> Streckung bis Faktor 2 (und 1/2)
     float mix = 1.0f;
+    float chance = 0.5f;     // 0..1: Anteil der Stücke, die gestreckt werden
+    float grainMs = 30.0f;   // Fenstergröße des Granular-Stretch (10..150 ms)
+    float glide = 0.0f;      // 0..1: Geschwindigkeit gleitet über diesen Anteil des Stücks zum Zielwert
+    int   dir = kDirBoth;    // langsamer, beides, schneller
+    bool  tape = false;      // an: Tonhöhe geht mit dem Tempo (wie Bandmaschine), aus: Tonhöhe bleibt
+    bool  musical = false;   // an: nur Faktoren 1/2, 2/3, 3/4, 4/3, 3/2, 2
 };
 
 struct RepeatParams
@@ -52,8 +64,12 @@ struct GlitchParams
     bool  bit = true, rev = true, stop = true, freeze = true, pitch = true;
 };
 
+// Dichte: wie oft überhaupt etwas passiert (gilt für Slicer, Stretch, Repeat und Glitch)
+enum Density { kDecent = 0, kMedium = 1, kNuts = 2 };
+
 struct EngineParams
 {
+    int density = kMedium;
     SlicerParams  slicer;
     StretchParams stretch;
     RepeatParams  repeat;

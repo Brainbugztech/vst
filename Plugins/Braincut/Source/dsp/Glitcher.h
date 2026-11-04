@@ -7,6 +7,7 @@
 //   Freeze - ein kurzes Stück wird eingefroren und als Loop gehalten
 //   Pitch  - Tonhöhensprünge (Oktaven, Quinten, Quarten)
 // Ein Ereignis startet nur auf einem Raster von 1/16 und dauert 1/16 bis 1 Beat.
+// Es startet nur in einer Dichte-Zone und endet spätestens mit ihr.
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +15,7 @@
 #include <vector>
 #include "Params.h"
 #include "Rng.h"
+#include "Density.h"
 
 namespace bc
 {
@@ -43,7 +45,8 @@ public:
 
     bool isGlitching() const { return active; }
 
-    void process (float& l, float& r, double beat, double spb, const GlitchParams& p, uint64_t seedKey)
+    void process (float& l, float& r, double beat, double spb, const GlitchParams& p, uint64_t seedKey,
+                  const Zone& zone = Zone {}, int density = kNuts)
     {
         const float inL = l, inR = r;
         ring[0][wIdx & mask] = inL;
@@ -65,8 +68,8 @@ public:
             if (active && lastTick != std::numeric_limits<long long>::min() && tIdx != lastTick + 1)
                 active = false; // Sprung im Transport
             lastTick = tIdx;
-            if (! active)
-                maybeStart (tIdx, spb, p, seedKey);
+            if (! active && zone.on)
+                maybeStart (tIdx, spb, p, seedKey, zone, density);
         }
 
         if (active)
@@ -88,10 +91,10 @@ public:
 private:
     enum Type { Bit, Rev, Stop, Freeze, Pitch };
 
-    void maybeStart (long long tIdx, double spb, const GlitchParams& p, uint64_t seedKey)
+    void maybeStart (long long tIdx, double spb, const GlitchParams& p, uint64_t seedKey, const Zone& zone, int density)
     {
         constexpr double tick = 0.25;
-        const double a = std::max (0.0, std::min (0.9, (double) p.amount * 0.9));
+        const double a = std::max (0.0, std::min (0.95, (double) zoneBoost (density, p.amount * 0.9f)));
         const double prob = 1.0 - std::pow (1.0 - a, tick);
         const uint64_t key = hashCombine (seedKey ^ 0x61177Cull, (uint64_t) tIdx);
         if ((double) hash01 (key) >= prob)
@@ -107,8 +110,10 @@ private:
         type = avail[std::min (n - 1, (int) (hash01 (key ^ 0x1111ull) * (float) n))];
         static constexpr int ticks[4] { 1, 2, 2, 4 };
         const int nt = ticks[std::min (3, (int) (hash01 (key ^ 0x2222ull) * 4.0f))];
-        len = (double) nt * tick * spb;
+        len = std::min ((double) nt * tick * spb, zone.left * spb);
         if (len > (double) (mask / 2)) len = (double) (mask / 2);
+        if (len < (double) (ramp * 4))
+            return;
         t = 0.0;
         t0 = (double) wIdx;
         freezeLen = (hash01 (key ^ 0x3333ull) < 0.5f ? 0.125 : 0.25) * spb;
