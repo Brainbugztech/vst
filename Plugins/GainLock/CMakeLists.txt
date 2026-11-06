@@ -17,7 +17,7 @@ juce_add_plugin(BrainbugzGainLock
 juce_add_binary_data(GainLockAssets
     HEADER_NAME GainLockAssets.h
     NAMESPACE GainLockAssets
-    SOURCES Assets/gainlock_logo.png)
+    SOURCES Assets/bb_logo.svg)
 set_target_properties(GainLockAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_sources(BrainbugzGainLock PRIVATE

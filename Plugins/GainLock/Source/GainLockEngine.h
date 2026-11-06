@@ -173,33 +173,40 @@ struct SharedRing
 };
 
 //==============================================================================
-// Eine Kopplungs-Gruppe. Genau eine Quelle besitzt sie, beliebig viele Locks lesen.
-struct LinkSlot
+// Ein Abgriff in der Kette: 0 = Quelle (Anfang), 1..3 = Zwischenpunkte.
+// Genau eine Instanz besitzt ihn und schreibt, Locks lesen.
+struct Tap
 {
-    std::atomic<int> owner { 0 };                    // Instanz-ID der Quelle (0 = frei)
+    std::atomic<int> owner { 0 };                    // Instanz-ID (0 = frei)
     std::atomic<SharedRing*> ring { nullptr };       // einmal angelegt, lebt bis zum Entladen
     std::atomic<int64_t> writePos { 0 };             // Gesamtzahl geschriebener Samples
-    std::atomic<uint32_t> heartbeat { 0 };           // +1 pro Quell-Block
-    std::atomic<uint32_t> lockHeartbeat { 0 };       // +1 pro Lock-Block (für die Anzeige in der Quelle)
+    std::atomic<uint32_t> heartbeat { 0 };           // +1 pro Block
     std::atomic<double> sampleRate { 0.0 };
     std::atomic<int> numChannels { 2 };
-    std::atomic<float> sourceLufs { -180.0f };       // nur Anzeige in der Quelle
 
     std::mutex nameLock;                             // nur Message-Thread
-    char trackName[64] {};
+    char name[64] {};
 
-    void setTrackName (const char* n)
+    void setName (const char* n)
     {
         std::lock_guard<std::mutex> l (nameLock);
-        std::strncpy (trackName, n != nullptr ? n : "", sizeof (trackName) - 1);
-        trackName[sizeof (trackName) - 1] = 0;
+        std::strncpy (name, n != nullptr ? n : "", sizeof (name) - 1);
+        name[sizeof (name) - 1] = 0;
     }
-    void getTrackName (char* out, size_t len)
+    void getName (char* out, size_t len)
     {
         std::lock_guard<std::mutex> l (nameLock);
-        std::strncpy (out, trackName, len - 1);
+        std::strncpy (out, name, len - 1);
         out[len - 1] = 0;
     }
+};
+
+// Eine Kopplungs-Gruppe: Quelle + bis zu drei Zwischenpunkte, beliebig viele Locks.
+struct LinkSlot
+{
+    static constexpr int kNumTaps = 4;
+    std::array<Tap, kNumTaps> taps;
+    std::atomic<uint32_t> lockHeartbeat { 0 };       // +1 pro Lock-Block (Anzeige in Quelle/Punkt)
 };
 
 // Prozessweit geteilt: alle Gain-Lock-Instanzen im selben Host-Prozess sehen denselben Hub.
@@ -215,16 +222,17 @@ public:
     }
 
     LinkSlot& slot (int group) { return slots[(size_t) std::clamp (group, 0, kNumGroups - 1)]; }
+    Tap& tap (int group, int t) { return slot (group).taps[(size_t) std::clamp (t, 0, LinkSlot::kNumTaps - 1)]; }
 
     // Nur außerhalb des Audio-Threads aufrufen (legt Speicher an).
-    SharedRing* ensureRing (int group)
+    SharedRing* ensureRing (int group, int t)
     {
-        auto& s = slot (group);
-        if (auto* r = s.ring.load (std::memory_order_acquire)) return r;
+        auto& tp = tap (group, t);
+        if (auto* r = tp.ring.load (std::memory_order_acquire)) return r;
         std::lock_guard<std::mutex> l (allocLock);
-        if (auto* r = s.ring.load (std::memory_order_acquire)) return r;
+        if (auto* r = tp.ring.load (std::memory_order_acquire)) return r;
         rings.push_back (std::make_unique<SharedRing>());
-        s.ring.store (rings.back().get(), std::memory_order_release);
+        tp.ring.store (rings.back().get(), std::memory_order_release);
         return rings.back().get();
     }
 
@@ -399,4 +407,45 @@ struct GainComputer
         return currentDb;
     }
 };
+//==============================================================================
+// Auswertung des Blind-Vorliebetests
+struct BlindVerdict
+{
+    enum Kind { notEnough, reliable, trend, noPreference, inaudible };
+    Kind kind = notEnough;
+    int winner = -1;        // 0 = A, 1 = B
+    double p = 1.0;         // zweiseitiger Binomial-p-Wert
+};
+
+// Zweiseitiger exakter Binomialtest gegen 50/50
+inline double binomTwoSided (int k, int n)
+{
+    if (n <= 0) return 1.0;
+    k = std::max (k, n - k);
+    double tail = 0.0;
+    for (int i = k; i <= n; ++i)
+    {
+        double c = 1.0;   // n über i
+        for (int j = 1; j <= i; ++j) c = c * (n - i + j) / j;
+        tail += c * std::pow (0.5, n);
+    }
+    return std::min (1.0, 2.0 * tail);
+}
+
+inline BlindVerdict judgeBlind (int prefA, int prefB, int none)
+{
+    BlindVerdict v;
+    const int total = prefA + prefB + none;
+    const int decided = prefA + prefB;
+    if (total < 3) return v;
+    // Überwiegend "kein Unterschied": praktisch nicht hörbar
+    if (none * 2 > total) { v.kind = BlindVerdict::inaudible; return v; }
+    v.p = binomTwoSided (std::max (prefA, prefB), decided);
+    v.winner = prefA == prefB ? -1 : (prefA > prefB ? 0 : 1);
+    if (v.winner < 0)       v.kind = BlindVerdict::noPreference;
+    else if (v.p < 0.05)    v.kind = BlindVerdict::reliable;
+    else if (v.p < 0.25)    v.kind = BlindVerdict::trend;
+    else                    v.kind = BlindVerdict::noPreference;
+    return v;
+}
 } // namespace gl
