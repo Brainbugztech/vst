@@ -15,7 +15,7 @@ constexpr float kTwoPi = 6.28318530717959f;
 // ---------------------------------------------------------------- parameters
 struct Params {
     // Ring (tonal cluster)
-    float tune = 800.f;       // Hz, 700..1600
+    float tune = 800.f;       // Hz, 300..1600
     float spread = 0.5f;      // 0..1  cluster detune / shimmer
     float metal = 0.f;        // 0..1  harmonic cluster -> inharmonic clang
     float ringLevel = 1.f;    // 0..1
@@ -27,7 +27,7 @@ struct Params {
     float hold = 150.f;       // ms 10..800
     float release = 40.f;     // ms 2..600
     // Resonance EQ
-    float eqFreq = 800.f;     // Hz 700..1600
+    float eqFreq = 800.f;     // Hz 300..1600
     float eqGain = 6.f;       // dB 0..18
     float eqQ = 4.f;          // 0.5..12
     bool eqLink = false;      // EQ follows ring tune

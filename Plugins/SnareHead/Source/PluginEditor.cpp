@@ -333,12 +333,12 @@ void Knob::paint (juce::Graphics& g)
 
 float EqView::hzToX (float hz) const
 {
-    const float lo = std::log (520.0f), hi = std::log (2100.0f);
+    const float lo = std::log (250.0f), hi = std::log (2100.0f);
     return (std::log (hz) - lo) / (hi - lo) * (float) getWidth();
 }
 float EqView::xToHz (float x) const
 {
-    const float lo = std::log (520.0f), hi = std::log (2100.0f);
+    const float lo = std::log (250.0f), hi = std::log (2100.0f);
     return std::exp (lo + juce::jlimit (0.0f, 1.0f, x / (float) getWidth()) * (hi - lo));
 }
 
@@ -352,13 +352,13 @@ void EqView::paint (juce::Graphics& g)
     const float top = 16.0f, bottom = r.getHeight() - 16.0f;
     auto dbToY = [&] (float dbv) { return juce::jmap (dbv, -3.0f, 20.0f, bottom, top); };
 
-    // Boost-Bereich 700 Hz - 1,6 kHz
-    const float x0 = hzToX (700.0f), x1 = hzToX (1600.0f);
+    // Boost-Bereich 300 Hz - 1,6 kHz
+    const float x0 = hzToX (kFreqMin), x1 = hzToX (1600.0f);
     g.setColour (col::purple.withAlpha (0.07f));
     g.fillRect (x0, 0.0f, x1 - x0, r.getHeight());
 
     g.setFont (mono (11.0f));
-    for (float f : { 600.0f, 700.0f, 800.0f, 1000.0f, 1200.0f, 1600.0f, 2000.0f })
+    for (float f : { 300.0f, 400.0f, 600.0f, 800.0f, 1000.0f, 1200.0f, 1600.0f, 2000.0f })
     {
         const float x = hzToX (f);
         g.setColour (col::line.withAlpha (0.8f));
@@ -377,7 +377,7 @@ void EqView::paint (juce::Graphics& g)
     for (int k = 0; k < snarehead::Voice::kPartials; ++k)
     {
         const float f = tune * ratio[k];
-        if (f < 520.0f || f > 2100.0f) continue;
+        if (f < 250.0f || f > 2100.0f) continue;
         const float x = hzToX (f);
         const float hgt = juce::jlimit (0.15f, 1.0f, amp[k] * 4.0f) * (bottom - top) * 0.75f * p.ringLevel;
         g.setColour (col::lilac.withAlpha (0.18f));
@@ -429,7 +429,7 @@ void EqView::setFromMouse (juce::Point<float> pt)
 {
     const auto p = proc.readParams();
     if (! p.eqLink)
-        setParam (proc.apvts, ParamIDs::eqFreq, juce::jlimit (700.0f, 1600.0f, xToHz (pt.x)));
+        setParam (proc.apvts, ParamIDs::eqFreq, juce::jlimit (kFreqMin, 1600.0f, xToHz (pt.x)));
     const float top = 16.0f, bottom = (float) getHeight() - 16.0f;
     setParam (proc.apvts, ParamIDs::eqGain, juce::jlimit (0.0f, 18.0f, juce::jmap (pt.y, bottom, top, -3.0f, 20.0f)));
 }
@@ -893,7 +893,7 @@ void SnareHeadEditor::paint (juce::Graphics& g)
     g.drawText ("SNARE HEAD", 16, 10, 300, 36, juce::Justification::centredLeft);
     g.setFont (mono (12.0f));
     g.setColour (col::inkDim);
-    g.drawText ("BRAIN BUGZ  //  SNARE SYNTH  v0.3", 200, 19, 260, 18, juce::Justification::centredLeft);
+    g.drawText ("BRAIN BUGZ  //  SNARE SYNTH  v0.4", 200, 19, 260, 18, juce::Justification::centredLeft);
 
     drawPanel (g, rRing, "Ring");
     drawPanel (g, rNoise, "Noise");
