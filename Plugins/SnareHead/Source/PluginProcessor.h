@@ -33,6 +33,7 @@ namespace ParamIDs
 }
 
 // Frequenz-Text: "880", "1.2k", "A", "A5", "F#5", "Bb" -> Hz (Noten ohne/mit falscher Oktave landen im Bereich lo..hi)
+inline constexpr float kFreqMin = 300.0f;   // tiefster Wert fuer Tune und Res Freq (Hz)
 float parseFreqText (const juce::String& text, float lo, float hi);
 juce::String noteNameForHz (float hz, bool withCents = true);
 
