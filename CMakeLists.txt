@@ -32,4 +32,5 @@ add_subdirectory(Plugins/Prizm)
 add_subdirectory(Plugins/Braincut)
 add_subdirectory(Plugins/TTS)
 add_subdirectory(Plugins/GainLock)
+add_subdirectory(Plugins/ClubEQ)
 # Plugins/Phazer: Engine in Arbeit, wird noch nicht gebaut
