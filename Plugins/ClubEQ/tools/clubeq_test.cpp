@@ -81,7 +81,49 @@ int main (int argc, char** argv)
         auto db = magnitudeDb (p, fs);
         float lo = 1e9f, hi = -1e9f;
         for (double f = 30.0; f < 18000.0; f *= 1.05) { lo = juce::jmin (lo, at (db, f, fs)); hi = juce::jmax (hi, at (db, f, fs)); }
-        check (lo > -28.5f && hi < -25.5f, "alle links: durchgehend um -26 dB (" + juce::String (lo, 2) + " … " + juce::String (hi, 2) + ")");
+        check (lo > -26.2f && hi < -25.8f, "alle links: durchgehend -26 dB (" + juce::String (lo, 2) + " … " + juce::String (hi, 2) + ")");
+    }
+
+    {   // Bitgenau bei 0 dB: hart limitiertes Signal, Spitzen dürfen nicht steigen
+        ClubEQProcessor p;
+        p.prepareToPlay (fs, 512);
+        juce::MidiBuffer midi;
+        juce::Random rnd (5);
+        const int n = (int) fs * 4;
+        juce::AudioBuffer<float> in (2, n);
+        for (int i = 0; i < n; ++i)
+        {
+            const double t = i / fs;   // Kick + Bass + Hihat-Rauschen, hart auf 1.0 geklippt
+            double v = 1.8 * std::sin (2 * juce::MathConstants<double>::pi * (55 + 120 * std::exp (-std::fmod (t, 0.4) * 30)) * t)
+                     + 0.9 * std::sin (2 * juce::MathConstants<double>::pi * 110 * t) + 0.4 * (rnd.nextFloat() - 0.5);
+            for (int c = 0; c < 2; ++c) in.setSample (c, i, (float) juce::jlimit (-1.0, 1.0, v));
+        }
+        auto run = [&] (std::function<void (int)> atBlock)
+        {
+            juce::AudioBuffer<float> out (in);
+            for (int pos = 0, k = 0; pos < n; pos += 512, ++k)
+            {
+                atBlock (k);
+                juce::AudioBuffer<float> view (out.getArrayOfWritePointers(), 2, pos, juce::jmin (512, n - pos));
+                p.processBlock (view, midi);
+            }
+            return out;
+        };
+        auto diffFrom = [&] (const juce::AudioBuffer<float>& out, int from)
+        {
+            float d = 0.0f;
+            for (int c = 0; c < 2; ++c) for (int i = from; i < n; ++i) d = juce::jmax (d, std::abs (out.getSample (c, i) - in.getSample (c, i)));
+            return d;
+        };
+        auto out = run ([] (int) {});
+        check (diffFrom (out, 0) == 0.0f, "0 dB: Ausgang bitgenau gleich Eingang, Peak " + juce::String (out.getMagnitude (0, n), 4) + " (Eingang " + juce::String (in.getMagnitude (0, n), 4) + ")");
+
+        // Regler kurz runter (Bass-Swap) und zurück auf 0: danach wieder bitgenau
+        auto out2 = run ([&] (int k) { if (k == 20) setParam (p, ParamIDs::low, 0.0f); if (k == 120) setParam (p, ParamIDs::low, 0.5f); });
+        int backAt = -1;
+        for (int i = 120 * 512; i < n && backAt < 0; i += 512)
+            if (diffFrom (out2, i) == 0.0f) backAt = i;
+        check (backAt > 0 && backAt - 120 * 512 < (int) fs, "nach Zurückdrehen wieder bitgenau nach " + juce::String ((backAt - 120 * 512) / fs * 1000.0, 0) + " ms");
     }
 
     {   // ISO: Bass komplett weg
