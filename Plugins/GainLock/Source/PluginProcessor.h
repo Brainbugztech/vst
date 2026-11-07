@@ -175,7 +175,7 @@ private:
         float gainDb = 0.0f, targetDb = 0.0f;
         uint32_t lastHb = 0;
         int stale = 0;
-        bool wasOk = false;
+        bool wasOk = false, wasFresh = false;
         std::atomic<int64_t> offsetD { 0 };
         std::atomic<bool> offsetValid { false };
         std::atomic<int> latency { 0 };
