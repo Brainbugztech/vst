@@ -331,7 +331,7 @@ void GainLockProcessor::processLock (juce::AudioBuffer<float>& buffer, int n)
     const int64_t lockStart = lockWritePos.load (std::memory_order_relaxed);
 
     // Welche Abgriffe sind gerade verwertbar?
-    std::array<bool, kNumTaps> ok {};
+    std::array<bool, kNumTaps> ok {}, fresh {};
     std::array<int64_t, kNumTaps> Ws {}, D {};
     std::array<int, kNumTaps> lat {};
     std::array<gl::SharedRing*, kNumTaps> rings {};
@@ -351,9 +351,12 @@ void GainLockProcessor::processLock (juce::AudioBuffer<float>& buffer, int n)
                          && tp.writePos.load (std::memory_order_acquire) >= n;
         if (t == 0) { anyStale = owner != 0 && stale; mismatch = owner != 0 && ! rateOk; }
 
+        // frisch = der Abgriff hat seit unserem letzten Block neue Samples geschrieben.
+        // Nur frische Daten gehen in die Messung, sonst würde der letzte Block mehrfach gelesen.
+        fresh[(size_t) t] = ok[(size_t) t] && st.stale == 0;
         if (ok[(size_t) t] != st.wasOk)
         {
-            st.meter.reset();
+            st.meter.clearHistory();
             if (! ok[(size_t) t]) status.tapLatencyKnown[(size_t) t].store (false);
             st.wasOk = ok[(size_t) t];
         }
@@ -382,7 +385,16 @@ void GainLockProcessor::processLock (juce::AudioBuffer<float>& buffer, int n)
         }
 
     const int ref = ok[0] ? refSource : (scOk ? refSidechain : refNone);
-    if (ref != lastRef) { taps[0].meter.reset(); lastRef = ref; }
+    // In diesem Block messen? Nur wenn die Referenz frisch ist (Sidechain ist es immer).
+    // Sonst bleiben alle Vergleichsmesser stehen und damit untereinander synchron.
+    const bool measure = ref == refSidechain || (ref == refSource && fresh[0]);
+    for (int t = 1; t < kNumTaps; ++t)
+    {
+        auto& st = taps[(size_t) t];
+        if (measure && fresh[(size_t) t] && ! st.wasFresh) st.meter.clearHistory();
+        if (measure) st.wasFresh = fresh[(size_t) t];
+    }
+    if (ref != lastRef) { taps[0].meter.clearHistory(); lastRef = ref; }
     const bool refOn = ref != refNone;
     status.refKind.store (ref);
     status.sourceStale.store (anyStale);
@@ -436,7 +448,7 @@ void GainLockProcessor::processLock (juce::AudioBuffer<float>& buffer, int n)
         float r[kNumTaps][2] = {};
         for (int t = 0; t < kNumTaps; ++t)
         {
-            if (ok[(size_t) t])
+            if (fresh[(size_t) t])
             {
                 const int64_t idx = lockStart + i + D[(size_t) t] - lat[(size_t) t];
                 if (idx >= 0 && idx < Ws[(size_t) t] && idx > Ws[(size_t) t] - kRingSize + 8)
@@ -454,30 +466,37 @@ void GainLockProcessor::processLock (juce::AudioBuffer<float>& buffer, int n)
         }
 
         const float post[2] = { in0, in1 };
-        const bool blockDone = postMeter.push (post, numCh);
-        for (int t = 0; t < kNumTaps; ++t)
-            if (t == 0 ? refOn : ok[(size_t) t])
-                taps[(size_t) t].meter.push (r[t], numCh);
+        bool blockDone = false;
+        if (measure)
+        {
+            blockDone = postMeter.push (post, numCh);
+            for (int t = 0; t < kNumTaps; ++t)
+                taps[(size_t) t].meter.push (r[t], numCh);   // alle zusammen, damit sie im selben Raster bleiben
+        }
         if (refOn) refPeak = std::max (refPeak, std::max (std::abs (r[0][0]), std::abs (r[0][1])));
 
         if (blockDone)
         {
-            const float postL = postMeter.loudness (win);
-            status.postLufs.store (postL);
-            const bool measReady = taps[0].meter.blocksFilled() >= minBlocks && postMeter.blocksFilled() >= minBlocks;
-            const float refL = refOn ? taps[0].meter.loudness (win) : -180.0f;
-            status.tapLufs[0].store (refL);
-            if (refOn && ! hold && measReady)
+            // Vergleiche immer über exakt dieselbe Zeitspanne: gleiche Blockgrenzen, gleiche Länge.
+            // Identisches Signal ergibt so exakt 0,0 dB.
+            auto& refM = taps[0].meter;
+            status.postLufs.store (postMeter.loudness (win));
+            const int nRef = std::min ({ win, refM.blocksFilled(), postMeter.blocksFilled() });
+            const float refL = refOn ? refM.loudness (nRef) : -180.0f;
+            const float postL = postMeter.loudness (nRef);
+            status.tapLufs[0].store (refOn ? refM.loudness (win) : -180.0f);
+            if (refOn && ! hold && nRef >= minBlocks)
                 gc.update (refL, postL, range, kGateLufs);
-            // Zwischenpunkte ebenfalls auf Source-Lautheit bringen
+            // Zwischenpunkte ebenfalls auf Source-Lautheit bringen (gleiche Zeitspanne wie die Source)
             for (int t = 1; t < kNumTaps; ++t)
             {
                 auto& st = taps[(size_t) t];
-                const float l = ok[(size_t) t] ? st.meter.loudness (win) : -180.0f;
-                status.tapLufs[(size_t) t].store (l);
-                if (ok[(size_t) t] && refOn && ! hold && st.meter.blocksFilled() >= minBlocks
-                    && refL > kGateLufs && l > kGateLufs - 10.0f)
-                    st.targetDb = juce::jlimit (-range, range, refL - l);
+                status.tapLufs[(size_t) t].store (ok[(size_t) t] ? st.meter.loudness (win) : -180.0f);
+                const int nT = std::min ({ win, refM.blocksFilled(), st.meter.blocksFilled() });
+                if (! fresh[(size_t) t] || ! refOn || hold || nT < minBlocks) continue;
+                const float l = st.meter.loudness (nT), rl = refM.loudness (nT);
+                if (rl > kGateLufs && l > kGateLufs - 10.0f)
+                    st.targetDb = juce::jlimit (-range, range, rl - l);
             }
         }
 

@@ -92,8 +92,17 @@ public:
     void reset()
     {
         for (auto& k : kf) k.reset();
-        acc = 0.0; accCount = 0; filled = 0; head = 0;
+        acc = 0.0; accCount = 0; filled = 0; head = 0; discardBlocks = 0;
         std::fill (blocks.begin(), blocks.end(), 0.0);
+    }
+
+    // Verlauf leeren, aber das Blockraster behalten (damit es mit anderen Messern synchron bleibt).
+    // Die nächsten Blöcke werden verworfen: der angefangene mischt altes und neues Signal,
+    // die folgenden enthalten noch das Einschwingen des K-Filters.
+    void clearHistory()
+    {
+        filled = 0;
+        discardBlocks = 3;
     }
 
     void setWeighted (bool k) { weighted = k; }
@@ -112,9 +121,13 @@ public:
         acc += sum;
         if (++accCount >= blockLen)
         {
-            blocks[(size_t) head] = acc / (double) accCount;
-            head = (head + 1) % kMaxBlocks;
-            filled = std::min (filled + 1, kMaxBlocks);
+            if (discardBlocks <= 0)
+            {
+                blocks[(size_t) head] = acc / (double) accCount;
+                head = (head + 1) % kMaxBlocks;
+                filled = std::min (filled + 1, kMaxBlocks);
+            }
+            else --discardBlocks;
             acc = 0.0; accCount = 0;
             return true;
         }
@@ -145,6 +158,7 @@ private:
     std::array<double, kMaxBlocks> blocks {};
     double acc = 0.0;
     int accCount = 0, filled = 0, head = 0;
+    int discardBlocks = 0;
 };
 
 //==============================================================================
