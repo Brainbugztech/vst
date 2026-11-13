@@ -52,9 +52,14 @@ namespace
 }
 
 BugWobbleProcessor::BugWobbleProcessor()
+#if BUGWOBBLE_IS_SYNTH
+    // Instrument: nur Ausgang, kein Audio-Eingang (sonst stürzt Ableton Live beim Laden ab)
+    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+#else
     : AudioProcessor (BusesProperties()
                           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+#endif
       apvts (*this, nullptr, "PARAMETERS", createLayout())
 {
 }
@@ -64,10 +69,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout BugWobbleProcessor::createLa
     using namespace juce;
 
     std::vector<std::unique_ptr<RangedAudioParameter>> params;
-
-    // Modus
-    params.push_back (std::make_unique<AudioParameterChoice> (ParameterID { "mode", 1 }, "Mode",
-                          StringArray { "Effect", "Synth" }, 1));
 
     // Klangerzeuger (Synth-Modus)
     params.push_back (std::make_unique<AudioParameterChoice> (ParameterID { "osc", 1 }, "Osc",
@@ -123,9 +124,11 @@ bool BugWobbleProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
     if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
         return false;
 
-    // Instrument-Hosts dürfen den Eingang abschalten
-    const auto& in = layouts.getMainInputChannelSet();
-    return in.isDisabled() || in == out;
+#if BUGWOBBLE_IS_SYNTH
+    return layouts.getMainInputChannelSet().isDisabled();
+#else
+    return layouts.getMainInputChannelSet() == out;
+#endif
 }
 
 void BugWobbleProcessor::prepareToPlay (double newSampleRate, int)
@@ -156,7 +159,6 @@ void BugWobbleProcessor::applyPreset (int index)
             param->setValueNotifyingHost (param->convertTo0to1 (value));
     };
 
-    set ("mode",      1.0f);
     set ("osc",       (float) p.osc);
     set ("driveType", (float) p.driveType);
     set ("type",      (float) p.filterType);
@@ -268,7 +270,7 @@ void BugWobbleProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         return;
 
     // Parameter einmal pro Block lesen
-    const bool  synthMode  = apvts.getRawParameterValue ("mode")->load() > 0.5f;
+    constexpr bool synthMode = BUGWOBBLE_IS_SYNTH != 0;
     const int   divIndex   = juce::jlimit (0, 5, (int) apvts.getRawParameterValue ("division")->load());
     const float rateHz     = apvts.getRawParameterValue ("rate")->load();
     const bool  sync       = apvts.getRawParameterValue ("sync")->load() > 0.5f;

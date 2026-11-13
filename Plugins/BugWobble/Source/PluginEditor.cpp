@@ -13,7 +13,7 @@ namespace Colours
 BugWobbleEditor::BugWobbleEditor (BugWobbleProcessor& p)
     : AudioProcessorEditor (&p), processor (p)
 {
-    setSize (680, 600);
+    setSize (680, BUGWOBBLE_IS_SYNTH ? 540 : 440);
 
     auto& apvts = processor.apvts;
 
@@ -44,13 +44,13 @@ BugWobbleEditor::BugWobbleEditor (BugWobbleProcessor& p)
     };
 
     // Reihenfolge = Gitter (4 Spalten x 5 Zeilen)
-    addCombo ("mode",      "Mode");
+#if BUGWOBBLE_IS_SYNTH
     addCombo ("osc",       "Osc");
     addKnob  ("attack",    "Attack");
     addKnob  ("decay",     "Decay");
-
     addKnob  ("sustain",   "Sustain");
     addKnob  ("release",   "Release");
+#endif
     addKnob  ("rate",      "Rate (Hz)");
     addCombo ("division",  "Division");
 

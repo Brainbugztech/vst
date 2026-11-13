@@ -4,6 +4,11 @@
 #include <array>
 #include <vector>
 
+// 1 = Instrument (BugWobble), 0 = Effekt (BugWobble FX); wird in CMake gesetzt
+#ifndef BUGWOBBLE_IS_SYNTH
+ #define BUGWOBBLE_IS_SYNTH 1
+#endif
+
 class BugWobbleProcessor : public juce::AudioProcessor
 {
 public:
@@ -28,7 +33,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return "BugWobble"; }
-    bool acceptsMidi() const override { return true; }
+    bool acceptsMidi() const override { return BUGWOBBLE_IS_SYNTH != 0; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
