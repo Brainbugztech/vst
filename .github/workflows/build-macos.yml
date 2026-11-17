@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-15-intel   # arm64-Runner sind oft ausgelastet; universal baut auch auf Intel
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
