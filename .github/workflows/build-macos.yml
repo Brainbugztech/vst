@@ -1,0 +1,108 @@
+name: Build macOS VST3
+
+# Mac-Build (Intel + Apple Silicon in einer Datei). Standard: Snare Head.
+# Manuell starten: Actions -> "Build macOS VST3" -> Run workflow -> Plugin-Name eintragen (oder "all").
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'Plugins/**', 'Shared/**', 'Assets/**', 'CMakeLists.txt', '.github/workflows/build-macos.yml' ]
+  pull_request:
+    paths: [ 'Plugins/**', 'Shared/**', 'Assets/**', 'CMakeLists.txt', '.github/workflows/build-macos.yml' ]
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: 'Plugin-Ordner unter Plugins/ (z. B. SnareHead) oder "all"'
+        default: 'SnareHead'
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Schriften holen (OFL)
+        shell: bash
+        run: |
+          base=https://github.com/google/fonts/raw/main/ofl
+          curl -fsSL -o Assets/ChakraPetch-SemiBold.ttf $base/chakrapetch/ChakraPetch-SemiBold.ttf || echo "Font fehlt"
+          curl -fsSL -o Assets/ChakraPetch-Bold.ttf $base/chakrapetch/ChakraPetch-Bold.ttf || echo "Font fehlt"
+          curl -fsSL -o Assets/ShareTechMono-Regular.ttf $base/sharetechmono/ShareTechMono-Regular.ttf || echo "Font fehlt"
+          curl -fsSL -o Plugins/BleepDesigner/Assets/SedgwickAveDisplay-Regular.ttf $base/sedgwickavedisplay/SedgwickAveDisplay-Regular.ttf || echo "Font fehlt"
+          curl -fsSL -o Plugins/SnareHead/Assets/Creepster-Regular.ttf $base/creepster/Creepster-Regular.ttf || echo "Font fehlt"
+          curl -fsSL -o Plugins/BrainFuzz/Assets/Audiowide-Regular.ttf $base/audiowide/Audiowide-Regular.ttf || echo "Font fehlt"
+
+      - name: JUCE-Cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.9-${{ runner.os }}
+
+      - name: "Konfigurieren (universal, arm64 und x86_64)"
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15
+
+      - name: Bauen
+        shell: bash
+        run: |
+          set -o pipefail
+          plugin="${{ github.event.inputs.plugin }}"
+          [ -z "$plugin" ] && plugin=SnareHead
+          if [ "$plugin" = "all" ]; then
+            cmake --build build --config Release --parallel 2>&1 | tee build.log
+          else
+            # Ziel-Name aus Plugins/<Name>/CMakeLists.txt lesen (juce_add_plugin(<Ziel> ...))
+            target=$(grep -m1 -oE 'juce_add_plugin\(\s*[A-Za-z0-9_]+' "Plugins/$plugin/CMakeLists.txt" | sed -E 's/juce_add_plugin\(\s*//')
+            echo "Ziel: ${target}_VST3"
+            cmake --build build --config Release --target "${target}_VST3" --parallel 2>&1 | tee build.log
+          fi
+
+      - name: VST3 einsammeln und signieren
+        shell: bash
+        run: |
+          mkdir -p out
+          found=0
+          while IFS= read -r -d '' vst; do
+            found=1
+            echo "Gefunden: $vst"
+            codesign --force --deep -s - "$vst"   # ad-hoc (ohne Apple-Entwicklerkonto)
+            ditto "$vst" "out/$(basename "$vst")"
+          done < <(find build/Plugins -type d -name "*.vst3" -path "*Release/VST3/*" -prune -print0)
+          [ "$found" = 1 ] || { echo "Keine VST3 gefunden"; exit 1; }
+          cat > out/LIES-MICH-Mac.txt <<'TXT'
+          Brain Bugz VST3 fuer Mac (Intel + Apple Silicon)
+
+          1. Den Ordner "...vst3" nach  /Library/Audio/Plug-Ins/VST3  kopieren
+             (oder fuer nur dich:  ~/Library/Audio/Plug-Ins/VST3).
+          2. Das Plugin ist nicht von Apple beglaubigt. Einmal im Terminal ausfuehren:
+             xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/Brainbugz Snare Head.vst3"
+             (Dateiname anpassen, bei mehreren Plugins fuer jede .vst3 wiederholen.)
+          3. In Ableton: Einstellungen > Plug-ins > VST3 aktivieren und neu scannen.
+          TXT
+          for v in out/*.vst3; do
+            ditto -c -k --keepParent "$v" "out/$(basename "$v" .vst3 | tr ' ' '-')-Mac-VST3.zip"
+          done
+          ls -la out
+
+      - name: Hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Brainbugz-VST3-Mac
+          path: |
+            out/*.zip
+            out/LIES-MICH-Mac.txt
+
+      - name: Pluginval-Test (macOS)
+        continue-on-error: true
+        shell: bash
+        run: |
+          curl -fsSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip -d pluginval
+          for v in out/*.vst3; do
+            echo "== $v"
+            ./pluginval/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --skip-gui-tests --validate-in-process --validate "$v" | tail -8
+          done
