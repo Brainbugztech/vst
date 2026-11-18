@@ -4,23 +4,38 @@
 #include "PluginProcessor.h"
 #include "BrainBugzLook.h"
 
+// BrainBugz Snarehead v1.0 - Oberflaeche nach dem Design-Kit (Designflaeche 1579 x 996, stufenlos skaliert)
+
 namespace sh
 {
+// Farben aus design_tokens.json
 namespace col
 {
-    inline const juce::Colour bg      { 0xff07030d };
-    inline const juce::Colour panel   { 0xff120a1e };
-    inline const juce::Colour panel2  { 0xff1c0f2e };
-    inline const juce::Colour line    { 0xff311a4d };
-    inline const juce::Colour purple  { 0xffa14dff };
-    inline const juce::Colour magenta { 0xffff3df2 };
-    inline const juce::Colour lilac   { 0xffd7b4ff };
-    inline const juce::Colour ink     { 0xfff3eaff };
-    inline const juce::Colour inkDim  { 0xffa391bf };
-    inline const juce::Colour deep    { 0xff3b0f6e };
+    inline const juce::Colour canvas    { 0xff080512 };
+    inline const juce::Colour panel     { 0xff110a1c };
+    inline const juce::Colour panelDeep { 0xff07040e };
+    inline const juce::Colour border    { 0xff5d4276 };
+    inline const juce::Colour magenta   { 0xfff12cef };
+    inline const juce::Colour purple    { 0xffb23cff };
+    inline const juce::Colour violet    { 0xff8136cc };
+    inline const juce::Colour cyan      { 0xff14e7f6 };
+    inline const juce::Colour ink       { 0xfff4e9fc };
+    inline const juce::Colour inkDim    { 0xffb89ec8 };
+    inline const juce::Colour inkMuted  { 0xff88799c };
+    inline const juce::Colour value     { 0xfff5f0fc };
+    inline const juce::Colour graphFill { 0xff9b2feb };
+    inline const juce::Colour metal     { 0xffd0b8e1 };
 }
 
-juce::Font dripFont (float height);   // Creepster (Fallback: Chakra Petch Bold)
+namespace fonts
+{
+    juce::Font heading (float h);   // Rajdhani Bold
+    juce::Font label (float h);     // Rajdhani SemiBold
+    juce::Font value (float h);     // Oxanium Regular
+    juce::Font valueBold (float h); // Oxanium SemiBold
+}
+
+constexpr int kDesignW = 1579, kDesignH = 996;
 
 class LookAndFeel : public bb::LookAndFeel
 {
@@ -33,6 +48,9 @@ public:
     juce::Font getComboBoxFont (juce::ComboBox&) override;
     juce::Font getPopupMenuFont() override;
     void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
+    void drawPopupMenuBackground (juce::Graphics&, int w, int h) override;
+private:
+    juce::Image knobSmall, knobLarge;
 };
 
 // Slider, der im Note-Modus auf Halbtoene rastet
@@ -43,32 +61,35 @@ public:
     double snapValue (double attemptedValue, DragMode) override;
 };
 
-// Regler mit Name und Wert (Wert anklicken = eintippen, optional Hz/Note-Umschalter)
+// Regler: Sprite-Knopf, Name darueber, Wert darunter (Wert anklicken = eintippen)
 class Knob : public juce::Component
 {
 public:
     Knob (juce::AudioProcessorValueTreeState& state, const char* paramId, const juce::String& label, bool big = false);
+    // Lage in Designkoordinaten: Mittelpunkt, Durchmesser, Abstand Name/Wert zur Mitte, Versatz des Namens
+    void place (int cx, int cy, int diameter, int labelDy, int valueDy, int labelDx = 0);
     void resized() override;
     void paint (juce::Graphics&) override;
     void enableNoteMode (SnareHeadProcessor& p, const juce::String& stateKey);
     bool isNoteMode() const { return proc != nullptr && proc->getNoteMode (noteKey); }
     void refreshValue();
+    void setDimmed (bool d);
+
     NoteSlider slider;
-    bool dimmed = false;
+    juce::TextButton noteBtn;   // Hz/NOTE - wird vom Editor platziert
 
 private:
     juce::RangedAudioParameter* param;
     juce::String name;
-    bool isBig;
+    bool isBig, dimmed = false;
+    int diam = 96, lDy = 54, vDy = 62, lDx = 0;
     juce::Label valueLabel;
-    juce::TextButton noteBtn;
     SnareHeadProcessor* proc = nullptr;
     juce::String noteKey;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> att;
 };
 
-
-// Res-EQ Anzeige: Glocke + Ring-Teiltoene + Note
+// Res-EQ Anzeige: Glocke + Ring-Teiltoene + Note (ziehen = Freq/Boost, Mausrad = Q)
 class EqView : public juce::Component
 {
 public:
@@ -80,12 +101,13 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 private:
     SnareHeadProcessor& proc;
+    juce::Rectangle<float> plot() const;
     float xToHz (float x) const;
     float hzToX (float hz) const;
     void setFromMouse (juce::Point<float>);
 };
 
-// Huellkurve + Reverb-Fahne + Gate
+// Huellkurve (Shape) bzw. Reverb-Fahne mit Gate (ziehen = Gate-Zeit)
 class GateView : public juce::Component
 {
 public:
@@ -99,24 +121,35 @@ private:
     SnareHeadProcessor& proc;
     bool reverb;
     float spanMs = 1000.0f;
+    juce::Rectangle<float> plot() const;
     void setGateFromX (float x);
 };
 
-// Animiertes Logo: pulsiert beim Schlag, wackelt mit Xtreme Noisy, tropft. Klick = anspielen.
-class LogoView : public juce::Component
+// Maskottchen: pulsiert beim Schlag, wackelt mit Xtreme Noisy. Klick = anspielen.
+class MascotView : public juce::Component
 {
 public:
-    explicit LogoView (SnareHeadProcessor& p);
+    explicit MascotView (SnareHeadProcessor& p);
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
     void tick (bool hit, float level);
 private:
     SnareHeadProcessor& proc;
-    juce::Image logo;
+    juce::Image img;
     float pulse = 0.0f, glow = 0.0f, shakeX = 0.0f, shakeY = 0.0f, rot = 0.0f;
-    struct Drop { float x, y, vy, r, life; };
-    std::vector<Drop> drops;
     juce::Random rng;
+};
+
+// "Logo = Anspielen" mit Pegelbalken
+class AuditionStrip : public juce::Component
+{
+public:
+    explicit AuditionStrip (SnareHeadProcessor& p) : proc (p) { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override { proc.audition(); }
+    float meter = 0.0f;
+private:
+    SnareHeadProcessor& proc;
 };
 
 } // namespace sh
@@ -127,22 +160,36 @@ public:
     explicit SnareHeadEditor (SnareHeadProcessor&);
     ~SnareHeadEditor() override;
     void paint (juce::Graphics&) override;
-    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
 
 private:
+    // Alles liegt auf einer Flaeche in Designgroesse; der Editor skaliert sie nur.
+    class Canvas : public juce::Component
+    {
+    public:
+        explicit Canvas (SnareHeadEditor& e) : owner (e) {}
+        void paint (juce::Graphics&) override;
+        void paintOverChildren (juce::Graphics&) override;
+    private:
+        SnareHeadEditor& owner;
+    };
+
     void timerCallback() override;
     void refreshPresetBox();
     void savePreset (bool askName);
     void showPresetMenu();
-    void drawPanel (juce::Graphics&, juce::Rectangle<int>, const juce::String& title, bool hot = false);
+    void layout();
+    void buildStaticLayer();
 
     SnareHeadProcessor& proc;
     sh::LookAndFeel lnf;
+    Canvas canvas { *this };
+    juce::Image staticLayer;
 
-    sh::LogoView logo;
+    sh::MascotView mascot;
     sh::EqView eqView;
     sh::GateView envView, gateView;
+    sh::AuditionStrip audition;
 
     sh::Knob tune, spread, metal, punch, ring;
     sh::Knob noise, noiseTone;
@@ -162,9 +209,8 @@ private:
     bool shownModified = false;
     int shownPresetCount = -1;
 
-    juce::Rectangle<int> rRing, rNoise, rShape, rEq, rVerb, rNoisy, rOut, rLogo, rSticker;
     int lastHits = 0;
-    float stickerPulse = 0.0f, meter = 0.0f;
+    float noisyGlow = 0.0f, hitFlash = 0.0f;
     double lastHitTime = -1.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SnareHeadEditor)
