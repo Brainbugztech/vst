@@ -38,7 +38,14 @@ jobs:
           key: juce-8.0.9-${{ runner.os }}
 
       - name: Konfigurieren
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          # Wenn der onnxruntime-Download fuer TTS ausfaellt, ohne TTS weiterbauen statt alles abzubrechen
+          if ! cmake -B build -DCMAKE_BUILD_TYPE=Release; then
+            echo "::warning::onnxruntime-Download fehlgeschlagen - baue ohne Brainbugz TTS"
+            rm -rf build/CMakeCache.txt build/CMakeFiles build/_deps/onnxruntime-*
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DBB_BUILD_TTS=OFF
+          fi
 
       - name: Bauen
         shell: bash
