@@ -384,13 +384,13 @@ juce::Rectangle<float> EqView::plot() const
 float EqView::hzToX (float hz) const
 {
     const auto p = plot();
-    const float lo = std::log (250.0f), hi = std::log (2100.0f);
+    const float lo = std::log (170.0f), hi = std::log (2100.0f);
     return p.getX() + (std::log (hz) - lo) / (hi - lo) * p.getWidth();
 }
 float EqView::xToHz (float x) const
 {
     const auto p = plot();
-    const float lo = std::log (250.0f), hi = std::log (2100.0f);
+    const float lo = std::log (170.0f), hi = std::log (2100.0f);
     return std::exp (lo + juce::jlimit (0.0f, 1.0f, (x - p.getX()) / p.getWidth()) * (hi - lo));
 }
 
@@ -404,7 +404,7 @@ void EqView::paint (juce::Graphics& g)
 
     // Raster
     g.setFont (fonts::value (14.0f));
-    for (float f : { 300.0f, 500.0f, 700.0f, 1000.0f, 1200.0f, 1600.0f, 2000.0f })
+    for (float f : { 200.0f, 300.0f, 500.0f, 700.0f, 1000.0f, 1200.0f, 1600.0f, 2000.0f })
     {
         const float x = hzToX (f);
         g.setColour (col::border.withAlpha (0.35f));
@@ -423,7 +423,7 @@ void EqView::paint (juce::Graphics& g)
     for (int k = 0; k < snarehead::Voice::kPartials; ++k)
     {
         const float f = tune * ratio[k];
-        if (f < 250.0f || f > 2100.0f) continue;
+        if (f < 170.0f || f > 2100.0f) continue;
         const float x = hzToX (f);
         const float hgt = juce::jlimit (0.15f, 1.0f, amp[k] * 4.0f) * (bottom - top) * 0.82f * std::max (0.25f, p.ringLevel);
         juce::ColourGradient bar (col::metal.withAlpha (0.85f), x, bottom - hgt, col::violet.withAlpha (0.25f), x, bottom, false);
