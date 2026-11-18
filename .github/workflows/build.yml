@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2 # bei Pull Requests: Vergleich mit main, welche Plugins geändert sind
+          fetch-depth: 0 # Vergleich mit main, welche Plugins geändert sind
 
       - name: Schriften holen (Chakra Petch, Share Tech Mono, Sedgwick Ave Display, Audiowide, OFL)
         shell: bash
@@ -89,12 +89,13 @@ jobs:
       # Bei Pull Requests zusätzlich ein Download nur mit den Plugins, die der PR ändert
       - name: Im PR geänderte Plugins einsammeln
         id: changed
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push'
         shell: bash
         run: |
           mkdir -p out-pr
           # '|| true': PRs ohne Plugin-Änderung (z. B. nur HQ-App) sollen nicht abbrechen
-          changed=$( (git diff --name-only HEAD^1 HEAD | grep '^Plugins/' || true) | cut -d/ -f2 | sort -u)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then range="HEAD^1 HEAD"; else range="origin/main...HEAD"; fi
+          changed=$( (git diff --name-only $range | grep '^Plugins/' || true) | cut -d/ -f2 | sort -u)
           echo "Geändert: $changed"
           for p in $changed; do
             [ -d "build/Plugins/$p" ] || continue
@@ -102,10 +103,11 @@ jobs:
           done
           ls -la out-pr
           names=$(echo $changed | tr ' ' '-')
-          echo "name=PR-${{ github.event.pull_request.number }}-${names:-keine}-VST3" >> "$GITHUB_OUTPUT"
+          prefix="PR-${{ github.event.pull_request.number }}"; [ "${{ github.event_name }}" = "pull_request" ] || prefix="Einzeln"
+          echo "name=${prefix}-${names:-keine}-VST3" >> "$GITHUB_OUTPUT"
 
       - name: Geänderte Plugins hochladen
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.changed.outputs.name }}
