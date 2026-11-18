@@ -81,9 +81,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SnareHeadProcessor::createLa
     const Params d;
     auto fq = [&] (const char* id, const char* name, float def)
     {
-        ps.push_back (std::make_unique<P> (juce::ParameterID { id, 1 }, name, skewed (700.0f, 1600.0f, 1058.0f), def,
+        ps.push_back (std::make_unique<P> (juce::ParameterID { id, 1 }, name, skewed (kFreqMin, 1600.0f, 900.0f), def,
                                            A().withStringFromValueFunction (hz)
-                                              .withValueFromStringFunction ([] (const juce::String& t) { return parseFreqText (t, 700.0f, 1600.0f); })));
+                                              .withValueFromStringFunction ([] (const juce::String& t) { return parseFreqText (t, kFreqMin, 1600.0f); })));
     };
     fq (ParamIDs::tune, "Tune", d.tune);
     f (ParamIDs::spread,    "Spread",      { 0.0f, 1.0f }, d.spread, pct);

@@ -30,6 +30,10 @@ add_subdirectory(Plugins/SnareHead)
 add_subdirectory(Plugins/BrainFuzz)
 add_subdirectory(Plugins/Prizm)
 add_subdirectory(Plugins/Braincut)
-add_subdirectory(Plugins/TTS)
+# TTS braucht onnxruntime als Download; mit -DBB_BUILD_TTS=OFF laesst sich ohne bauen
+option(BB_BUILD_TTS "Brainbugz TTS mitbauen (laedt onnxruntime)" ON)
+if(BB_BUILD_TTS)
+    add_subdirectory(Plugins/TTS)
+endif()
 add_subdirectory(Plugins/GainLock)
 # Plugins/Phazer: Engine in Arbeit, wird noch nicht gebaut

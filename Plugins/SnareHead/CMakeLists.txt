@@ -4,8 +4,8 @@ juce_add_plugin(BrainbugzSnareHead
     PLUGIN_MANUFACTURER_CODE Bbgz
     PLUGIN_CODE Bsnh
     FORMATS VST3
-    PRODUCT_NAME "Brainbugz Snare Head"
-    VERSION 0.3.0
+    PRODUCT_NAME "Brainbugz Snarehead"
+    VERSION 1.0.0
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
@@ -14,7 +14,7 @@ juce_add_plugin(BrainbugzSnareHead
     VST3_CATEGORIES Instrument Drum
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
-# Logo und Drip-Schrift (Creepster, OFL – wird beim Build geladen)
+# Design-Kit (Hintergrund, Panels, Knob-Sprites, Maskottchen) und Schriften Rajdhani + Oxanium (OFL, siehe Assets/licenses)
 file(GLOB SNAREHEAD_ASSETS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/Assets/*.ttf")

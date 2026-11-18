@@ -33,6 +33,7 @@ namespace ParamIDs
 }
 
 // Frequenz-Text: "880", "1.2k", "A", "A5", "F#5", "Bb" -> Hz (Noten ohne/mit falscher Oktave landen im Bereich lo..hi)
+inline constexpr float kFreqMin = 200.0f;   // tiefster Wert fuer Tune und Res Freq (Hz)
 float parseFreqText (const juce::String& text, float lo, float hi);
 juce::String noteNameForHz (float hz, bool withCents = true);
 
@@ -51,7 +52,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "Brainbugz Snare Head"; }
+    const juce::String getName() const override { return "Brainbugz Snarehead"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
