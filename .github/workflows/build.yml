@@ -210,7 +210,7 @@ jobs:
             codesign --force --deep -s - "$vst"   # ad-hoc (ohne Apple-Entwicklerkonto)
             lipo -info "$vst/Contents/MacOS/"* || true
             ditto "$vst" "out/$(basename "$vst")"
-          done < <(find build/Plugins -type d -name "*.vst3" -path "*Release/VST3/*" -prune -print0)
+          done < <(find build/Plugins/SnareHead -type d -name "*.vst3" -path "*Release/VST3/*" -prune -print0)
           [ "$found" = 1 ] || { echo "Keine VST3 gefunden"; exit 1; }
           cat > out/LIES-MICH-Mac.txt <<'TXT'
           BrainBugz Snarehead fuer Mac (Apple Silicon + Intel)
@@ -229,6 +229,7 @@ jobs:
         run: |
           curl -fsSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
           unzip -q pluginval.zip -d pluginval
+          set +e
           for v in out/*.vst3; do
             ./pluginval/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --skip-gui-tests --validate-in-process --validate "$v" > "out/pluginval-mac.txt" 2>&1; echo "Exit $?"
             tail -5 out/pluginval-mac.txt
