@@ -872,32 +872,26 @@ void SnareHeadEditor::buildStaticLayer()
     g.fillAll (col::canvas);
     draw ("bg_base_png", 0, 0);
     draw ("rail_header_png", 0, 0);
-    draw ("rail_footer_png", 0, sh::kDesignH - 56);
-    draw ("panel_ring_png", 494, 96);
-    draw ("panel_noise_png", 1028, 96);
-    draw ("panel_shape_png", 1259, 96);
-    draw ("panel_xtreme_noisy_png", 20, 522);
-    draw ("panel_out_png", 259, 522);
-    draw ("panel_res_eq_png", 492, 451);
-    draw ("panel_reverb_png", 1027, 451);
-    draw ("wordmark_png", 40, 8);
+    // Hexagon-Hintergrund mit Kaefer direkt aus dem Konzeptbild (Raender weich ausgeblendet)
+    draw ("hero_png", 4, 90);
 
-    // Neon-Kanten unten an den Panels (wie im Konzept)
-    for (auto pr : { juce::Rectangle<int> (494, 96, 529, 348), { 1028, 96, 224, 348 }, { 1259, 96, 297, 348 },
-                     { 20, 522, 236, 408 }, { 259, 522, 224, 408 }, { 492, 451, 531, 480 }, { 1027, 451, 531, 480 } })
+    // Panels: Flaeche aus dem Kit, leuchtende Rahmen aus dem Konzeptbild
+    struct P { const char* panel; const char* frame; int x, y; };
+    for (const auto& p : { P { "panel_ring_png", "frame_ring_png", 494, 96 },
+                           P { "panel_noise_png", "frame_noise_png", 1028, 96 },
+                           P { "panel_shape_png", "frame_shape_png", 1259, 96 },
+                           P { "panel_xtreme_noisy_png", "frame_xtreme_noisy_png", 20, 522 },
+                           P { "panel_out_png", "frame_out_png", 259, 522 },
+                           P { "panel_res_eq_png", "frame_res_eq_png", 492, 451 },
+                           P { "panel_reverb_png", "frame_reverb_png", 1027, 451 } })
     {
-        const auto r = pr.toFloat();
-        const float y = r.getBottom() - 9.0f, x0 = r.getX() + 26.0f, x1 = r.getRight() - 26.0f;
-        juce::ColourGradient glow (col::magenta.withAlpha (0.0f), x0, y, col::magenta.withAlpha (0.0f), x1, y, false);
-        glow.addColour (0.25, col::magenta.withAlpha (0.9f));
-        glow.addColour (0.75, col::magenta.withAlpha (0.9f));
-        g.setGradientFill (glow);
-        g.setOpacity (0.22f);
-        g.fillRect (x0, y - 5.0f, x1 - x0, 10.0f);
-        g.setOpacity (0.9f);
-        g.fillRect (x0, y - 1.0f, x1 - x0, 2.0f);
-        g.setOpacity (1.0f);
+        draw (p.panel, p.x, p.y);
+        draw (p.frame, p.x - 8, p.y - 8);
     }
+
+    // Fussleiste aus dem Konzeptbild
+    draw ("footer_png", 0, 934);
+    draw ("wordmark_png", 40, 8);
 
     // Untertitel
     g.setColour (col::inkDim);
