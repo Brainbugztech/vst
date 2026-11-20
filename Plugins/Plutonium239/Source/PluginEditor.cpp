@@ -293,9 +293,15 @@ void PlutoEditor::buildOsc (int o, int x, int y)
     knob (oid (o, "cent"), { x + 96, y + 60, 38, 46 }, "Cent", true);
 
     text ({ x + 134, y + 14, 30, 11 }, "Fine");
-    vSlider (oid (o, "fine"), { x + 136, y + 26, 28, 80 }, true);
+    for (auto* sl : { vSlider (oid (o, "fine"), { x + 136, y + 26, 28, 80 }, true),
+                      vSlider (oid (o, "coarse"), { x + 164, y + 26, 28, 80 }, true) })
+    {
+        // relativ und fein ziehen statt zum Mausklick zu springen (mit Strg: direkt springen)
+        sl->setSliderSnapsToMousePosition (false);
+        sl->setVelocityBasedMode (true);
+        sl->setVelocityModeParameters (0.35, 1, 0.0, true, juce::ModifierKeys::ctrlModifier);
+    }
     text ({ x + 162, y + 14, 32, 11 }, "Coarse");
-    vSlider (oid (o, "coarse"), { x + 164, y + 26, 28, 80 }, true);
 
     // Wavetable: Tabelle, Vorschau, Position
     auto* wt = combo (oid (o, "wt"), { x + 196, y + 14, 56, 16 });

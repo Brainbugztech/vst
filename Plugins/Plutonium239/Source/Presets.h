@@ -52,7 +52,7 @@ inline const std::vector<Preset>& factoryPresets()
             { O ("C1", "wave"), "Sin" }, { O ("C1", "a"), 1 }, { O ("C1", "d"), 2800 }, { O ("C1", "s"), 0.0f }, { O ("C1", "r"), 1800 },
             { O ("M1.1", "wave"), "Sin" }, { O ("M1.1", "coarse"), 21.69f }, { O ("M1.1", "dest"), "C1" }, { O ("M1.1", "fmamt"), 0.5f },
             { O ("M1.1", "d"), 1500 }, { O ("M1.1", "s"), 0.0f }, { O ("M1.1", "r"), 1500 },
-            { O ("C2", "wave"), "Sin" }, { O ("C2", "oct"), 1 }, { O ("C2", "fine"), 1.5f }, { O ("C2", "d"), 1800 }, { O ("C2", "s"), 0.0f },
+            { O ("C2", "wave"), "Sin" }, { O ("C2", "oct"), 1 }, { O ("C2", "fine"), 6.0f }, { O ("C2", "d"), 1800 }, { O ("C2", "s"), 0.0f },
             { O ("C2", "r"), 1500 }, { O ("C2", "lvl"), 0.35f }, { O ("C2", "fdest"), "Filter 1" },
             { O ("C1", "lvl"), 1.0f }, { F (1, "type"), "HP2" }, { F (1, "cut"), 120 }, { F (1, "xpan"), 0.6f }, { F (1, "lvl"), 1.0f }, { "m_voices", 8 } } },
 

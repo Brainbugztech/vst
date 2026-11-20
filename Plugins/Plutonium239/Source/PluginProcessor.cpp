@@ -69,8 +69,9 @@ void PlutoProcessor::buildPatch (Patch& p) const
         auto& d = p.o[(size_t) o];
         d.wave = I (x.wave); d.wt = I (x.wt); d.keyMode = I (x.key);
         d.sync = otherOscIndexToOsc (o, I (x.sync));
-        d.pitch = (float) I (x.oct) * 12.0f + (float) I (x.semi) + Fv (x.cent) * 0.01f + Fv (x.coarse);
-        d.fineHz = Fv (x.fine); d.pwm = Fv (x.pwm); d.wtPos = Fv (x.wtpos); d.pdMode = I (x.pdmode); d.pdAmt = Fv (x.pdamt);
+        // Fine = Cent (100 = 1 Halbton), Coarse = stufenlose Tonhoehe in Halbtoenen
+        d.pitch = (float) I (x.oct) * 12.0f + (float) I (x.semi) + (Fv (x.cent) + Fv (x.fine)) * 0.01f + Fv (x.coarse);
+        d.fineHz = 0.0f; d.pwm = Fv (x.pwm); d.wtPos = Fv (x.wtpos); d.pdMode = I (x.pdmode); d.pdAmt = Fv (x.pdamt);
         d.a = Fv (x.a); d.d = Fv (x.d); d.s = Fv (x.s); d.r = Fv (x.r); d.lvl = Fv (x.lvl);
         if (! isCarrier (o))
         {

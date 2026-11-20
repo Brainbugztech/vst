@@ -201,8 +201,8 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         addF (oid (o, "wtpos"), n + "WT Position", { 0.0f, 1.0f }, 0.0f);
         addC (oid (o, "pdmode"), n + "PD Mode", pdModeNames(), 0);
         addF (oid (o, "pdamt"), n + "PD Amount", { 0.0f, 1.0f }, 0.0f);
-        addF (oid (o, "fine"), n + "Fine (Hz)", { -50.0f, 50.0f, 0.01f }, 0.0f);
-        addF (oid (o, "coarse"), n + "Coarse", { -48.0f, 48.0f, 0.01f }, 0.0f);
+        addF (oid (o, "fine"), n + "Fine (Cent)", { -100.0f, 100.0f, 0.01f }, 0.0f, 4);
+        addF (oid (o, "coarse"), n + "Coarse (stufenlos)", { -48.0f, 48.0f, 0.0f }, 0.0f, 4);
         addF (oid (o, "a"), n + "Attack", msRange (10000.0f), 2.0f, 1);
         addF (oid (o, "d"), n + "Decay", msRange (10000.0f), 400.0f, 1);
         addF (oid (o, "s"), n + "Sustain", { 0.0f, 1.0f }, 1.0f);
