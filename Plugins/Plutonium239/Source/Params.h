@@ -5,6 +5,7 @@
 // 3 Filter, Mixer, Sync-Matrix, MIDI/Master. Neu: Wavetable, mehr Filtertypen, 4 LFOs.
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "PhaseDist.h"
 
 namespace pluto
 {
@@ -27,7 +28,7 @@ inline juce::String lid (int l, const char* name) { return "l" + juce::String (l
 
 // ---------- Auswahllisten ----------
 inline const juce::StringArray& waveNames()   { static const juce::StringArray a { "Sin", "Tri", "Saw", "SQR", "WT" }; return a; }
-inline const juce::StringArray& fmTypeNames() { static const juce::StringArray a { "+/-LinFM", "+LinFM", "+/-LogFM", "+LogFM" }; return a; }
+inline const juce::StringArray& fmTypeNames() { static const juce::StringArray a { "+/-LinFM", "+LinFM", "+/-LogFM", "+LogFM", "+/-PM", "+PM", "+/-PD", "+PD" }; return a; }
 inline const juce::StringArray& keyModeNames(){ static const juce::StringArray a { "Key", "Fix", "Half" }; return a; }
 inline const juce::StringArray& filterDestNames() { static const juce::StringArray a { "Filter 1", "Filter 2", "Filter 3", "Off" }; return a; }
 
@@ -43,9 +44,10 @@ inline const juce::StringArray& filterLongNames()
 }
 enum FilterType { HP2, HP4, LP2, LP4, BP2, BP4, Notch, CombPlus, CombMinus, Formant };
 
+inline constexpr int userTableIndex = 8;
 inline const juce::StringArray& wavetableNames()
 {
-    static const juce::StringArray a { "Basic", "PWM", "Harmonic", "Vowel", "Sync", "FM", "Hollow", "Grit" };
+    static const juce::StringArray a { "Basic", "PWM", "Harmonic", "Vowel", "Sync", "FM", "Hollow", "Grit", "User" };
     return a;
 }
 
@@ -84,7 +86,7 @@ inline int otherOscIndexToOsc (int self, int idx)
 }
 
 // LFO-Ziele
-enum TargetKind { tOff, tPitch, tFm, tPwm, tLevel, tCut, tRes, tMix, tPan, tMasterPitch, tMasterVol };
+enum TargetKind { tOff, tPitch, tFm, tPwm, tWtPos, tPd, tLevel, tCut, tRes, tMix, tPan, tMasterPitch, tMasterVol };
 struct Target { TargetKind kind; int index; };
 
 inline const std::vector<Target>& targets()
@@ -95,6 +97,8 @@ inline const std::vector<Target>& targets()
         v.push_back ({ tOff, 0 });
         for (int o = 0; o < numOsc; ++o) v.push_back ({ tPitch, o });
         for (int o = 0; o < numMod; ++o) v.push_back ({ tFm, o });
+        for (int o = 0; o < numOsc; ++o) v.push_back ({ tWtPos, o });
+        for (int o = 0; o < numOsc; ++o) v.push_back ({ tPd, o });
         for (int o = 0; o < numOsc; ++o) v.push_back ({ tPwm, o });
         for (int o = 0; o < numOsc; ++o) v.push_back ({ tLevel, o });
         for (int f = 0; f < numFilt; ++f) v.push_back ({ tCut, f });
@@ -122,7 +126,9 @@ inline const juce::StringArray& targetNames()
                 case tOff:         s.add ("Off"); break;
                 case tPitch:       s.add (on + " Pitch"); break;
                 case tFm:          s.add (on + " FM Amt"); break;
-                case tPwm:         s.add (on + " PWM/Pos"); break;
+                case tPwm:         s.add (on + " PWM"); break;
+                case tWtPos:       s.add (on + " WT Pos"); break;
+                case tPd:          s.add (on + " PD Amt"); break;
                 case tLevel:       s.add (on + " Level"); break;
                 case tCut:         s.add (fn + " Cutoff"); break;
                 case tRes:         s.add (fn + " Res"); break;
@@ -191,7 +197,10 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         addI (oid (o, "oct"), n + "Oct", -4, 4, 0);
         addI (oid (o, "semi"), n + "Semi", -12, 12, 0);
         addF (oid (o, "cent"), n + "Cent", { -100.0f, 100.0f, 0.1f }, 0.0f, 4);
-        addF (oid (o, "pwm"), n + "PWM/Pos", { 0.0f, 1.0f }, 0.0f);
+        addF (oid (o, "pwm"), n + "PWM", { 0.0f, 1.0f }, 0.0f);
+        addF (oid (o, "wtpos"), n + "WT Position", { 0.0f, 1.0f }, 0.0f);
+        addC (oid (o, "pdmode"), n + "PD Mode", pdModeNames(), 0);
+        addF (oid (o, "pdamt"), n + "PD Amount", { 0.0f, 1.0f }, 0.0f);
         addF (oid (o, "fine"), n + "Fine (Hz)", { -50.0f, 50.0f, 0.01f }, 0.0f);
         addF (oid (o, "coarse"), n + "Coarse", { -48.0f, 48.0f, 0.01f }, 0.0f);
         addF (oid (o, "a"), n + "Attack", msRange (10000.0f), 2.0f, 1);

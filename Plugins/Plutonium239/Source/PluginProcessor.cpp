@@ -19,7 +19,8 @@ PlutoProcessor::PlutoProcessor()
     {
         auto& x = op[o];
         x.wave = raw (oid (o, "wave")); x.wt = raw (oid (o, "wt")); x.oct = raw (oid (o, "oct")); x.semi = raw (oid (o, "semi"));
-        x.cent = raw (oid (o, "cent")); x.pwm = raw (oid (o, "pwm")); x.fine = raw (oid (o, "fine")); x.coarse = raw (oid (o, "coarse"));
+        x.cent = raw (oid (o, "cent")); x.pwm = raw (oid (o, "pwm")); x.wtpos = raw (oid (o, "wtpos"));
+        x.pdmode = raw (oid (o, "pdmode")); x.pdamt = raw (oid (o, "pdamt")); x.fine = raw (oid (o, "fine")); x.coarse = raw (oid (o, "coarse"));
         x.a = raw (oid (o, "a")); x.d = raw (oid (o, "d")); x.s = raw (oid (o, "s")); x.r = raw (oid (o, "r"));
         x.lvl = raw (oid (o, "lvl")); x.key = raw (oid (o, "key")); x.sync = raw (oid (o, "sync"));
         if (! isCarrier (o))
@@ -69,7 +70,7 @@ void PlutoProcessor::buildPatch (Patch& p) const
         d.wave = I (x.wave); d.wt = I (x.wt); d.keyMode = I (x.key);
         d.sync = otherOscIndexToOsc (o, I (x.sync));
         d.pitch = (float) I (x.oct) * 12.0f + (float) I (x.semi) + Fv (x.cent) * 0.01f + Fv (x.coarse);
-        d.fineHz = Fv (x.fine); d.pwm = Fv (x.pwm);
+        d.fineHz = Fv (x.fine); d.pwm = Fv (x.pwm); d.wtPos = Fv (x.wtpos); d.pdMode = I (x.pdmode); d.pdAmt = Fv (x.pdamt);
         d.a = Fv (x.a); d.d = Fv (x.d); d.s = Fv (x.s); d.r = Fv (x.r); d.lvl = Fv (x.lvl);
         if (! isCarrier (o))
         {
@@ -153,10 +154,50 @@ const juce::String PlutoProcessor::getProgramName (int index)
     return juce::isPositiveAndBelow (index, (int) list.size()) ? list[(size_t) index].name : juce::String();
 }
 
+bool PlutoProcessor::loadUserWavetable (int osc, const juce::File& file, juce::String& error)
+{
+    auto t = loadWavetableFile (file, error);
+    if (t == nullptr) return false;
+    setUserTable (osc, std::move (t), file.getFileNameWithoutExtension());
+    // Oszillator direkt auf WT + User stellen
+    auto setP = [this] (const juce::String& id, float v)
+    {
+        if (auto* p = apvts.getParameter (id)) p->setValueNotifyingHost (p->convertTo0to1 (v));
+    };
+    setP (oid (osc, "wave"), 4.0f);
+    setP (oid (osc, "wt"), (float) userTableIndex);
+    return true;
+}
+
+void PlutoProcessor::setUserTable (int osc, std::unique_ptr<WtTable> table, const juce::String& name)
+{
+    if (! juce::isPositiveAndBelow (osc, numOsc)) return;
+    engine.userTables[osc].store (table.get(), std::memory_order_release);
+    if (userOwned[osc] != nullptr) retiredTables.push_back (std::move (userOwned[osc]));
+    userOwned[osc] = std::move (table);
+    userNames[osc] = userOwned[osc] != nullptr ? name : juce::String();
+    userTablesChanged.fetch_add (1);
+}
+
 void PlutoProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     state.setProperty ("preset", currentPreset, nullptr);
+    // eigene Wavetables mit ins Projekt speichern (32 Frames x 2048 Samples)
+    for (int i = state.getNumChildren(); --i >= 0;)
+        if (state.getChild (i).hasType ("UserWT")) state.removeChild (i, nullptr);
+    for (int o = 0; o < numOsc; ++o)
+        if (userOwned[o] != nullptr)
+        {
+            std::vector<float> frames;
+            userOwned[o]->getFrames (frames);
+            juce::MemoryBlock mb (frames.data(), frames.size() * sizeof (float));
+            juce::ValueTree t ("UserWT");
+            t.setProperty ("osc", o, nullptr);
+            t.setProperty ("name", userNames[o], nullptr);
+            t.setProperty ("data", mb.toBase64Encoding(), nullptr);
+            state.appendChild (t, nullptr);
+        }
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -168,6 +209,20 @@ void PlutoProcessor::setStateInformation (const void* data, int sizeInBytes)
         {
             auto vt = juce::ValueTree::fromXml (*xml);
             currentPreset = vt.getProperty ("preset", 0);
+            for (int o = 0; o < numOsc; ++o) setUserTable (o, nullptr, {});
+            for (int i = vt.getNumChildren(); --i >= 0;)
+            {
+                auto t = vt.getChild (i);
+                if (! t.hasType ("UserWT")) continue;
+                juce::MemoryBlock mb;
+                if (mb.fromBase64Encoding (t.getProperty ("data").toString()))
+                {
+                    std::vector<float> frames (mb.getSize() / sizeof (float));
+                    std::memcpy (frames.data(), mb.getData(), frames.size() * sizeof (float));
+                    setUserTable ((int) t.getProperty ("osc"), wavetableFromFrames (frames), t.getProperty ("name").toString());
+                }
+                vt.removeChild (i, nullptr);
+            }
             apvts.replaceState (vt);
             presetChanged.fetch_add (1);
         }

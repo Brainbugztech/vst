@@ -57,11 +57,11 @@ inline const std::vector<Preset>& factoryPresets()
             { O ("C1", "lvl"), 1.0f }, { F (1, "type"), "HP2" }, { F (1, "cut"), 120 }, { F (1, "xpan"), 0.6f }, { F (1, "lvl"), 1.0f }, { "m_voices", 8 } } },
 
         { "Growl WT", {
-            { O ("C1", "wave"), "WT" }, { O ("C1", "wt"), "FM" }, { O ("C1", "pwm"), 0.3f }, { O ("C1", "oct"), -1 },
+            { O ("C1", "wave"), "WT" }, { O ("C1", "wt"), "FM" }, { O ("C1", "wtpos"), 0.3f }, { O ("C1", "oct"), -1 },
             { O ("M1.1", "wave"), "Sin" }, { O ("M1.1", "oct"), -1 }, { O ("M1.1", "dest"), "C1" }, { O ("M1.1", "fmtype"), "+/-LogFM" },
             { O ("M1.1", "fmamt"), 0.15f },
             { F (1, "type"), "LP4" }, { F (1, "cut"), 1100 }, { F (1, "res"), 0.5f }, { F (1, "drive"), 0.5f },
-            { L (1, "shape"), "Triangle" }, { L (1, "sync"), 1 }, { L (1, "div"), "1/4" }, { L (1, "tA"), "C1 PWM/Pos" }, { L (1, "aA"), 0.5f },
+            { L (1, "shape"), "Triangle" }, { L (1, "sync"), 1 }, { L (1, "div"), "1/4" }, { L (1, "tA"), "C1 WT Pos" }, { L (1, "aA"), 0.5f },
             { L (2, "sync"), 1 }, { L (2, "div"), "1/8" }, { L (2, "tA"), "F1 Cutoff" }, { L (2, "aA"), 0.3f },
             { "m_voices", 2 } } },
 
@@ -86,15 +86,30 @@ inline const std::vector<Preset>& factoryPresets()
             { O ("C1", "wave"), "WT" }, { O ("C1", "wt"), "Vowel" }, { O ("C1", "a"), 900 }, { O ("C1", "r"), 1800 },
             { O ("C2", "wave"), "Tri" }, { O ("C2", "cent"), 8 }, { O ("C2", "a"), 1200 }, { O ("C2", "r"), 1800 }, { O ("C2", "lvl"), 0.5f },
             { O ("C2", "fdest"), "Filter 1" },
-            { L (1, "rate"), 0.15f }, { L (1, "tA"), "C1 PWM/Pos" }, { L (1, "aA"), 0.6f },
+            { L (1, "rate"), 0.15f }, { L (1, "tA"), "C1 WT Pos" }, { L (1, "aA"), 0.6f },
             { O ("C1", "lvl"), 1.0f }, { F (1, "type"), "LP2" }, { F (1, "cut"), 2600 }, { F (1, "xpan"), 0.7f }, { F (1, "lvl"), 1.0f }, { "m_voices", 8 } } },
 
         { "Bit Pluck", {
-            { O ("C1", "wave"), "WT" }, { O ("C1", "wt"), "Grit" }, { O ("C1", "pwm"), 0.6f },
+            { O ("C1", "wave"), "WT" }, { O ("C1", "wt"), "Grit" }, { O ("C1", "wtpos"), 0.6f },
             { O ("C1", "d"), 260 }, { O ("C1", "s"), 0.0f }, { O ("C1", "r"), 200 },
             { O ("M1.1", "wave"), "Saw" }, { O ("M1.1", "dest"), "C1" }, { O ("M1.1", "fmtype"), "+LogFM" }, { O ("M1.1", "fmamt"), 0.2f },
             { O ("M1.1", "d"), 120 }, { O ("M1.1", "s"), 0.0f },
             { O ("C1", "lvl"), 1.0f }, { F (1, "type"), "LP2" }, { F (1, "cut"), 3200 }, { F (1, "res"), 0.35f }, { F (1, "xpan"), 0.4f } } },
+
+        { "CZ Reso", {
+            { O ("C1", "wave"), "Sin" }, { O ("C1", "pdmode"), "Reso Saw" }, { O ("C1", "pdamt"), 0.25f }, { O ("C1", "lvl"), 1.0f },
+            { O ("C1", "d"), 900 }, { O ("C1", "s"), 0.5f }, { O ("C1", "r"), 250 },
+            { O ("M1.1", "wave"), "Sin" }, { O ("M1.1", "oct"), -1 }, { O ("M1.1", "dest"), "C1" }, { O ("M1.1", "fmtype"), "+PD" },
+            { O ("M1.1", "fmamt"), 0.6f }, { O ("M1.1", "d"), 500 }, { O ("M1.1", "s"), 0.2f },
+            { F (1, "type"), "HP2" }, { F (1, "cut"), 60 }, { F (1, "lvl"), 1.0f }, { "m_voices", 4 } } },
+
+        { "PD Bass", {
+            { O ("C1", "wave"), "Sin" }, { O ("C1", "oct"), -1 }, { O ("C1", "pdmode"), "Bend" }, { O ("C1", "pdamt"), 0.7f }, { O ("C1", "lvl"), 1.0f },
+            { O ("C1", "d"), 350 }, { O ("C1", "s"), 0.6f }, { O ("C1", "r"), 90 },
+            { O ("M1.1", "wave"), "Sin" }, { O ("M1.1", "oct"), -1 }, { O ("M1.1", "dest"), "C1" }, { O ("M1.1", "fmtype"), "+/-PM" },
+            { O ("M1.1", "fmamt"), 0.35f }, { O ("M1.1", "d"), 180 }, { O ("M1.1", "s"), 0.1f },
+            { F (1, "type"), "LP4" }, { F (1, "cut"), 2200 }, { F (1, "res"), 0.15f }, { F (1, "lvl"), 1.0f },
+            { "m_voices", 1 }, { "m_glide", 30 } } },
     };
     return p;
 }

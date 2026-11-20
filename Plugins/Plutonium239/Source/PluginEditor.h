@@ -5,26 +5,34 @@
 #include "PlutoLook.h"
 #include "Widgets.h"
 
-// Kleine Wellenform-Vorschau neben den Oszillator-Reglern (zeigt auch die Wavetable-Position)
-class WavePreview : public juce::Component
+// Kleine Wellenform-Vorschau neben den Oszillator-Reglern (zeigt Wavetable-Position und Phase Distortion)
+// Rechtsklick/Doppelklick = eigene Wavetable laden
+class WavePreview : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    WavePreview (juce::AudioProcessorValueTreeState& s, int osc, const pluto::WavetableBank& b) : bank (b)
+    std::function<float (int table, float pos, float phase)> reader;
+    std::function<void()> onLoadRequest;
+
+    WavePreview (juce::AudioProcessorValueTreeState& s, int osc)
     {
         auto rp = [this] { repaint(); };
         wave.attach (s, pluto::oid (osc, "wave"), rp);
         wt.attach (s, pluto::oid (osc, "wt"), rp);
         pwm.attach (s, pluto::oid (osc, "pwm"), rp);
-        setInterceptsMouseClicks (false, false);
+        wtpos.attach (s, pluto::oid (osc, "wtpos"), rp);
+        pdmode.attach (s, pluto::oid (osc, "pdmode"), rp);
+        pdamt.attach (s, pluto::oid (osc, "pdamt"), rp);
+        setTooltip ("Eigene Wavetable: .wav hier draufziehen oder Doppelklick/Rechtsklick zum Laden");
     }
     void paint (juce::Graphics& g) override;
+    void mouseDown (const juce::MouseEvent& e) override { if (e.mods.isPopupMenu() && onLoadRequest) onLoadRequest(); }
+    void mouseDoubleClick (const juce::MouseEvent&) override { if (onLoadRequest) onLoadRequest(); }
 
 private:
-    const pluto::WavetableBank& bank;
-    pluto::ParamLink wave, wt, pwm;
+    pluto::ParamLink wave, wt, pwm, wtpos, pdmode, pdamt;
 };
 
-class PlutoEditor : public juce::AudioProcessorEditor, private juce::Timer
+class PlutoEditor : public juce::AudioProcessorEditor, public juce::FileDragAndDropTarget, private juce::Timer
 {
 public:
     static constexpr int baseW = 1180, baseH = 1034;
@@ -34,6 +42,13 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+
+    // Drag & Drop eigener Wavetables
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void fileDragEnter (const juce::StringArray&, int x, int y) override { fileDragMove ({}, x, y); }
+    void fileDragMove (const juce::StringArray&, int x, int y) override;
+    void fileDragExit (const juce::StringArray&) override { setDropTarget (-1); }
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
 
 private:
     struct TextItem { juce::Rectangle<int> r; juce::String t; juce::Justification j; };
@@ -45,6 +60,7 @@ private:
         std::vector<BoxItem> boxes;
         std::vector<TextItem> texts;
         std::vector<juce::Rectangle<int>> nameBoxes;
+        juce::Rectangle<int> dropHighlight;
         juce::StringArray nameTexts;
         void paint (juce::Graphics&) override;
     };
@@ -60,6 +76,17 @@ private:
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>> bAtt;
 
     std::vector<pluto::LfoDisplay*> lfoDisplays;
+    std::vector<WavePreview*> previews;
+    std::vector<juce::ComboBox*> tableBoxes;
+    std::array<juce::Rectangle<int>, pluto::numOsc> oscRects;
+    int dropOsc = -1, lastUserCounter = -1;
+    std::unique_ptr<juce::FileChooser> chooser;
+
+    int oscAt (int x, int y) const;
+    void setDropTarget (int osc);
+    void loadWavetable (int osc, const juce::File& f);
+    void openWavetableChooser (int osc);
+    void updateTableTooltips();
     juce::ComboBox* presetBox = nullptr;
     int lastPresetCounter = -1;
 

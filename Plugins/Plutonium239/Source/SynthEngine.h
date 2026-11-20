@@ -19,6 +19,8 @@ struct OscP
 {
     int wave = 0, wt = 0, keyMode = 0, sync = -1, dest = -1, fmType = 0, fdest = -1;
     float pitch = 0.0f;  // Oct/Semi/Cent/Coarse zusammen in Halbtoenen
+    int pdMode = 0;
+    float wtPos = 0.0f, pdAmt = 0.0f;
     float fineHz = 0.0f, pwm = 0.0f, a = 2, d = 400, s = 1, r = 150, lvl = 0.8f, fm = 0.3f, fb = 0.0f;
 };
 struct FiltP { bool on = true; int type = 1; float cut = 24, res = 0, mix = 1, drive = 0, pan = 0, xpan = 0, lvl = 0.8f; };
@@ -35,7 +37,7 @@ struct Patch
 // Modulationswerte der LFOs fuer den aktuellen Teilblock
 struct ModVals
 {
-    float pitch[numOsc] {}, fm[numOsc] {}, pwm[numOsc] {}, lvl[numOsc] {};
+    float pitch[numOsc] {}, fm[numOsc] {}, pwm[numOsc] {}, wtpos[numOsc] {}, pd[numOsc] {}, lvl[numOsc] {};
     float cut[numFilt] {}, res[numFilt] {}, mix[numFilt] {}, pan[numFilt] {};
     float mpitch = 0, mvol = 0;
     void clear() { *this = ModVals(); }
@@ -181,9 +183,9 @@ struct VoiceFilter
                 combW = (combW + 1) & (combSize - 1);
                 // DC-Blocker (Kammfilter verstaerkt sonst Gleichanteile)
                 const float o = y * combNorm;
-                const float hp = o - dcX + 0.9974f * dcY;
-                dcX = o; dcY = hp;
-                return hp;
+                const float dcOut = o - dcX + 0.9974f * dcY;
+                dcX = o; dcY = dcOut;
+                return dcOut;
             }
             case Formant:
             {
@@ -293,7 +295,10 @@ public:
     std::atomic<float> lfoDisplay[numLfo] {};   // aktueller LFO-Wert fuer die Anzeige
     std::atomic<float> lfoPhaseDisplay[numLfo] {};
 
-    explicit SynthEngine (const WavetableBank& b) : bank (b) {}
+    explicit SynthEngine (const WavetableBank& b) : bank (b) { for (auto& u : userTables) u.store (nullptr); }
+
+    // eigene Wavetables pro Oszillator (vom Editor/Processor gesetzt, Audio-Thread liest nur)
+    std::atomic<const WtTable*> userTables[numOsc];
 
     void prepare (double sampleRate)
     {
@@ -431,6 +436,8 @@ private:
             case tPitch: mod.pitch[t.index] += amt * 24.0f; break;
             case tFm:    mod.fm[t.index] += amt; break;
             case tPwm:   mod.pwm[t.index] += amt; break;
+            case tWtPos: mod.wtpos[t.index] += amt; break;
+            case tPd:    mod.pd[t.index] += amt; break;
             case tLevel: mod.lvl[t.index] += amt; break;
             case tCut:   mod.cut[t.index] += amt * 6.0f; break; // Oktaven
             case tRes:   mod.res[t.index] += amt; break;
@@ -470,11 +477,15 @@ private:
         const float masterPitch = patch.m.pitch + mod.mpitch + bend * (float) patch.m.bend;
 
         // pro Oszillator: FM-Tiefe, PWM, Pegel
-        float depth[numOsc] {}, pwm[numOsc] {}, lvl[numOsc] {};
+        float depth[numOsc] {}, pwm[numOsc] {}, lvl[numOsc] {}, wtp[numOsc] {}, pdA[numOsc] {};
+        const WtTable* ut[numOsc] {};
         for (int o = 0; o < numOsc; ++o)
         {
             const auto& p = patch.o[(size_t) o];
             pwm[o] = juce::jlimit (0.0f, 1.0f, p.pwm + mod.pwm[o]);
+            wtp[o] = juce::jlimit (0.0f, 1.0f, p.wtPos + mod.wtpos[o]);
+            pdA[o] = p.pdAmt + mod.pd[o];
+            ut[o] = userTables[o].load (std::memory_order_acquire);
             lvl[o] = juce::jlimit (0.0f, 1.0f, p.lvl + mod.lvl[o]);
             if (! isCarrier (o))
             {
@@ -486,7 +497,7 @@ private:
         for (auto& v : voices)
         {
             if (! v.active()) continue;
-            renderVoice (v, L, R, n, glideCoef, masterPitch, depth, pwm, lvl);
+            renderVoice (v, L, R, n, glideCoef, masterPitch, depth, pwm, lvl, wtp, pdA, ut);
         }
 
         // Master
@@ -510,7 +521,8 @@ private:
     }
 
     void renderVoice (Voice& v, float* L, float* R, int n, double glideCoef, float masterPitch,
-                      const float* depth, const float* pwm, const float* lvl)
+                      const float* depth, const float* pwm, const float* lvl,
+                      const float* wtp, const float* pdA, const WtTable* const* ut)
     {
         v.curNote = (float) (v.targetNote + (v.curNote - v.targetNote) * glideCoef);
         if (std::abs (v.curNote - v.targetNote) < 0.001f) v.curNote = v.targetNote;
@@ -562,16 +574,22 @@ private:
                 if (! used[o]) continue;
                 const auto& p = patch.o[(size_t) o];
 
-                // FM-Eingaenge
-                double rel = 1.0, logOct = 0.0;
+                // FM-Eingaenge: Lin/Log aendern die Frequenz, PM verschiebt die Phase, PD steuert die Phase Distortion
+                double rel = 1.0, logOct = 0.0, pmOff = 0.0;
+                float pdMod = 0.0f;
                 for (int k = 0; k < srcCount[o]; ++k)
                 {
                     const int s = srcList[o][k];
                     float sig = s < o ? v.out[s] : v.prevOut[s];
                     const int t = patch.o[(size_t) s].fmType;
-                    if (t == 1 || t == 3) sig = (sig + 1.0f) * 0.5f;
-                    if (t <= 1) rel += (double) (sig * depth[s] * 8.0f);
-                    else        logOct += (double) (sig * depth[s] * 4.0f);
+                    if (t & 1) sig = (sig + 1.0f) * 0.5f;    // "+"-Varianten: nur positiv
+                    switch (t >> 1)
+                    {
+                        case 0: rel += (double) (sig * depth[s] * 8.0f); break;
+                        case 1: logOct += (double) (sig * depth[s] * 4.0f); break;
+                        case 2: pmOff += (double) (sig * depth[s] * 2.0f); break;
+                        default: pdMod += sig * depth[s] * 1.5f; break;
+                    }
                 }
                 double dInc = inc[o] * rel;
                 if (logOct != 0.0) dInc *= std::exp2 (logOct);
@@ -591,17 +609,21 @@ private:
                 v.prevWrapped[o] = v.wrapped[o];
                 v.wrapped[o] = wrap;
 
-                // Feedback (Phasenmodulation, gemittelt gegen Flattern)
-                double rp = ph;
+                // Feedback (Phasenmodulation, gemittelt gegen Flattern) + PM von anderen Oszillatoren
+                double rp = ph + pmOff;
                 if (! isCarrier (o) && p.fb > 0.0f)
-                {
                     rp += (double) (p.fb * p.fb * 0.3f * (v.prevOut[o] + v.prevOut2[o]));
-                    rp -= std::floor (rp);
-                }
+                rp -= std::floor (rp);
+
+                // Phase Distortion
+                const double pdD = juce::jlimit (0.0, 1.0, (double) (pdA[o] + pdMod));
+                const bool reso = pdIsReso (p.pdMode);
+                if (p.pdMode != pdOff && ! reso) rp = pdWarp (p.pdMode, pdD, rp);
 
                 const double dt = std::abs (dInc);
                 float w;
-                switch (p.wave)
+                if (reso) w = pdReso (p.pdMode, pdD, rp);
+                else switch (p.wave)
                 {
                     case 0: w = std::sin (juce::MathConstants<float>::twoPi * (float) rp); break;
                     case 1:
@@ -623,7 +645,10 @@ private:
                         w -= (float) (2.0 * pw - 1.0);
                         break;
                     }
-                    default: w = bank.read (p.wt, pwm[o], rp, dt); break;
+                    default:
+                        w = (p.wt == userTableIndex && ut[o] != nullptr) ? ut[o]->read (wtp[o], rp, dt)
+                                                                         : bank.read (p.wt, wtp[o], rp, dt);
+                        break;
                 }
 
                 const float e = v.env[o].next();

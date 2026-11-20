@@ -39,10 +39,20 @@ public:
     pluto::SynthEngine engine;
     std::atomic<int> presetChanged { 0 };
 
+    // Eigene Wavetables (Drag & Drop auf ein Oszillator-Feld)
+    bool loadUserWavetable (int osc, const juce::File& file, juce::String& error);
+    void setUserTable (int osc, std::unique_ptr<pluto::WtTable> table, const juce::String& name);
+    juce::String getUserTableName (int osc) const { return userNames[osc]; }
+    const pluto::WtTable* getUserTable (int osc) const { return engine.userTables[osc].load(); }
+    std::atomic<int> userTablesChanged { 0 };
+
 private:
     int currentPreset = 0;
+    std::unique_ptr<pluto::WtTable> userOwned[pluto::numOsc];
+    std::vector<std::unique_ptr<pluto::WtTable>> retiredTables; // bleiben am Leben, falls Audio-Thread noch liest
+    juce::String userNames[pluto::numOsc];
 
-    struct OscPtrs { std::atomic<float> *wave, *wt, *oct, *semi, *cent, *pwm, *fine, *coarse, *a, *d, *s, *r, *lvl, *key, *sync,
+    struct OscPtrs { std::atomic<float> *wave, *wt, *oct, *semi, *cent, *pwm, *wtpos, *pdmode, *pdamt, *fine, *coarse, *a, *d, *s, *r, *lvl, *key, *sync,
                                         *dest = nullptr, *fmtype = nullptr, *fmamt = nullptr, *fmfine = nullptr, *fb = nullptr, *fdest = nullptr; };
     struct FiltPtrs { std::atomic<float> *on, *type, *cut, *res, *mix, *drive, *pan, *xpan, *lvl; };
     struct LfoPtrs { std::atomic<float> *shape, *rate, *sync, *div, *retrig, *tA, *aA, *tB, *aB; };
