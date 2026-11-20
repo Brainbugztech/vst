@@ -40,6 +40,13 @@ void WavePreview::paint (juce::Graphics& g)
     g.drawHorizontalLine ((int) b.getCentreY(), 0, b.getWidth());
     g.setColour (col::textDark);
     g.strokePath (p, PathStrokeType (1.2f));
+    if (w == 4 && (int) wt.value == pluto::userTableIndex)
+    {
+        const auto n = userName ? userName() : String();
+        g.setFont (PlutoLook::font (8.5f));
+        g.setColour (n.isEmpty() ? col::red : col::textDark);
+        g.drawText (n.isEmpty() ? "leer" : n, b.reduced (1, 0), Justification::bottomLeft, true);
+    }
     g.setColour (col::border);
     g.drawRect (b, 1.0f);
 }
@@ -74,14 +81,6 @@ void PlutoEditor::Content::paint (juce::Graphics& g)
         g.drawText (nameTexts[i], nameBoxes[(size_t) i], Justification::centred);
     }
 
-    if (! dropHighlight.isEmpty())
-    {
-        g.setColour (col::cyan.withAlpha (0.18f));
-        g.fillRect (dropHighlight);
-        g.setColour (col::cyan);
-        g.drawRect (dropHighlight, 2);
-    }
-
     // Titel
     g.setColour (col::cyan);
     g.setFont (PlutoLook::font (19.0f, true));
@@ -89,6 +88,33 @@ void PlutoEditor::Content::paint (juce::Graphics& g)
     g.setColour (col::text.withAlpha (0.45f));
     g.setFont (PlutoLook::font (10.0f));
     g.drawText ("Brain Bugz", getWidth() - 110, 5, 98, 24, Justification::centredRight);
+}
+
+void PlutoEditor::Overlay::paint (juce::Graphics& g)
+{
+    using namespace juce;
+    for (int o = 0; o < pluto::numOsc; ++o)
+    {
+        if (! muted[(size_t) o]) continue;
+        auto r = panels[(size_t) o];
+        g.setColour (Colours::black.withAlpha (0.38f));
+        g.fillRect (r);
+        auto tag = Rectangle<int> (r.getRight() - 70, r.getY() + 1, 68, 13);
+        g.setColour (Colour (0xff222222));
+        g.fillRect (tag);
+        g.setColour (Colour (0xffff9a3e));
+        g.setFont (PlutoLook::font (10.0f));
+        g.drawText (pluto::isCarrier (o) ? "stumm: Filter Off" : "stumm: kein Ziel", tag, Justification::centred);
+    }
+    if (! dropHighlight.isEmpty())
+    {
+        g.setColour (col::cyan.withAlpha (0.22f));
+        g.fillRect (dropHighlight);
+        g.setColour (col::cyan);
+        g.drawRect (dropHighlight, 2);
+        g.setFont (PlutoLook::font (14.0f, true));
+        g.drawText (dropText, dropHighlight, Justification::centred);
+    }
 }
 
 // ---------------- Bausteine ----------------
@@ -183,10 +209,15 @@ PlutoEditor::PlutoEditor (PlutoProcessor& p) : AudioProcessorEditor (&p), proc (
     buildSync (856, 640);
     buildMaster (856, 855);
 
+    content.addAndMakeVisible (overlay);
+    overlay.setBounds (0, 0, baseW, baseH);
+    overlay.toFront (false);
+
     setResizable (true, true);
     getConstrainer()->setFixedAspectRatio ((double) baseW / (double) baseH);
     setResizeLimits (baseW / 2, baseH / 2, (int) (baseW * 1.6), (int) (baseH * 1.6));
     setSize ((int) (baseW * 0.85), (int) (baseH * 0.85));
+    updateMuted();
     startTimerHz (30);
 }
 
@@ -267,7 +298,11 @@ void PlutoEditor::buildOsc (int o, int x, int y)
     vSlider (oid (o, "coarse"), { x + 164, y + 26, 28, 80 }, true);
 
     // Wavetable: Tabelle, Vorschau, Position
-    auto* wt = combo (oid (o, "wt"), { x + 196, y + 14, 72, 16 });
+    auto* wt = combo (oid (o, "wt"), { x + 196, y + 14, 56, 16 });
+    auto* load = own (new juce::TextButton ("+"));
+    load->setBounds (x + 253, y + 14, 15, 16);
+    load->setTooltip ("Eigene Wavetable laden (.wav/.aif/.flac) - oder Datei aufs Oszillator-Feld ziehen");
+    load->onClick = [this, o] { openWavetableChooser (o); };
     tableBoxes.push_back (wt);
     auto* prev = own (new WavePreview (proc.apvts, o));
     prev->setBounds (x + 196, y + 33, 36, 38);
@@ -281,6 +316,7 @@ void PlutoEditor::buildOsc (int o, int x, int y)
         return proc.bank->readDisplay (table, pos, ph);
     };
     prev->onLoadRequest = [this, o] { openWavetableChooser (o); };
+    prev->userName = [this, o] { return proc.getUserTableName (o); };
     previews.push_back (prev);
     auto* pos = knob (oid (o, "wtpos"), { x + 234, y + 31, 34, 40 }, "Pos", false);
 
@@ -299,6 +335,7 @@ void PlutoEditor::buildOsc (int o, int x, int y)
     update (ws->current());
 
     oscRects[(size_t) o] = { x, y, 272, 186 };
+    overlay.panels[(size_t) o] = { x, y, 272, carrier ? 236 : 256 };
 
     auto* env = own (new EnvDisplay (proc.apvts, o));
     env->setBounds (x + 4, y + 109, 264, 73);
@@ -440,15 +477,14 @@ void PlutoEditor::setDropTarget (int osc)
 {
     if (osc == dropOsc) return;
     dropOsc = osc;
-    content.dropHighlight = osc >= 0 ? oscRects[(size_t) osc] : juce::Rectangle<int>();
-    content.repaint();
+    overlay.dropHighlight = osc >= 0 ? oscRects[(size_t) osc] : juce::Rectangle<int>();
+    overlay.dropText = osc >= 0 ? "Wavetable -> " + oscNames()[osc] : juce::String();
+    overlay.repaint();
 }
 
 bool PlutoEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
-    for (auto& f : files)
-        if (juce::File (f).hasFileExtension ("wav;aif;aiff;flac")) return true;
-    return false;
+    return ! files.isEmpty();
 }
 
 void PlutoEditor::fileDragMove (const juce::StringArray&, int x, int y) { setDropTarget (oscAt (x, y)); }
@@ -457,7 +493,13 @@ void PlutoEditor::filesDropped (const juce::StringArray& files, int x, int y)
 {
     const int o = oscAt (x, y);
     setDropTarget (-1);
-    if (o < 0 || files.isEmpty()) return;
+    if (files.isEmpty()) return;
+    if (o < 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Wavetable",
+            "Bitte direkt auf ein Oszillator-Feld (Modulator oder Carrier) ziehen.");
+        return;
+    }
     loadWavetable (o, juce::File (files[0]));
 }
 
@@ -479,6 +521,30 @@ void PlutoEditor::openWavetableChooser (int osc)
                           });
 }
 
+void PlutoEditor::updateMuted()
+{
+    // gleiche Logik wie in der Engine: hoerbar = Carrier mit Filterziel oder (indirekt) Modulator/Sync-Quelle davon
+    auto val = [this] (const juce::String& id) { return (int) std::lround (proc.apvts.getRawParameterValue (id)->load()); };
+    bool used[numOsc] {};
+    int dest[numOsc], sync[numOsc];
+    for (int o = 0; o < numOsc; ++o)
+    {
+        dest[o] = isCarrier (o) ? -1 : otherOscIndexToOsc (o, val (oid (o, "dest")));
+        sync[o] = otherOscIndexToOsc (o, val (oid (o, "sync")));
+        used[o] = isCarrier (o) && val (oid (o, "fdest")) < 3;
+    }
+    for (int it = 0; it < numOsc; ++it)
+        for (int o = 0; o < numOsc; ++o)
+        {
+            if (dest[o] >= 0 && used[dest[o]]) used[o] = true;
+            if (used[o] && sync[o] >= 0) used[sync[o]] = true;
+        }
+    bool changed = false;
+    for (int o = 0; o < numOsc; ++o)
+        if (overlay.muted[(size_t) o] != ! used[o]) { overlay.muted[(size_t) o] = ! used[o]; changed = true; }
+    if (changed) overlay.repaint();
+}
+
 void PlutoEditor::updateTableTooltips()
 {
     for (int o = 0; o < (int) tableBoxes.size(); ++o)
@@ -491,6 +557,7 @@ void PlutoEditor::updateTableTooltips()
 
 void PlutoEditor::timerCallback()
 {
+    updateMuted();
     const int uc = proc.userTablesChanged.load();
     if (uc != lastUserCounter) { lastUserCounter = uc; updateTableTooltips(); }
     for (int l = 0; l < (int) lfoDisplays.size(); ++l)

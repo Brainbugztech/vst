@@ -12,6 +12,7 @@ class WavePreview : public juce::Component, public juce::SettableTooltipClient
 public:
     std::function<float (int table, float pos, float phase)> reader;
     std::function<void()> onLoadRequest;
+    std::function<juce::String()> userName;
 
     WavePreview (juce::AudioProcessorValueTreeState& s, int osc)
     {
@@ -60,14 +61,26 @@ private:
         std::vector<BoxItem> boxes;
         std::vector<TextItem> texts;
         std::vector<juce::Rectangle<int>> nameBoxes;
-        juce::Rectangle<int> dropHighlight;
         juce::StringArray nameTexts;
+        void paint (juce::Graphics&) override;
+    };
+
+    // liegt ueber allen Reglern: graut stumme Oszillatoren aus, zeigt Drop-Ziel (faengt keine Klicks ab)
+    class Overlay : public juce::Component
+    {
+    public:
+        Overlay() { setInterceptsMouseClicks (false, false); }
+        std::array<juce::Rectangle<int>, pluto::numOsc> panels;
+        std::array<bool, pluto::numOsc> muted {};
+        juce::Rectangle<int> dropHighlight;
+        juce::String dropText;
         void paint (juce::Graphics&) override;
     };
 
     PlutoProcessor& proc;
     pluto::PlutoLook look;
     Content content;
+    Overlay overlay;
     juce::TooltipWindow tooltips { this, 700 };
 
     juce::OwnedArray<juce::Component> owned;
@@ -87,6 +100,7 @@ private:
     void loadWavetable (int osc, const juce::File& f);
     void openWavetableChooser (int osc);
     void updateTableTooltips();
+    void updateMuted();
     juce::ComboBox* presetBox = nullptr;
     int lastPresetCounter = -1;
 
