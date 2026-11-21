@@ -3,11 +3,14 @@ name: Build Touch Me! (macOS)
 # Mac-Version von BrainBugz Touch Me!: VST3 + AU als Universal Binary (Apple Silicon + Intel)
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'claude/touchme-**' ]
     paths: [ 'Plugins/TouchMe/**', '.github/workflows/touchme-mac.yml' ]
   pull_request:
     paths: [ 'Plugins/TouchMe/**', '.github/workflows/touchme-mac.yml' ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   mac:
@@ -26,6 +29,20 @@ jobs:
 
       - name: Bauen (VST3 + AU)
         run: cmake --build build --config Release --target BrainbugzTouchMe_VST3 BrainbugzTouchMe_AU --parallel 4 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
+
+      - name: Build-Fehler auf Branch "touchme-mac-log" ablegen
+        if: failure()
+        run: |
+          mkdir logpub
+          grep -E "error|fatal" build.log | sort -u | head -200 > logpub/errors.txt || true
+          tail -300 build.log > logpub/tail.txt || true
+          echo "Commit: $GITHUB_SHA" > logpub/info.txt
+          cd logpub
+          git init -q -b touchme-mac-log
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -q -m "Mac-Build-Log ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" touchme-mac-log
 
       - name: Einsammeln und ad-hoc signieren
         run: |
@@ -65,3 +82,14 @@ jobs:
         with:
           name: BrainBugz-TouchMe-macOS
           path: out/BrainBugz-TouchMe-macOS.zip
+
+      - name: Auf Branch "touchme-mac-build" ablegen
+        run: |
+          mkdir pub && cp out/BrainBugz-TouchMe-macOS.zip pub/
+          echo "Commit: $GITHUB_SHA" > pub/info.txt
+          cd pub
+          git init -q -b touchme-mac-build
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -q -m "Mac-Build ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" touchme-mac-build
