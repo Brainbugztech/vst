@@ -69,8 +69,9 @@ void PlutoProcessor::buildPatch (Patch& p) const
         auto& d = p.o[(size_t) o];
         d.wave = I (x.wave); d.wt = I (x.wt); d.keyMode = I (x.key);
         d.sync = otherOscIndexToOsc (o, I (x.sync));
-        d.pitch = (float) I (x.oct) * 12.0f + (float) I (x.semi) + Fv (x.cent) * 0.01f + Fv (x.coarse);
-        d.fineHz = Fv (x.fine); d.pwm = Fv (x.pwm); d.wtPos = Fv (x.wtpos); d.pdMode = I (x.pdmode); d.pdAmt = Fv (x.pdamt);
+        // Fine = Cent (100 = 1 Halbton), Coarse = stufenlose Tonhoehe in Halbtoenen
+        d.pitch = (float) I (x.oct) * 12.0f + (float) I (x.semi) + (Fv (x.cent) + Fv (x.fine)) * 0.01f + Fv (x.coarse);
+        d.fineHz = 0.0f; d.pwm = Fv (x.pwm); d.wtPos = Fv (x.wtpos); d.pdMode = I (x.pdmode); d.pdAmt = Fv (x.pdamt);
         d.a = Fv (x.a); d.d = Fv (x.d); d.s = Fv (x.s); d.r = Fv (x.r); d.lvl = Fv (x.lvl);
         if (! isCarrier (o))
         {
@@ -167,6 +168,32 @@ bool PlutoProcessor::loadUserWavetable (int osc, const juce::File& file, juce::S
     setP (oid (osc, "wave"), 4.0f);
     setP (oid (osc, "wt"), (float) userTableIndex);
     return true;
+}
+
+juce::PropertiesFile& PlutoProcessor::getSettings()
+{
+    if (settings == nullptr)
+    {
+        juce::PropertiesFile::Options o;
+        o.applicationName = "Plutonium239";
+        o.folderName = "Brain Bugz";
+        o.filenameSuffix = ".settings";
+        o.osxLibrarySubFolder = "Application Support";
+        settings = std::make_unique<juce::PropertiesFile> (o);
+    }
+    return *settings;
+}
+
+juce::File PlutoProcessor::getWavetableFolder()
+{
+    const auto path = getSettings().getValue ("wtFolder");
+    return path.isNotEmpty() ? juce::File (path) : juce::File();
+}
+
+void PlutoProcessor::setWavetableFolder (const juce::File& dir)
+{
+    getSettings().setValue ("wtFolder", dir.getFullPathName());
+    getSettings().saveIfNeeded();
 }
 
 void PlutoProcessor::setUserTable (int osc, std::unique_ptr<WtTable> table, const juce::String& name)

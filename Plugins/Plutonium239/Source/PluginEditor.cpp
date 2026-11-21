@@ -2,6 +2,7 @@
 
 using namespace pluto;
 using juce::Rectangle;
+#include <map>
 
 // ---------------- Wellenform-Vorschau ----------------
 void WavePreview::paint (juce::Graphics& g)
@@ -14,32 +15,71 @@ void WavePreview::paint (juce::Graphics& g)
     const float pw = pwm.value;
     const int pm = (int) pdmode.value;
     const double pd = pdamt.value;
-    Path p;
-    const int n = 96;
-    for (int i = 0; i <= n; ++i)
+    const bool isWt = w == 4;
+
+    auto sample = [&] (float x0, float framePos) -> float
     {
-        const float x0 = (float) i / n;
-        float v;
-        if (pluto::pdIsReso (pm)) v = pluto::pdReso (pm, pd, x0);
-        else
+        if (pluto::pdIsReso (pm)) return pluto::pdReso (pm, pd, x0);
+        const float x = (float) pluto::pdWarp (pm, pm == pluto::pdOff ? 0.0 : pd, x0);
+        switch (w)
         {
-            const float x = (float) pluto::pdWarp (pm, pm == pluto::pdOff ? 0.0 : pd, x0);
-            switch (w)
-            {
-                case 0: v = std::sin (MathConstants<float>::twoPi * x); break;
-                case 1: { const float sk = 0.5f - pw * 0.49f; const float t = x < sk ? x / sk : 1.0f - (x - sk) / (1.0f - sk); v = 2 * t - 1; break; }
-                case 2: v = 2 * x - 1; break;
-                case 3: v = x < 0.5f - pw * 0.45f ? 1.0f : -1.0f; break;
-                default: v = reader ? reader ((int) wt.value, wtpos.value, x) : 0.0f; break;
-            }
+            case 0: return std::sin (MathConstants<float>::twoPi * x);
+            case 1: { const float sk = 0.5f - pw * 0.49f; const float t = x < sk ? x / sk : 1.0f - (x - sk) / (1.0f - sk); return 2 * t - 1; }
+            case 2: return 2 * x - 1;
+            case 3: return x < 0.5f - pw * 0.45f ? 1.0f : -1.0f;
+            default: return reader ? reader ((int) wt.value, framePos, x) : 0.0f;
         }
-        const float px = 2 + x0 * (b.getWidth() - 4), py = b.getCentreY() - v * (b.getHeight() * 0.5f - 3);
-        if (i == 0) p.startNewSubPath (px, py); else p.lineTo (px, py);
+    };
+
+    // Bei WT: mehrere Frames schraeg gestaffelt (wie bei Serum), aktueller Frame dunkel
+    const int stack = isWt ? 14 : 1;
+    const float dx = isWt ? 2.6f : 0.0f, dy = isWt ? 2.1f : 0.0f;
+    const float w0 = b.getWidth() - 8 - dx * (float) (stack - 1);
+    const float h0 = (b.getHeight() - 12 - dy * (float) (stack - 1)) * 0.5f;
+    auto drawFrame = [&] (float framePos, float ox, float oy, Colour c, float thick)
+    {
+        Path p;
+        const int n = 110;
+        const float cy = b.getBottom() - 6 - h0 - oy;
+        for (int i = 0; i <= n; ++i)
+        {
+            const float x0 = (float) i / n;
+            const float v = jlimit (-1.2f, 1.2f, sample (x0, framePos));
+            const float px = 4 + ox + x0 * w0, py = cy - v * h0;
+            if (i == 0) p.startNewSubPath (px, py); else p.lineTo (px, py);
+        }
+        g.setColour (c);
+        g.strokePath (p, PathStrokeType (thick));
+    };
+
+    if (isWt)
+        for (int k = stack - 1; k >= 0; --k)
+        {
+            const float fp = (float) k / (float) (stack - 1);
+            drawFrame (fp, dx * (float) k, dy * (float) k, col::teal.withAlpha (0.35f), 1.0f);
+        }
+    const float cur = isWt ? wtpos.value : 0.0f;
+    const float ck = cur * (float) (stack - 1);
+    drawFrame (cur, dx * ck, dy * ck, col::textDark, 1.6f);
+
+    // Beschriftung
+    g.setFont (PlutoLook::font (9.5f));
+    g.setColour (col::textDark.withAlpha (0.75f));
+    String label;
+    if (isWt)
+    {
+        String n = wavetableNames()[(int) wt.value];
+        if ((int) wt.value == pluto::userTableIndex)
+        {
+            const auto un = userName ? userName() : String();
+            n = un.isNotEmpty() ? un : "User (leer: + druecken)";
+        }
+        label = n + "  " + String (cur, 2);
     }
-    g.setColour (col::teal.withAlpha (0.3f));
-    g.drawHorizontalLine ((int) b.getCentreY(), 0, b.getWidth());
-    g.setColour (col::textDark);
-    g.strokePath (p, PathStrokeType (1.2f));
+    else label = waveNames()[w];
+    if (pm != pluto::pdOff) label += "  PD " + pluto::pdModeNames()[pm];
+    g.drawText (label, b.reduced (3, 1), Justification::topLeft, true);
+
     g.setColour (col::border);
     g.drawRect (b, 1.0f);
 }
@@ -74,14 +114,6 @@ void PlutoEditor::Content::paint (juce::Graphics& g)
         g.drawText (nameTexts[i], nameBoxes[(size_t) i], Justification::centred);
     }
 
-    if (! dropHighlight.isEmpty())
-    {
-        g.setColour (col::cyan.withAlpha (0.18f));
-        g.fillRect (dropHighlight);
-        g.setColour (col::cyan);
-        g.drawRect (dropHighlight, 2);
-    }
-
     // Titel
     g.setColour (col::cyan);
     g.setFont (PlutoLook::font (19.0f, true));
@@ -89,6 +121,33 @@ void PlutoEditor::Content::paint (juce::Graphics& g)
     g.setColour (col::text.withAlpha (0.45f));
     g.setFont (PlutoLook::font (10.0f));
     g.drawText ("Brain Bugz", getWidth() - 110, 5, 98, 24, Justification::centredRight);
+}
+
+void PlutoEditor::Overlay::paint (juce::Graphics& g)
+{
+    using namespace juce;
+    for (int o = 0; o < pluto::numOsc; ++o)
+    {
+        if (! muted[(size_t) o]) continue;
+        auto r = panels[(size_t) o];
+        g.setColour (Colours::black.withAlpha (0.38f));
+        g.fillRect (r);
+        auto tag = Rectangle<int> (r.getRight() - 70, r.getY() + 1, 68, 13);
+        g.setColour (Colour (0xff222222));
+        g.fillRect (tag);
+        g.setColour (Colour (0xffff9a3e));
+        g.setFont (PlutoLook::font (10.0f));
+        g.drawText (pluto::isCarrier (o) ? "stumm: Filter Off" : "stumm: kein Ziel", tag, Justification::centred);
+    }
+    if (! dropHighlight.isEmpty())
+    {
+        g.setColour (col::cyan.withAlpha (0.22f));
+        g.fillRect (dropHighlight);
+        g.setColour (col::cyan);
+        g.drawRect (dropHighlight, 2);
+        g.setFont (PlutoLook::font (14.0f, true));
+        g.drawText (dropText, dropHighlight, Justification::centred);
+    }
 }
 
 // ---------------- Bausteine ----------------
@@ -110,15 +169,10 @@ juce::Slider* PlutoEditor::knob (const juce::String& id, Rectangle<int> r, const
     return s;
 }
 
-juce::Slider* PlutoEditor::vSlider (const juce::String& id, Rectangle<int> r, bool textBox)
+juce::Component* PlutoEditor::vSlider (const juce::String& id, Rectangle<int> r, bool textBox)
 {
-    auto* s = own (new juce::Slider (juce::Slider::LinearVertical, textBox ? juce::Slider::TextBoxBelow : juce::Slider::NoTextBox));
-    if (textBox) s->setTextBoxStyle (juce::Slider::TextBoxBelow, false, r.getWidth(), 12);
-    else s->setPopupDisplayEnabled (true, true, nullptr);
+    auto* s = own (new DragSlider (proc.apvts, id, textBox));
     s->setBounds (r);
-    sAtt.push_back (std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, id, *s));
-    if (auto* p = proc.apvts.getParameter (id)) s->setDoubleClickReturnValue (true, p->convertFrom0to1 (p->getDefaultValue()));
-    s->setTooltip (proc.apvts.getParameter (id)->getName (64));
     return s;
 }
 
@@ -183,10 +237,15 @@ PlutoEditor::PlutoEditor (PlutoProcessor& p) : AudioProcessorEditor (&p), proc (
     buildSync (856, 640);
     buildMaster (856, 855);
 
+    content.addAndMakeVisible (overlay);
+    overlay.setBounds (0, 0, baseW, baseH);
+    overlay.toFront (false);
+
     setResizable (true, true);
     getConstrainer()->setFixedAspectRatio ((double) baseW / (double) baseH);
     setResizeLimits (baseW / 2, baseH / 2, (int) (baseW * 1.6), (int) (baseH * 1.6));
     setSize ((int) (baseW * 0.85), (int) (baseH * 0.85));
+    updateMuted();
     startTimerHz (30);
 }
 
@@ -266,32 +325,36 @@ void PlutoEditor::buildOsc (int o, int x, int y)
     text ({ x + 162, y + 14, 32, 11 }, "Coarse");
     vSlider (oid (o, "coarse"), { x + 164, y + 26, 28, 80 }, true);
 
-    // Wavetable: Tabelle, Vorschau, Position
-    auto* wt = combo (oid (o, "wt"), { x + 196, y + 14, 72, 16 });
-    tableBoxes.push_back (wt);
-    auto* prev = own (new WavePreview (proc.apvts, o));
-    prev->setBounds (x + 196, y + 33, 36, 38);
-    prev->reader = [this, o] (int table, float pos, float ph)
+    // Wavetable: Tabelle (+ eigener Ordner), Position, Phase Distortion
+    auto* wt = own (new TableSelector());
+    wt->setBounds (x + 196, y + 14, 56, 16);
+    wt->currentName = [this, o]
     {
-        if (table == userTableIndex)
+        const int t = (int) std::lround (proc.apvts.getRawParameterValue (oid (o, "wt"))->load());
+        if (t == userTableIndex)
         {
-            if (auto* t = proc.getUserTable (o)) return t->read (pos, ph, 0.0);
-            return 0.0f;
+            const auto n = proc.getUserTableName (o);
+            return n.isNotEmpty() ? n : juce::String ("User (leer)");
         }
-        return proc.bank->readDisplay (table, pos, ph);
+        return wavetableNames()[t];
     };
-    prev->onLoadRequest = [this, o] { openWavetableChooser (o); };
-    previews.push_back (prev);
-    auto* pos = knob (oid (o, "wtpos"), { x + 234, y + 31, 34, 40 }, "Pos", false);
+    wt->onClick = [this, o, wt] { showTableMenu (o, wt); };
+    wt->setTooltip ("Wavetable waehlen: eingebaut oder aus deinem Ordner");
+    tableBoxes[(size_t) o] = wt;
+    wt->watch (proc.apvts, oid (o, "wt"));
+    auto* load = own (new juce::TextButton ("+"));
+    load->setBounds (x + 253, y + 14, 15, 16);
+    load->setTooltip ("Wavetable-Ordner verknuepfen oder einzelne Datei laden");
+    load->onClick = [this, o, load] { showPlusMenu (o, load); };
 
-    // Phase Distortion
-    text ({ x + 196, y + 74, 44, 11 }, "PD");
-    combo (oid (o, "pdmode"), { x + 196, y + 87, 46, 17 })->setTooltip ("Phase Distortion (CZ-Stil)");
-    knob (oid (o, "pdamt"), { x + 244, y + 73, 24, 33 }, "Amt", false);
+    auto* pos = knob (oid (o, "wtpos"), { x + 196, y + 32, 34, 48 }, "Pos", true);
+    knob (oid (o, "pdamt"), { x + 234, y + 32, 34, 48 }, "PD Amt", true);
+    combo (oid (o, "pdmode"), { x + 196, y + 86, 72, 17 })->setTooltip ("Phase Distortion (CZ-Stil): Modus waehlen, Staerke mit PD Amt");
 
     auto update = [wt, pos, pwLabel] (int w)
     {
         wt->setEnabled (w == 4);
+        wt->repaint();
         pos->setEnabled (w == 4);
         pwLabel->setText (w == 1 ? "Skew" : "PWM", juce::dontSendNotification);
     };
@@ -299,9 +362,29 @@ void PlutoEditor::buildOsc (int o, int x, int y)
     update (ws->current());
 
     oscRects[(size_t) o] = { x, y, 272, 186 };
+    overlay.panels[(size_t) o] = { x, y, 272, carrier ? 236 : 256 };
 
-    auto* env = own (new EnvDisplay (proc.apvts, o));
-    env->setBounds (x + 4, y + 109, 264, 73);
+    // grosse Wellen-Anzeige (statt Huellkurven-Grafik)
+    auto* prev = own (new WavePreview (proc.apvts, o));
+    prev->setBounds (x + 4, y + 109, 134, 73);
+    prev->reader = [this, o] (int table, float p0, float ph)
+    {
+        if (table == userTableIndex)
+        {
+            if (auto* t = proc.getUserTable (o)) return t->read (p0, ph, 0.0);
+            return 0.0f;
+        }
+        return proc.bank->readDisplay (table, p0, ph);
+    };
+    prev->onLoadRequest = [this, o, prev] { showPlusMenu (o, prev); };
+    prev->userName = [this, o] { return proc.getUserTableName (o); };
+    previews[(size_t) o] = prev;
+
+    // ADSR als Regler
+    knob (oid (o, "a"), { x + 140, y + 110, 32, 70 }, "A", true);
+    knob (oid (o, "d"), { x + 172, y + 110, 32, 70 }, "D", true);
+    knob (oid (o, "s"), { x + 204, y + 110, 32, 70 }, "S", true);
+    knob (oid (o, "r"), { x + 236, y + 110, 32, 70 }, "R", true);
 
     const int ry = y + 190;
     if (! carrier)
@@ -440,15 +523,14 @@ void PlutoEditor::setDropTarget (int osc)
 {
     if (osc == dropOsc) return;
     dropOsc = osc;
-    content.dropHighlight = osc >= 0 ? oscRects[(size_t) osc] : juce::Rectangle<int>();
-    content.repaint();
+    overlay.dropHighlight = osc >= 0 ? oscRects[(size_t) osc] : juce::Rectangle<int>();
+    overlay.dropText = osc >= 0 ? "Wavetable -> " + oscNames()[osc] : juce::String();
+    overlay.repaint();
 }
 
 bool PlutoEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
-    for (auto& f : files)
-        if (juce::File (f).hasFileExtension ("wav;aif;aiff;flac")) return true;
-    return false;
+    return ! files.isEmpty();
 }
 
 void PlutoEditor::fileDragMove (const juce::StringArray&, int x, int y) { setDropTarget (oscAt (x, y)); }
@@ -457,7 +539,13 @@ void PlutoEditor::filesDropped (const juce::StringArray& files, int x, int y)
 {
     const int o = oscAt (x, y);
     setDropTarget (-1);
-    if (o < 0 || files.isEmpty()) return;
+    if (files.isEmpty()) return;
+    if (o < 0)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Wavetable",
+            "Bitte direkt auf ein Oszillator-Feld (Modulator oder Carrier) ziehen.");
+        return;
+    }
     loadWavetable (o, juce::File (files[0]));
 }
 
@@ -479,18 +567,134 @@ void PlutoEditor::openWavetableChooser (int osc)
                           });
 }
 
+void PlutoEditor::rescanFolder (bool force)
+{
+    const auto dir = proc.getWavetableFolder();
+    if (! force && dir == scannedFolder) return;
+    scannedFolder = dir;
+    folderFiles.clear();
+    if (dir.isDirectory())
+    {
+        folderFiles = dir.findChildFiles (juce::File::findFiles, true, "*.wav;*.aif;*.aiff;*.flac");
+        struct Cmp { int compareElements (const juce::File& a, const juce::File& b) const { return a.getFullPathName().compareNatural (b.getFullPathName()); } } cmp;
+        folderFiles.sort (cmp);
+        if (folderFiles.size() > 2000) folderFiles.removeRange (2000, folderFiles.size());
+    }
+}
+
+void PlutoEditor::openFolderChooser()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Wavetable-Ordner verknuepfen", proc.getWavetableFolder());
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                          [this] (const juce::FileChooser& fc)
+                          {
+                              const auto d = fc.getResult();
+                              if (d.isDirectory()) { proc.setWavetableFolder (d); rescanFolder (true); }
+                          });
+}
+
+void PlutoEditor::showPlusMenu (int osc, juce::Component* target)
+{
+    juce::PopupMenu m;
+    const auto dir = proc.getWavetableFolder();
+    m.addSectionHeader (dir.isDirectory() ? "Ordner: " + dir.getFileName() : "Noch kein Ordner verknuepft");
+    m.addItem (1, "Wavetable-Ordner verknuepfen...");
+    m.addItem (2, "Einzelne Datei laden...");
+    m.addItem (3, "Ordner neu einlesen", dir.isDirectory());
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
+                     [this, osc] (int r)
+                     {
+                         if (r == 1) openFolderChooser();
+                         else if (r == 2) openWavetableChooser (osc);
+                         else if (r == 3) rescanFolder (true);
+                     });
+}
+
+void PlutoEditor::showTableMenu (int osc, juce::Component* target)
+{
+    rescanFolder (false);
+    juce::PopupMenu m;
+    const int cur = (int) std::lround (proc.apvts.getRawParameterValue (oid (osc, "wt"))->load());
+    m.addSectionHeader ("Eingebaut");
+    for (int i = 0; i < userTableIndex; ++i) m.addItem (1 + i, wavetableNames()[i], true, cur == i);
+
+    const auto dir = proc.getWavetableFolder();
+    const int fileBase = 1000;
+    if (dir.isDirectory())
+    {
+        m.addSectionHeader ("Ordner: " + dir.getFileName());
+        // Dateien nach Unterordnern gruppieren
+        std::map<juce::String, juce::PopupMenu> subs;
+        juce::StringArray order;
+        const auto curName = proc.getUserTableName (osc);
+        for (int i = 0; i < folderFiles.size(); ++i)
+        {
+            const auto& f = folderFiles.getReference (i);
+            const auto rel = f.getParentDirectory().getRelativePathFrom (dir);
+            const bool ticked = cur == userTableIndex && f.getFileNameWithoutExtension() == curName;
+            if (rel == "." || rel.isEmpty()) m.addItem (fileBase + i, f.getFileNameWithoutExtension(), true, ticked);
+            else
+            {
+                if (! order.contains (rel)) order.add (rel);
+                subs[rel].addItem (fileBase + i, f.getFileNameWithoutExtension(), true, ticked);
+            }
+        }
+        for (auto& r : order) m.addSubMenu (r, subs[r]);
+        if (folderFiles.isEmpty()) m.addItem (-1, "(keine .wav im Ordner)", false);
+    }
+    else
+        m.addItem (-1, "Kein Ordner: mit + verknuepfen", false);
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
+                     [this, osc, fileBase] (int r)
+                     {
+                         if (r >= 1 && r <= userTableIndex)
+                         {
+                             for (auto [id, v] : { std::pair<juce::String, float> { oid (osc, "wave"), 4.0f }, { oid (osc, "wt"), (float) (r - 1) } })
+                                 if (auto* p = proc.apvts.getParameter (id)) p->setValueNotifyingHost (p->convertTo0to1 (v));
+                         }
+                         else if (r >= fileBase && r - fileBase < folderFiles.size())
+                             loadWavetable (osc, folderFiles[r - fileBase]);
+                         if (r > 0) tableBoxes[(size_t) osc]->repaint();
+                     });
+}
+
+void PlutoEditor::updateMuted()
+{
+    // gleiche Logik wie in der Engine: hoerbar = Carrier mit Filterziel oder (indirekt) Modulator/Sync-Quelle davon
+    auto val = [this] (const juce::String& id) { return (int) std::lround (proc.apvts.getRawParameterValue (id)->load()); };
+    bool used[numOsc] {};
+    int dest[numOsc], sync[numOsc];
+    for (int o = 0; o < numOsc; ++o)
+    {
+        dest[o] = isCarrier (o) ? -1 : otherOscIndexToOsc (o, val (oid (o, "dest")));
+        sync[o] = otherOscIndexToOsc (o, val (oid (o, "sync")));
+        used[o] = isCarrier (o) && val (oid (o, "fdest")) < 3;
+    }
+    for (int it = 0; it < numOsc; ++it)
+        for (int o = 0; o < numOsc; ++o)
+        {
+            if (dest[o] >= 0 && used[dest[o]]) used[o] = true;
+            if (used[o] && sync[o] >= 0) used[sync[o]] = true;
+        }
+    bool changed = false;
+    for (int o = 0; o < numOsc; ++o)
+        if (overlay.muted[(size_t) o] != ! used[o]) { overlay.muted[(size_t) o] = ! used[o]; changed = true; }
+    if (changed) overlay.repaint();
+}
+
 void PlutoEditor::updateTableTooltips()
 {
-    for (int o = 0; o < (int) tableBoxes.size(); ++o)
+    for (int o = 0; o < numOsc; ++o)
     {
-        const auto n = proc.getUserTableName (o);
-        tableBoxes[(size_t) o]->setTooltip (n.isNotEmpty() ? "User: " + n : "Wavetable (eigene: .wav aufs Feld ziehen)");
+        tableBoxes[(size_t) o]->repaint();
         previews[(size_t) o]->repaint();
     }
 }
 
 void PlutoEditor::timerCallback()
 {
+    updateMuted();
     const int uc = proc.userTablesChanged.load();
     if (uc != lastUserCounter) { lastUserCounter = uc; updateTableTooltips(); }
     for (int l = 0; l < (int) lfoDisplays.size(); ++l)

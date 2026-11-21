@@ -86,6 +86,87 @@ private:
     }
 };
 
+// ---------------- Vertikaler Schieberegler (relativ, glatt, Shift = fein) ----------------
+class DragSlider : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    DragSlider (juce::AudioProcessorValueTreeState& s, const juce::String& id, bool showValue)
+        : valueBox (showValue)
+    {
+        link.attach (s, id, [this] { repaint(); updateTip(); });
+        setRepaintsOnMouseActivity (true);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        using namespace juce;
+        auto r = getLocalBounds();
+        Rectangle<int> box;
+        if (valueBox) { box = r.removeFromBottom (12); r.removeFromBottom (2); }
+        const auto tr = trackArea (r);
+        g.setColour (col::border);
+        g.fillRoundedRectangle ((float) tr.getCentreX() - 2.0f, (float) tr.getY(), 4.0f, (float) tr.getHeight(), 2.0f);
+        const float y = (float) tr.getBottom() - link.norm() * (float) tr.getHeight();
+        auto t = Rectangle<float> (0, 0, (float) jmin (16, r.getWidth()), 10.0f).withCentre ({ (float) tr.getCentreX(), y });
+        g.setColour (dragging ? Colour (0xff8a8a8a) : Colour (0xff6e6e6e).withMultipliedBrightness (isMouseOver() ? 1.15f : 1.0f));
+        g.fillRoundedRectangle (t, 2.0f);
+        g.setColour (col::cyan);
+        g.fillRect (t.reduced (2.0f, 3.5f));
+        g.setColour (col::border);
+        g.drawRoundedRectangle (t, 2.0f, 1.0f);
+        if (valueBox)
+        {
+            g.setColour (col::valueBox);
+            g.fillRect (box);
+            g.setColour (col::border);
+            g.drawRect (box);
+            g.setColour (col::textDark);
+            g.setFont (PlutoLook::font (10.0f));
+            g.drawText (link.param->getCurrentValueAsText(), box, Justification::centred);
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        dragging = true;
+        lastY = e.position.y;
+        current = link.norm();
+        link.begin();
+        repaint();
+    }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        const float dy = lastY - e.position.y;
+        lastY = e.position.y;
+        const float pixelsForFullRange = e.mods.isShiftDown() ? 1500.0f : 300.0f;
+        current = juce::jlimit (0.0f, 1.0f, current + dy / pixelsForFullRange);
+        link.setPart (link.param->convertFrom0to1 (current));
+    }
+    void mouseUp (const juce::MouseEvent&) override { dragging = false; link.end(); repaint(); }
+    void mouseDoubleClick (const juce::MouseEvent&) override
+    {
+        link.setOnce (link.param->convertFrom0to1 (link.param->getDefaultValue()));
+    }
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+    {
+        const float step = (w.deltaY > 0 ? 1.0f : -1.0f) * (e.mods.isShiftDown() ? 0.002f : 0.01f);
+        link.setOnce (link.param->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, link.norm() + step)));
+    }
+
+private:
+    ParamLink link;
+    bool valueBox, dragging = false;
+    float lastY = 0, current = 0;
+
+    static juce::Rectangle<int> trackArea (juce::Rectangle<int> r) { return r.reduced (0, 6); }
+    void updateTip()
+    {
+        if (link.param != nullptr)
+            setTooltip (link.param->getName (64) + ": " + link.param->getCurrentValueAsText()
+                        + "  (ziehen, Shift = fein, Doppelklick = Standard)");
+    }
+};
+
 // ---------------- Huellkurven-Feld (ADSR mit Griffen) ----------------
 class EnvDisplay : public juce::Component, public juce::SettableTooltipClient
 {
