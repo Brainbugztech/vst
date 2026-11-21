@@ -198,9 +198,9 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         addI (oid (o, "semi"), n + "Semi", -12, 12, 0);
         addF (oid (o, "cent"), n + "Cent", { -100.0f, 100.0f, 0.1f }, 0.0f, 4);
         addF (oid (o, "pwm"), n + "PWM", { 0.0f, 1.0f }, 0.0f);
-        addF (oid (o, "wtpos"), n + "WT Position", { 0.0f, 1.0f }, 0.0f);
+        addF (oid (o, "wtpos"), n + "WT Position", { 0.0f, 1.0f }, 0.5f);
         addC (oid (o, "pdmode"), n + "PD Mode", pdModeNames(), 0);
-        addF (oid (o, "pdamt"), n + "PD Amount", { 0.0f, 1.0f }, 0.0f);
+        addF (oid (o, "pdamt"), n + "PD Amount", { 0.0f, 1.0f }, 0.5f);
         addF (oid (o, "fine"), n + "Fine (Cent)", { -100.0f, 100.0f, 0.01f }, 0.0f, 4);
         addF (oid (o, "coarse"), n + "Coarse (stufenlos)", { -48.0f, 48.0f, 0.0f }, 0.0f, 4);
         addF (oid (o, "a"), n + "Attack", msRange (10000.0f), 2.0f, 1);

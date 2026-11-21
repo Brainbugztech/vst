@@ -170,6 +170,32 @@ bool PlutoProcessor::loadUserWavetable (int osc, const juce::File& file, juce::S
     return true;
 }
 
+juce::PropertiesFile& PlutoProcessor::getSettings()
+{
+    if (settings == nullptr)
+    {
+        juce::PropertiesFile::Options o;
+        o.applicationName = "Plutonium239";
+        o.folderName = "Brain Bugz";
+        o.filenameSuffix = ".settings";
+        o.osxLibrarySubFolder = "Application Support";
+        settings = std::make_unique<juce::PropertiesFile> (o);
+    }
+    return *settings;
+}
+
+juce::File PlutoProcessor::getWavetableFolder()
+{
+    const auto path = getSettings().getValue ("wtFolder");
+    return path.isNotEmpty() ? juce::File (path) : juce::File();
+}
+
+void PlutoProcessor::setWavetableFolder (const juce::File& dir)
+{
+    getSettings().setValue ("wtFolder", dir.getFullPathName());
+    getSettings().saveIfNeeded();
+}
+
 void PlutoProcessor::setUserTable (int osc, std::unique_ptr<WtTable> table, const juce::String& name)
 {
     if (! juce::isPositiveAndBelow (osc, numOsc)) return;

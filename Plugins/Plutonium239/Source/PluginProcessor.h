@@ -46,11 +46,17 @@ public:
     const pluto::WtTable* getUserTable (int osc) const { return engine.userTables[osc].load(); }
     std::atomic<int> userTablesChanged { 0 };
 
+    // verknuepfter Wavetable-Ordner (gilt fuer alle Instanzen, gespeichert in den Einstellungen)
+    juce::File getWavetableFolder();
+    void setWavetableFolder (const juce::File& dir);
+
 private:
     int currentPreset = 0;
     std::unique_ptr<pluto::WtTable> userOwned[pluto::numOsc];
     std::vector<std::unique_ptr<pluto::WtTable>> retiredTables; // bleiben am Leben, falls Audio-Thread noch liest
     juce::String userNames[pluto::numOsc];
+    std::unique_ptr<juce::PropertiesFile> settings;
+    juce::PropertiesFile& getSettings();
 
     struct OscPtrs { std::atomic<float> *wave, *wt, *oct, *semi, *cent, *pwm, *wtpos, *pdmode, *pdamt, *fine, *coarse, *a, *d, *s, *r, *lvl, *key, *sync,
                                         *dest = nullptr, *fmtype = nullptr, *fmamt = nullptr, *fmfine = nullptr, *fb = nullptr, *fdest = nullptr; };
