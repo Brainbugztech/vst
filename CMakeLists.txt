@@ -36,5 +36,6 @@ if(BB_BUILD_TTS)
     add_subdirectory(Plugins/TTS)
 endif()
 add_subdirectory(Plugins/GainLock)
+add_subdirectory(Plugins/TouchMe)
 add_subdirectory(Plugins/Plutonium239)
 # Plugins/Phazer: Engine in Arbeit, wird noch nicht gebaut

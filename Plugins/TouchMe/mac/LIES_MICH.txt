@@ -1,0 +1,10 @@
+BrainBugz Touch Me! fuer macOS (Apple Silicon + Intel, VST3 + AU)
+
+1. Rechtsklick auf "Installieren.command" -> Oeffnen -> Oeffnen bestaetigen.
+   (Beim ersten Mal blockt macOS das Skript, weil es aus dem Internet kommt.)
+2. Das Skript kopiert VST3 und AU in deinen Plug-Ins-Ordner und entfernt die Download-Sperre.
+3. Ableton neu starten / Plugins neu scannen.
+
+Manuell: "BrainBugz Touch Me!.vst3" nach ~/Library/Audio/Plug-Ins/VST3
+         "BrainBugz Touch Me!.component" nach ~/Library/Audio/Plug-Ins/Components
+und im Terminal: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins

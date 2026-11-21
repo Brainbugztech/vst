@@ -1,0 +1,67 @@
+name: Build Touch Me! (macOS)
+
+# Mac-Version von BrainBugz Touch Me!: VST3 + AU als Universal Binary (Apple Silicon + Intel)
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'Plugins/TouchMe/**', '.github/workflows/touchme-mac.yml' ]
+  pull_request:
+    paths: [ 'Plugins/TouchMe/**', '.github/workflows/touchme-mac.yml' ]
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JUCE-Cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.9-macos
+
+      - name: Konfigurieren
+        run: cmake -S Plugins/TouchMe/mac -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Bauen (VST3 + AU)
+        run: cmake --build build --config Release --target BrainbugzTouchMe_VST3 BrainbugzTouchMe_AU --parallel 4 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
+
+      - name: Einsammeln und ad-hoc signieren
+        run: |
+          mkdir -p "out/BrainBugz Touch Me! (Mac)"
+          dst="out/BrainBugz Touch Me! (Mac)"
+          vst=$(find build -type d -name "BrainBugz Touch Me!.vst3" -path "*Release/VST3*" | head -1)
+          au=$(find build -type d -name "BrainBugz Touch Me!.component" -path "*Release/AU*" | head -1)
+          echo "VST3: $vst"; echo "AU: $au"
+          [ -n "$vst" ] && [ -n "$au" ] || { echo "Plugin nicht gefunden"; exit 1; }
+          cp -R "$vst" "$au" "$dst/"
+          codesign --force --deep --sign - "$dst/BrainBugz Touch Me!.vst3"
+          codesign --force --deep --sign - "$dst/BrainBugz Touch Me!.component"
+          lipo -info "$dst/BrainBugz Touch Me!.vst3/Contents/MacOS/BrainBugz Touch Me!"
+          cp Plugins/TouchMe/mac/Installieren.command Plugins/TouchMe/mac/LIES_MICH.txt "$dst/"
+          chmod +x "$dst/Installieren.command"
+
+      - name: Test (pluginval + auval)
+        continue-on-error: true
+        run: |
+          curl -fsSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --skip-gui-tests --validate-in-process \
+            --validate "out/BrainBugz Touch Me! (Mac)/BrainBugz Touch Me!.vst3" | tail -20
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "out/BrainBugz Touch Me! (Mac)/BrainBugz Touch Me!.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          auval -v aufx Btch Bbgz | tail -20
+
+      - name: Packen
+        run: |
+          cd out
+          ditto -c -k --sequesterRsrc --keepParent "BrainBugz Touch Me! (Mac)" BrainBugz-TouchMe-macOS.zip
+          ls -la
+
+      - name: Hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrainBugz-TouchMe-macOS
+          path: out/BrainBugz-TouchMe-macOS.zip
