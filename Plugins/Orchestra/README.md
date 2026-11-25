@@ -1,21 +1,23 @@
-# Brainbugz Orchestra
+# Brainbugz Orchestra v2
 
-VST3-Instrument mit vier Engines (eine pro Instanz):
+VST3-Instrument mit vier Engines (eine pro Instanz), Samples: VSCO 2 CE (CC0).
 
-- **Strings**: Violinen, Violas, Celli als Ensemble (Split: Celli < C3 < Violas < G3 < Violinen, Überlappung C3-G4 geschichtet)
-- **Cellos**: Cello Section
-- **Atmos Pads**: geloopte Streicher-Layer + Air-Synth (Saws + Rauschen), Shimmer (Oktave drüber), Motion (Filter/Chorus-Bewegung)
-- **Drums**: 28 Orchester-Percussions auf C1 bis D#3 (Bass Drum, Taikos, Timpani, Snare, Becken, Gong, ...), Pads in der GUI anklickbar
-
-Artikulationen (Strings/Cellos): Sustain, Spiccato, Pizzicato, Tremolo.
-Mod Wheel (CC1) und CC11 = Dynamik, Sustain-Pedal (CC64), Pitchbend ±2.
+- **Strings**: Violinen, Violas, Celli (Split Celli < C3 < Violas < G3 < Violinen), optional Kontrabass eine Oktave tiefer
+- **Cellos**: Cello Section + Kontrabass-Layer
+- Artikulationen: Sustain, Marcato, Spiccato, Pizzicato, Tremolo, Swell (Keyswitches C0 - F0)
+- Legato mit Glide, Ensemble, Humanize
+- **Rhythm Engine** (tempo-synchron): GATE (Lautstaerke-Gate) oder STRIKE (schlaegt gehaltene Noten im Pattern neu an),
+  12 Patterns, 5 Raten, Swing, Depth
+- **Atmos Pads**: 10 Quellen (Strings, Cellos, Horns, Low Brass, Trumpets, Flutes, Reeds, Organ, Deep Bass, Pure Synth),
+  Quelle A/B mit Morph und Evolve, Air, Shimmer, Motion
+- **Drums**: 5 Kits - Epic (36), Percussion (36), Metal & FX (36), Timpani chromatisch (Hits C1-B2, Rolls C3-B4),
+  Trailer (24 Hybrid-Hits mit Sub, Riser, Whoosh, Reverse) + Sub, Stack, Punch, Decay
+- FX: Drive, FDN-Hall (Reverb/Space), Width, Tone; 40 Werkspresets + eigene Presets (SAVE)
 
 ## Samples
-VSCO 2 Community Edition (CC0, https://github.com/sgossner/VSCO-2-CE).
-`prep_samples.py` trimmt die WAVs, gleicht Pegel pro Grundton an, backt Crossfade-Loops in die Sustains
-und schreibt OGG-Dateien nach `Samples/` sowie `Source/SampleManifest.h`:
+`prep_samples.py` trimmt die WAVs, gleicht Pegel pro Grundton an, backt Crossfade-Loops in Sustains
+und schreibt `Samples/*.ogg` und `Source/SampleManifest.h`:
 
-    python3 prep_samples.py <VSCO-2-CE-Ordner> Samples Source/SampleManifest.h
+    python3 prep_samples.py <VSCO-2-CE-Ordner> <VSCO-2-CE-SFZ-Branch> Samples Source/SampleManifest.h
 
-Die OGGs werden als BinaryData ins Plugin eingebaut (ca. 23 MB) und pro Engine erst bei Bedarf
-im Hintergrund dekodiert (geteilt zwischen allen Instanzen).
+Samples werden pro Engine im Hintergrund geladen und zwischen Instanzen geteilt.

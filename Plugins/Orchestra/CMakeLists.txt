@@ -38,6 +38,7 @@ target_link_libraries(BrainbugzOrchestra
         OrchestraSamples
         juce::juce_audio_processors
         juce::juce_audio_formats
+        juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
