@@ -37,4 +37,5 @@ if(BB_BUILD_TTS)
 endif()
 add_subdirectory(Plugins/GainLock)
 add_subdirectory(Plugins/Plutonium239)
+add_subdirectory(Plugins/Orchestra)
 # Plugins/Phazer: Engine in Arbeit, wird noch nicht gebaut
