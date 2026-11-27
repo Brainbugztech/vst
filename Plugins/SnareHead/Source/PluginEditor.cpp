@@ -137,12 +137,6 @@ void sh::LookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, 
     const auto& img = big ? knobLarge : knobSmall;
     const auto r = juce::Rectangle<int> (x, y, w, h).toFloat();
 
-    if (s.isMouseOverOrDragging())
-    {
-        g.setColour (col::magenta.withAlpha (s.isMouseButtonDown() ? 0.22f : 0.12f));
-        g.fillEllipse (r.reduced (r.getWidth() * 0.04f));
-    }
-
     if (img.isValid())
     {
         const int fw = img.getWidth();
@@ -150,6 +144,17 @@ void sh::LookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, 
         const int frame = juce::jlimit (0, frames - 1, juce::roundToInt (pos * (float) (frames - 1)));
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
         g.drawImage (img, x, y, w, h, 0, frame * fw, fw, fw);
+
+        // Hover/Ziehen: nur ein feiner Neonring aussen, keine Flaeche
+        if (s.isMouseOverOrDragging())
+        {
+            const auto ring = r.reduced (r.getWidth() * 0.035f);
+            const float a = s.isMouseButtonDown() ? 1.0f : 0.6f;
+            g.setColour (col::magenta.withAlpha (0.18f * a));
+            g.drawEllipse (ring, r.getWidth() * 0.035f);
+            g.setColour (col::magenta.withAlpha (0.55f * a));
+            g.drawEllipse (ring, 1.2f);
+        }
         return;
     }
 
