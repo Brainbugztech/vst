@@ -158,6 +158,9 @@ void SnareHeadProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     engine.setParams (readParams(), true);
     scratch.setSize (1, std::max (samplesPerBlock, 512), false, true, false);
     levelEnv = 0.0f;
+   #if BUGZ_LICENSE
+    bb.prepare (sampleRate);
+   #endif
 }
 
 bool SnareHeadProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -222,6 +225,9 @@ void SnareHeadProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     for (int c = 0; c < numOut; ++c) peak = std::max (peak, buffer.getMagnitude (c, 0, n));
     levelEnv = std::max (peak, levelEnv * std::pow (0.5f, (float) n / (0.08f * (float) getSampleRate())));
     vizLevel.store (levelEnv);
+   #if BUGZ_LICENSE
+    bb.process (buffer);   // ohne Lizenz: alle 60 s kurz stumm
+   #endif
     midi.clear();
 }
 

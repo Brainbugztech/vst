@@ -5,7 +5,7 @@ juce_add_plugin(BrainbugzSnareHead
     PLUGIN_CODE Bsnh
     FORMATS VST3
     PRODUCT_NAME "Brainbugz Snarehead"
-    VERSION 1.0.0
+    VERSION 1.0.1
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
@@ -42,3 +42,11 @@ target_link_libraries(BrainbugzSnareHead
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Lizenz + Auto-Update ueber das Brain Bugz Center (ID "snarehead")
+if(BB_CENTER_ENABLED)
+    target_link_libraries(BrainbugzSnareHead PRIVATE bb_center juce::juce_cryptography)
+    target_compile_definitions(BrainbugzSnareHead PRIVATE BUGZ_LICENSE=1)
+else()
+    target_compile_definitions(BrainbugzSnareHead PRIVATE BUGZ_LICENSE=0)
+endif()

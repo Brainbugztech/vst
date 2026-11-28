@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2 # bei Pull Requests: Vergleich mit main, welche Plugins geändert sind
+          fetch-depth: 0 # Vergleich mit main, welche Plugins geändert sind
 
       - name: Schriften holen (Chakra Petch, Share Tech Mono, Sedgwick Ave Display, Audiowide, OFL)
         shell: bash
@@ -36,6 +36,18 @@ jobs:
         with:
           path: build/_deps
           key: juce-8.0.9-${{ runner.os }}
+
+      - name: Center-Schluessel (optional, aus Secret BB_CENTER_KEYS)
+        shell: bash
+        env:
+          BB_CENTER_KEYS: ${{ secrets.BB_CENTER_KEYS }}
+        run: |
+          if [ -n "$BB_CENTER_KEYS" ]; then
+            printf '%s\n' "$BB_CENTER_KEYS" > Shared/bb_center/bb_center_keys.h
+            echo "Lizenzsystem: an"
+          else
+            echo "::notice::Secret BB_CENTER_KEYS fehlt - Plugins werden ohne Lizenzsystem gebaut"
+          fi
 
       - name: Konfigurieren
         shell: bash
@@ -89,12 +101,13 @@ jobs:
       # Bei Pull Requests zusätzlich ein Download nur mit den Plugins, die der PR ändert
       - name: Im PR geänderte Plugins einsammeln
         id: changed
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push'
         shell: bash
         run: |
           mkdir -p out-pr
           # '|| true': PRs ohne Plugin-Änderung (z. B. nur HQ-App) sollen nicht abbrechen
-          changed=$( (git diff --name-only HEAD^1 HEAD | grep '^Plugins/' || true) | cut -d/ -f2 | sort -u)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then range="HEAD^1 HEAD"; else range="origin/main...HEAD"; fi
+          changed=$( (git diff --name-only $range | grep '^Plugins/' || true) | cut -d/ -f2 | sort -u)
           echo "Geändert: $changed"
           for p in $changed; do
             [ -d "build/Plugins/$p" ] || continue
@@ -102,10 +115,11 @@ jobs:
           done
           ls -la out-pr
           names=$(echo $changed | tr ' ' '-')
-          echo "name=PR-${{ github.event.pull_request.number }}-${names:-keine}-VST3" >> "$GITHUB_OUTPUT"
+          prefix="PR-${{ github.event.pull_request.number }}"; [ "${{ github.event_name }}" = "pull_request" ] || prefix="Einzeln"
+          echo "name=${prefix}-${names:-keine}-VST3" >> "$GITHUB_OUTPUT"
 
       - name: Geänderte Plugins hochladen
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.changed.outputs.name }}
@@ -164,3 +178,97 @@ jobs:
       - name: Pluginval-Ergebnis pruefen
         if: steps.pv.outcome != 'success'
         run: exit 1
+
+  # Mac-Build (universal: Apple Silicon + Intel). Laeuft bei manuellem Start und auf main.
+  macos:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-15, macos-15-intel ]   # zwei Typen, falls einer gerade ausgelastet ist
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Schriften holen (OFL)
+        shell: bash
+        run: |
+          base=https://github.com/google/fonts/raw/main/ofl
+          curl -fsSL -o Assets/ChakraPetch-SemiBold.ttf $base/chakrapetch/ChakraPetch-SemiBold.ttf || echo "Font fehlt"
+          curl -fsSL -o Assets/ChakraPetch-Bold.ttf $base/chakrapetch/ChakraPetch-Bold.ttf || echo "Font fehlt"
+          curl -fsSL -o Assets/ShareTechMono-Regular.ttf $base/sharetechmono/ShareTechMono-Regular.ttf || echo "Font fehlt"
+
+      - name: Center-Schluessel (optional, aus Secret BB_CENTER_KEYS)
+        shell: bash
+        env:
+          BB_CENTER_KEYS: ${{ secrets.BB_CENTER_KEYS }}
+        run: |
+          if [ -n "$BB_CENTER_KEYS" ]; then
+            printf '%s\n' "$BB_CENTER_KEYS" > Shared/bb_center/bb_center_keys.h
+            echo "Lizenzsystem: an"
+          else
+            echo "::notice::Secret BB_CENTER_KEYS fehlt - Plugins werden ohne Lizenzsystem gebaut"
+          fi
+
+      - name: "Konfigurieren (universal, ohne TTS)"
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBB_BUILD_TTS=OFF
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15
+
+      - name: Snarehead bauen
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build --config Release --target BrainbugzSnareHead_VST3 --parallel 2>&1 | tee build.log
+
+      - name: VST3 einsammeln und signieren
+        shell: bash
+        run: |
+          mkdir -p out
+          found=0
+          while IFS= read -r -d '' vst; do
+            found=1
+            echo "Gefunden: $vst"
+            codesign --force --deep -s - "$vst"   # ad-hoc (ohne Apple-Entwicklerkonto)
+            lipo -info "$vst/Contents/MacOS/"* || true
+            ditto "$vst" "out/$(basename "$vst")"
+          done < <(find build/Plugins/SnareHead -type d -name "*.vst3" -path "*Release/VST3/*" -prune -print0)
+          [ "$found" = 1 ] || { echo "Keine VST3 gefunden"; exit 1; }
+          cat > out/LIES-MICH-Mac.txt <<'TXT'
+          BrainBugz Snarehead fuer Mac (Apple Silicon + Intel)
+
+          1. Den Ordner "Brainbugz Snarehead.vst3" nach  /Library/Audio/Plug-Ins/VST3  kopieren
+             (oder nur fuer dich:  ~/Library/Audio/Plug-Ins/VST3).
+          2. Das Plugin ist nicht von Apple beglaubigt. Einmal im Terminal ausfuehren:
+             xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/Brainbugz Snarehead.vst3"
+          3. In Ableton: Einstellungen > Plug-ins > VST3 aktivieren und neu scannen.
+          TXT
+          ls -la out
+
+      - name: Pluginval-Test (macOS)
+        continue-on-error: true
+        shell: bash
+        run: |
+          curl -fsSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip -d pluginval
+          set +e
+          for v in out/*.vst3; do
+            ./pluginval/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --skip-gui-tests --validate-in-process --validate "$v" > "out/pluginval-mac.txt" 2>&1; echo "Exit $?"
+            tail -5 out/pluginval-mac.txt
+          done
+
+      - name: Zippen (Mac-Bundle bleibt intakt)
+        shell: bash
+        run: |
+          mkdir -p dist
+          for v in out/*.vst3; do ditto -c -k --keepParent "$v" "dist/$(basename "$v" .vst3 | tr ' ' '-')-Mac-VST3.zip"; done
+          cp out/LIES-MICH-Mac.txt out/pluginval-mac.txt dist/ 2>/dev/null || true
+          ls -la dist
+
+      - name: Hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Snarehead-Mac-VST3-${{ matrix.os }}
+          path: dist/

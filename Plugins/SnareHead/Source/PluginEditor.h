@@ -152,6 +152,24 @@ private:
     SnareHeadProcessor& proc;
 };
 
+// Kleine Anzeige unten links: Version + Lizenz-/Update-Status. Klick = Center-Menue.
+class CenterCorner : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    CenterCorner();
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override { if (onClick) onClick(); }
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+    void setState (const juce::String& info, juce::Colour dot, bool highlight);
+    std::function<void()> onClick;
+    float pulse = 0.0f;
+private:
+    juce::String version, info;
+    juce::Colour dotColour;
+    bool hot = false;
+};
+
 } // namespace sh
 
 class SnareHeadEditor : public juce::AudioProcessorEditor, private juce::Timer
@@ -190,6 +208,16 @@ private:
     sh::EqView eqView;
     sh::GateView envView, gateView;
     sh::AuditionStrip audition;
+
+    // Lizenz + Updates + VST-Ordner (Brain Bugz Center)
+    sh::CenterCorner corner;
+    juce::TextButton licBtn { "LIZENZ" };
+   #if BUGZ_LICENSE
+    std::unique_ptr<bbcenter::CenterBar> centerBar;   // unsichtbar: liefert Dialoge + Updater-Logik
+   #endif
+    void refreshCorner();
+    void showCenterMenu();
+    void showLicense();
 
     sh::Knob tune, spread, metal, punch, ring;
     sh::Knob noise, noiseTone;
