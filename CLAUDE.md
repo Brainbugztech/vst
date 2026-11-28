@@ -20,3 +20,16 @@ und die Windows-App `hq-app/` (Projektboard, Cloud-Ordner „Brain Bugz Cloud“
 - Prüfen kannst du Plugins nicht lokal bauen: der Build läuft in GitHub Actions (`.github/workflows/build.yml`).
   Schau nach dem Push, ob der Lauf grün ist, bevor du den Pull Request als fertig meldest.
 - Keine Tokens, Passwörter oder Schlüssel ins Repo. Der Discord-Bot-Token bleibt lokal auf dem PC.
+
+## Lizenz + Updates in jedem Plugin (Pflicht für neue Plugins)
+Jedes neue Plugin bekommt das Brain Bugz Center (`Shared/bb_center`, Plugin-ID kleingeschrieben, z. B. `snarehead`):
+- **CMake:** `if(BB_CENTER_ENABLED)` → `target_link_libraries(<Ziel> PRIVATE bb_center juce::juce_cryptography)` und
+  `BUGZ_LICENSE=1`, sonst `BUGZ_LICENSE=0` (Vorlage: `Plugins/SnareHead/CMakeLists.txt`).
+- **Processor:** `bbcenter::Kit bb { "<id>" };` · `bb.prepare (sampleRate);` in prepareToPlay ·
+  `bb.process (buffer);` ganz am Ende von processBlock (alles in `#if BUGZ_LICENSE`).
+- **Editor:** unsichtbare `bbcenter::CenterBar` als Logik + eigene Anzeige im Plugin-Look:
+  Versions-Pille mit Status unten links (Klick = Menü: Update, Nach Updates suchen, Lizenz, VST-Ordner) und ein LIZENZ-Button.
+  Vorlage: `CenterCorner` und `showCenterMenu()` in `Plugins/SnareHead/Source/PluginEditor.cpp`.
+- **Version** in `juce_add_plugin(... VERSION x.y.z)` pflegen, das Modul liest sie automatisch.
+- Das Plugin im Center (oder in Supabase-Tabelle `bb_plugins`) mit derselben ID anlegen.
+- `bb_center_keys.h` nie committen: lokal liegt sie in `G:\Claude Ordner\shared\bb_center`, auf GitHub kommt sie aus dem Secret `BB_CENTER_KEYS`.
