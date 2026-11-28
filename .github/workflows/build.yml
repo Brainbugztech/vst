@@ -8,6 +8,11 @@ on:
   pull_request:
     paths-ignore: [ 'website/**', '.github/workflows/website-*.yml' ]
   workflow_dispatch:
+    inputs:
+      einzeln:
+        description: 'Plugin(s) fuer den Einzel-Download, z. B. SnareHead (leer = geaenderte Plugins)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -108,6 +113,8 @@ jobs:
           # '|| true': PRs ohne Plugin-Änderung (z. B. nur HQ-App) sollen nicht abbrechen
           if [ "${{ github.event_name }}" = "pull_request" ]; then range="HEAD^1 HEAD"; else range="origin/main...HEAD"; fi
           changed=$( (git diff --name-only $range | grep '^Plugins/' || true) | cut -d/ -f2 | sort -u)
+          # Bei manuellem Start: angegebene Plugins nehmen
+          [ -n "${{ github.event.inputs.einzeln }}" ] && changed=$(echo "${{ github.event.inputs.einzeln }}" | tr ',' ' ')
           echo "Geändert: $changed"
           for p in $changed; do
             [ -d "build/Plugins/$p" ] || continue
