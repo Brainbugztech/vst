@@ -3,3 +3,5 @@ out/
 *.user
 .vs/
 Plugins/Prizm/renders/
+# Schluessel fuers Lizenz-/Update-Center nie ins Repo
+Shared/bb_center/bb_center_keys.h

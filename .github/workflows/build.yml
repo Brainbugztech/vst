@@ -37,6 +37,18 @@ jobs:
           path: build/_deps
           key: juce-8.0.9-${{ runner.os }}
 
+      - name: Center-Schluessel (optional, aus Secret BB_CENTER_KEYS)
+        shell: bash
+        env:
+          BB_CENTER_KEYS: ${{ secrets.BB_CENTER_KEYS }}
+        run: |
+          if [ -n "$BB_CENTER_KEYS" ]; then
+            printf '%s\n' "$BB_CENTER_KEYS" > Shared/bb_center/bb_center_keys.h
+            echo "Lizenzsystem: an"
+          else
+            echo "::notice::Secret BB_CENTER_KEYS fehlt - Plugins werden ohne Lizenzsystem gebaut"
+          fi
+
       - name: Konfigurieren
         shell: bash
         run: |
@@ -186,6 +198,18 @@ jobs:
           curl -fsSL -o Assets/ChakraPetch-SemiBold.ttf $base/chakrapetch/ChakraPetch-SemiBold.ttf || echo "Font fehlt"
           curl -fsSL -o Assets/ChakraPetch-Bold.ttf $base/chakrapetch/ChakraPetch-Bold.ttf || echo "Font fehlt"
           curl -fsSL -o Assets/ShareTechMono-Regular.ttf $base/sharetechmono/ShareTechMono-Regular.ttf || echo "Font fehlt"
+
+      - name: Center-Schluessel (optional, aus Secret BB_CENTER_KEYS)
+        shell: bash
+        env:
+          BB_CENTER_KEYS: ${{ secrets.BB_CENTER_KEYS }}
+        run: |
+          if [ -n "$BB_CENTER_KEYS" ]; then
+            printf '%s\n' "$BB_CENTER_KEYS" > Shared/bb_center/bb_center_keys.h
+            echo "Lizenzsystem: an"
+          else
+            echo "::notice::Secret BB_CENTER_KEYS fehlt - Plugins werden ohne Lizenzsystem gebaut"
+          fi
 
       - name: "Konfigurieren (universal, ohne TTS)"
         run: >

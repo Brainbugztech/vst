@@ -4,6 +4,13 @@
 #include "SnareEngine.h"
 #include "Presets.h"
 
+#ifndef BUGZ_LICENSE
+ #define BUGZ_LICENSE 0
+#endif
+#if BUGZ_LICENSE
+ #include <bb_center/bb_center.h>
+#endif
+
 // Snare-Synth: Ring (Resonator-Cluster) + Noise -> Res-EQ -> XTREME NOISY -> Reverb mit Gate -> Width/Out
 
 namespace ParamIDs
@@ -88,6 +95,11 @@ public:
     // Hz/Note-Anzeige (wird im Projekt gespeichert)
     bool getNoteMode (const juce::String& key) const { return (bool) apvts.state.getProperty (key, false); }
     void setNoteMode (const juce::String& key, bool on) { apvts.state.setProperty (key, on, nullptr); }
+
+   #if BUGZ_LICENSE
+    // Lizenz + Auto-Update (ID wie im Brain Bugz Center). Ohne Lizenz: alle 60 s kurz stumm.
+    bbcenter::Kit bb { "snarehead" };
+   #endif
 
     // --- UI ---
     void audition (float velocity = 0.9f) { pendingAudition.store (velocity); }

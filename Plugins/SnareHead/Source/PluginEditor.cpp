@@ -715,6 +715,65 @@ void AuditionStrip::paint (juce::Graphics& g)
     g.drawText ("Logo = Anspielen", 0, 24, getWidth(), 24, juce::Justification::centred);
 }
 
+// ================================================================ CenterCorner
+
+CenterCorner::CenterCorner()
+{
+   #ifdef JucePlugin_VersionString
+    version = "v" + juce::String (JucePlugin_VersionString);
+   #else
+    version = "v1.0";
+   #endif
+    dotColour = col::inkMuted;
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
+}
+
+void CenterCorner::setState (const juce::String& newInfo, juce::Colour dot, bool highlight)
+{
+    if (newInfo == info && dot == dotColour && highlight == hot) return;
+    info = newInfo; dotColour = dot; hot = highlight;
+    // Breite passt sich dem Text an, damit die Pille die Fussleiste nicht unnoetig verdeckt
+    const float h = (float) getHeight();
+    float w = h + 4.0f + juce::GlyphArrangement::getStringWidth (fonts::valueBold (19.0f), version) + 16.0f;
+    if (info.isNotEmpty()) w += 10.0f + juce::GlyphArrangement::getStringWidth (fonts::label (19.0f), info);
+    if (h > 0.0f) setSize (juce::roundToInt (w), getHeight());
+    repaint();
+}
+
+void CenterCorner::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat().reduced (1.0f);
+    const bool over = isMouseOver();
+
+    // dunkle Glas-Pille, damit der Text auf der Metallschiene lesbar ist
+    g.setColour (col::panelDeep.withAlpha (0.82f));
+    g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
+    const auto edge = hot ? col::cyan : col::border;
+    g.setColour (edge.withAlpha (over ? 0.95f : (hot ? 0.55f + 0.4f * pulse : 0.6f)));
+    g.drawRoundedRectangle (r, r.getHeight() * 0.5f, 1.3f);
+
+    // Status-Punkt
+    const float d = r.getHeight() * 0.34f;
+    const juce::Point<float> c (r.getX() + r.getHeight() * 0.5f + 2.0f, r.getCentreY());
+    g.setColour (dotColour.withAlpha (0.3f + (hot ? 0.3f * pulse : 0.0f)));
+    g.fillEllipse (c.x - d, c.y - d, d * 2.0f, d * 2.0f);
+    g.setColour (dotColour);
+    g.fillEllipse (c.x - d * 0.5f, c.y - d * 0.5f, d, d);
+
+    auto tr = r.withTrimmedLeft (r.getHeight() + 4.0f).withTrimmedRight (12.0f);
+    g.setFont (fonts::valueBold (19.0f));
+    g.setColour (col::ink);
+    const float vw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), version);
+    g.drawText (version, tr.removeFromLeft (vw + 2.0f), juce::Justification::centredLeft);
+    if (info.isNotEmpty())
+    {
+        tr.removeFromLeft (10.0f);
+        g.setFont (fonts::label (19.0f));
+        g.setColour (hot ? col::cyan : col::inkDim);
+        g.drawText (info, tr, juce::Justification::centredLeft, true);
+    }
+}
+
 // ================================================================ Editor
 
 SnareHeadEditor::SnareHeadEditor (SnareHeadProcessor& p)
@@ -788,8 +847,22 @@ SnareHeadEditor::SnareHeadEditor (SnareHeadProcessor& p)
     prevBtn.setTooltip ("Voriges Preset");
     nextBtn.setTooltip ("Naechstes Preset");
 
+    // Brain Bugz Center: Version unten links, LIZENZ unten rechts
+    canvas.addAndMakeVisible (corner);
+    canvas.addAndMakeVisible (licBtn);
+    licBtn.getProperties().set ("small", true);
+    licBtn.setTooltip ("Lizenz aktivieren / Infos / Rechner freigeben");
+    corner.onClick = [this] { showCenterMenu(); };
+    licBtn.onClick = [this] { showLicense(); };
+   #if BUGZ_LICENSE
+    centerBar = std::make_unique<bbcenter::CenterBar> (proc.bb);
+    canvas.addChildComponent (*centerBar);              // bleibt unsichtbar, Dialoge zentrieren sich aufs Plugin
+    centerBar->onChanged = [this] { refreshCorner(); };
+   #endif
+
     layout();
     buildStaticLayer();
+    refreshCorner();
 
     // stufenlos skalierbar, Seitenverhaeltnis fest; Start in mittlerer Groesse
     setResizable (true, true);
@@ -805,7 +878,80 @@ SnareHeadEditor::SnareHeadEditor (SnareHeadProcessor& p)
 SnareHeadEditor::~SnareHeadEditor()
 {
     stopTimer();
+   #if BUGZ_LICENSE
+    centerBar.reset();
+   #endif
     setLookAndFeel (nullptr);
+}
+
+void SnareHeadEditor::refreshCorner()
+{
+   #if BUGZ_LICENSE
+    const auto& c = *centerBar;
+    const auto upd = c.getUpdateText();
+    if (upd.isNotEmpty())
+        corner.setState (upd.toUpperCase(), sh::col::cyan, true);
+    else if (c.isLicensed())
+        corner.setState ("LIZENZIERT", juce::Colour (0xff39ff88), false);
+    else
+        corner.setState ("DEMO", juce::Colour (0xffffc93d), false);
+
+    juce::String tip;
+    tip << "BrainBugz Snarehead " << JucePlugin_VersionString << "\n"
+        << (c.isLicensed() ? "Lizenziert fuer: " + c.getLicensedTo() : juce::String ("Nicht aktiviert (Demo: alle 60 s kurz stumm)"))
+        << "\nKlick = Updates, Lizenz, VST-Ordner";
+    corner.setTooltip (tip);
+    licBtn.setToggleState (c.isLicensed(), juce::dontSendNotification);
+   #else
+    corner.setState ({}, sh::col::inkMuted, false);
+    corner.setTooltip ("BrainBugz Snarehead " JucePlugin_VersionString " (Build ohne Lizenzsystem)");
+   #endif
+}
+
+void SnareHeadEditor::showLicense()
+{
+   #if BUGZ_LICENSE
+    centerBar->showLicenseDialog();
+   #else
+    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Lizenzsystem",
+        "Diese Version wurde ohne Lizenzsystem gebaut und laeuft frei.\n\n"
+        "So kommt es rein:\n"
+        "1. Brain Bugz Center -> Plugins -> 'Schluessel-Datei fuers Modul' kopieren\n"
+        "2. In G:\\Claude Ordner\\shared\\bb_center\\bb_center_keys.h einfuegen\n"
+        "3. Im Center ein Plugin mit der ID 'snarehead' anlegen\n"
+        "4. Neu bauen", {}, this);
+   #endif
+}
+
+void SnareHeadEditor::showCenterMenu()
+{
+    juce::PopupMenu m;
+    m.setLookAndFeel (&lnf);
+    m.addSectionHeader (juce::String ("BrainBugz Snarehead v") + JucePlugin_VersionString);
+   #if BUGZ_LICENSE
+    const bool upd = centerBar->isUpdateAvailable();
+    if (upd) m.addItem (1, centerBar->getUpdateText().isNotEmpty() ? "Update installieren (" + centerBar->getUpdateText() + ")" : juce::String ("Update installieren"));
+    m.addItem (2, "Nach Updates suchen");
+    m.addSeparator();
+    m.addItem (3, centerBar->isLicensed() ? "Lizenz-Infos / Rechner freigeben ..." : "Lizenz aktivieren ...");
+    m.addItem (4, "VST-Ordner fuer Updates ...");
+   #else
+    m.addItem (3, "Lizenzsystem einrichten ...");
+   #endif
+    juce::Component::SafePointer<SnareHeadEditor> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&corner), [safe] (int r)
+    {
+        if (safe == nullptr || r == 0) return;
+       #if BUGZ_LICENSE
+        auto& cb = *safe->centerBar;
+        if (r == 1) cb.startUpdate();
+        else if (r == 2) { cb.checkNow(); safe->corner.setState ("SUCHE UPDATES ...", sh::col::inkDim, false); }
+        else if (r == 3) cb.showLicenseDialog();
+        else if (r == 4) cb.showVst3FolderDialog();
+       #else
+        if (r == 3) safe->showLicense();
+       #endif
+    });
 }
 
 void SnareHeadEditor::layout()
@@ -860,6 +1006,13 @@ void SnareHeadEditor::layout()
     verbGate.place (1355, 788, 96, 53, 62);
     verbCut.place (1475, 788, 96, 53, 62);
     syncBox.setBounds (1051, 866, 476, 44);
+
+    // Fussleiste: Version/Status links, LIZENZ rechts (auf den Metallplatten)
+    corner.setBounds (56, 945, 120, 32);
+    licBtn.setBounds (1428, 945, 92, 32);
+   #if BUGZ_LICENSE
+    centerBar->setBounds (0, 0, sh::kDesignW, sh::kDesignH);
+   #endif
 }
 
 void SnareHeadEditor::buildStaticLayer()
@@ -1058,6 +1211,10 @@ void SnareHeadEditor::timerCallback()
 
     const float level = proc.vizLevel.load();
     mascot.tick (hit, level);
+    {
+        const float pz = 0.5f + 0.5f * std::sin ((float) (now * 0.004));
+        if (std::abs (pz - corner.pulse) > 0.05f) { corner.pulse = pz; corner.repaint(); }
+    }
     const float m = std::max (level, audition.meter * 0.9f);
     if (std::abs (m - audition.meter) > 0.0005f) { audition.meter = m; audition.repaint(); }
 
